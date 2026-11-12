@@ -201,7 +201,8 @@ class Recorder
         if (proc != null) return null;
         string ffmpeg = FindFfmpeg();
         if (ffmpeg == null)
-            return "ffmpeg.exe was not found. Run build.cmd again, or put ffmpeg.exe next to DesktopRecorder.exe.";
+            return "ffmpeg.exe was not found. Run this in PowerShell: winget install -e --id Gyan.FFmpeg. " +
+                "Or put ffmpeg.exe next to DesktopRecorder.exe.";
         try { Directory.CreateDirectory(s.Folder); }
         catch (Exception e) { return "Cannot create the folder " + s.Folder + ": " + e.Message; }
 
