@@ -471,9 +471,17 @@ class TrayApp : ApplicationContext
             {
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 g.Clear(Color.Transparent);
-                using (Brush ring = new SolidBrush(Color.White)) g.FillEllipse(ring, 2, 2, 28, 28);
-                using (Brush dot = new SolidBrush(on ? Color.FromArgb(220, 30, 30) : Color.FromArgb(120, 120, 120)))
-                    g.FillEllipse(dot, 6, 6, 20, 20);
+                // A monitor: white frame and stand, red screen with a white dot while recording, grey when stopped.
+                using (Brush frame = new SolidBrush(Color.White))
+                {
+                    g.FillRectangle(frame, 1, 3, 30, 21);
+                    g.FillRectangle(frame, 13, 24, 6, 3);
+                    g.FillRectangle(frame, 8, 27, 16, 3);
+                }
+                using (Brush screen = new SolidBrush(on ? Color.FromArgb(220, 30, 30) : Color.FromArgb(110, 110, 110)))
+                    g.FillRectangle(screen, 4, 6, 24, 15);
+                if (on)
+                    using (Brush dot = new SolidBrush(Color.White)) g.FillEllipse(dot, 12, 9.5f, 8, 8);
             }
             IntPtr handle = bmp.GetHicon();
             Icon icon = Icon.FromHandle(handle);

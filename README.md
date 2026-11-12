@@ -13,7 +13,7 @@ It is made for recordings that an AI model can read: full screen resolution so t
    winget install -e --id Gyan.FFmpeg
    ```
 
-3. Start `DesktopRecorder.exe`. A round icon appears in the tray. Red means recording, grey means stopped.
+3. Start `DesktopRecorder.exe`. A monitor icon appears in the tray. A red screen means recording, a grey screen means stopped.
 
 Windows SmartScreen may warn you, because the program is not signed. Click **More info**, then **Run anyway**.
 
