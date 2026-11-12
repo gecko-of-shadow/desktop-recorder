@@ -41,6 +41,9 @@ class Settings
     public int SplitMinutes = 30;    // 0 = one file per recording
     public bool RecordOnLaunch = true;
     public bool CopyToClipboard = true;
+    public bool PlaySounds = true;
+    public int HotkeyModifiers = 4 | 8;   // 1 = Alt, 2 = Ctrl, 4 = Shift, 8 = Win
+    public Keys HotkeyKey = Keys.D;
 
     public static readonly int[] Crf = { 32, 27, 21 };
     public static readonly string[] QualityNames =
@@ -89,6 +92,8 @@ class Settings
                 else if (key == "split_minutes" && int.TryParse(val, out i)) s.SplitMinutes = i;
                 else if (key == "record_on_launch") s.RecordOnLaunch = val == "1";
                 else if (key == "copy_to_clipboard") s.CopyToClipboard = val == "1";
+                else if (key == "play_sounds") s.PlaySounds = val == "1";
+                else if (key == "hotkey") s.SetHotkey(val);
             }
         }
         catch (Exception) { }
@@ -108,8 +113,60 @@ class Settings
             "quality=" + Quality,
             "split_minutes=" + SplitMinutes,
             "record_on_launch=" + (RecordOnLaunch ? "1" : "0"),
-            "copy_to_clipboard=" + (CopyToClipboard ? "1" : "0")
+            "copy_to_clipboard=" + (CopyToClipboard ? "1" : "0"),
+            "play_sounds=" + (PlaySounds ? "1" : "0"),
+            "hotkey=" + HotkeyText
         });
+    }
+
+    // The hotkey as text, such as "Win+Shift+D".
+    public string HotkeyText
+    {
+        get
+        {
+            return ((HotkeyModifiers & 8) != 0 ? "Win+" : "") + ((HotkeyModifiers & 2) != 0 ? "Ctrl+" : "")
+                + ((HotkeyModifiers & 1) != 0 ? "Alt+" : "") + ((HotkeyModifiers & 4) != 0 ? "Shift+" : "")
+                + KeyName(HotkeyKey);
+        }
+    }
+
+    // Reads text such as "Win+Shift+D". Keeps the current hotkey if the text is not valid.
+    public void SetHotkey(string text)
+    {
+        int mods = 0;
+        Keys found = Keys.None;
+        foreach (string raw in text.Split('+'))
+        {
+            string part = raw.Trim();
+            if (part.Equals("Win", StringComparison.OrdinalIgnoreCase)) mods |= 8;
+            else if (part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)) mods |= 2;
+            else if (part.Equals("Alt", StringComparison.OrdinalIgnoreCase)) mods |= 1;
+            else if (part.Equals("Shift", StringComparison.OrdinalIgnoreCase)) mods |= 4;
+            else if (!TryParseKey(part, out found)) return;
+        }
+        if (!IsValidHotkey(mods, found)) return;
+        HotkeyModifiers = mods;
+        HotkeyKey = found;
+    }
+
+    // Shift alone is not enough for a letter or a digit: Shift+A must still type a capital A.
+    public static bool IsValidHotkey(int mods, Keys key)
+    {
+        if (mods == 0 || key == Keys.None) return false;
+        return (mods & (1 | 2 | 8)) != 0 || (key >= Keys.F1 && key <= Keys.F24);
+    }
+
+    public static bool TryParseKey(string name, out Keys key)
+    {
+        if (name.Length == 1 && char.IsDigit(name[0])) name = "D" + name;
+        return Enum.TryParse<Keys>(name, true, out key) && key != Keys.None;
+    }
+
+    // "D5" is the name of the 5 key. Show it as "5".
+    public static string KeyName(Keys key)
+    {
+        string name = key.ToString();
+        return name.Length == 2 && name[0] == 'D' && char.IsDigit(name[1]) ? name.Substring(1) : name;
     }
 
     public static bool StartsWithWindows
@@ -281,7 +338,54 @@ class Recorder
     }
 }
 
-// A hidden window that listens for the global hotkey Win+Shift+D.
+// Two short tones, made in memory. Start goes up, stop goes down. The recording has no audio, so they are not recorded.
+static class Sounds
+{
+    static readonly System.Media.SoundPlayer startSound = Make(660, 880);
+    static readonly System.Media.SoundPlayer stopSound = Make(880, 660);
+
+    public static void PlayStart() { Play(startSound); }
+    public static void PlayStop() { Play(stopSound); }
+
+    static void Play(System.Media.SoundPlayer player)
+    {
+        try { player.Play(); } catch (Exception) { }
+    }
+
+    static System.Media.SoundPlayer Make(double firstHz, double secondHz)
+    {
+        const int rate = 22050;
+        int per = rate * 9 / 100;   // 90 ms for each tone
+        int count = per * 2;
+        MemoryStream stream = new MemoryStream();
+        BinaryWriter w = new BinaryWriter(stream);
+        w.Write(Encoding.ASCII.GetBytes("RIFF"));
+        w.Write(36 + count * 2);
+        w.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
+        w.Write(16);
+        w.Write((short)1);          // PCM
+        w.Write((short)1);          // mono
+        w.Write(rate);
+        w.Write(rate * 2);
+        w.Write((short)2);
+        w.Write((short)16);
+        w.Write(Encoding.ASCII.GetBytes("data"));
+        w.Write(count * 2);
+        double fade = rate * 0.008; // 8 ms fade in and out, so there is no click
+        for (int i = 0; i < count; i++)
+        {
+            int j = i % per;
+            double hz = i < per ? firstHz : secondHz;
+            double envelope = Math.Min(1.0, Math.Min(j, per - 1 - j) / fade);
+            w.Write((short)(Math.Sin(2 * Math.PI * hz * j / rate) * envelope * 0.25 * 32767));
+        }
+        w.Flush();
+        stream.Position = 0;
+        return new System.Media.SoundPlayer(stream);
+    }
+}
+
+// A hidden window that listens for the global hotkey. The default is Win+Shift+D.
 class HotkeyWindow : NativeWindow
 {
     [DllImport("user32.dll")]
@@ -290,13 +394,21 @@ class HotkeyWindow : NativeWindow
     static extern bool UnregisterHotKey(IntPtr window, int id);
 
     public event Action Pressed;
-    public readonly bool Registered;
+    public bool Registered;
 
     public HotkeyWindow()
     {
         CreateHandle(new CreateParams());
-        // 0x4 = Shift, 0x8 = Win, 0x4000 = do not repeat while the keys are held.
-        Registered = RegisterHotKey(Handle, 1, 0x4 | 0x8 | 0x4000, (uint)Keys.D);
+    }
+
+    // Replaces the hotkey. Returns false if another program already uses it.
+    // modifiers: 1 = Alt, 2 = Ctrl, 4 = Shift, 8 = Win.
+    public bool Register(int modifiers, Keys key)
+    {
+        if (Registered) UnregisterHotKey(Handle, 1);
+        // 0x4000 = do not repeat while the keys are held.
+        Registered = RegisterHotKey(Handle, 1, (uint)modifiers | 0x4000, (uint)key);
+        return Registered;
     }
 
     protected override void WndProc(ref Message m)
@@ -335,6 +447,7 @@ class TrayApp : ApplicationContext
     public TrayApp()
     {
         IntPtr unused = ui.Handle; // makes the window that lets worker threads call the UI thread
+        hotkey.Register(settings.HotkeyModifiers, settings.HotkeyKey);
 
         statusItem.Enabled = false;
         toggleItem.Click += delegate { Toggle(); };
@@ -356,6 +469,7 @@ class TrayApp : ApplicationContext
             ui.BeginInvoke((MethodInvoker)delegate
             {
                 Refresh();
+                if (settings.PlaySounds) Sounds.PlayStop();
                 tray.ShowBalloonTip(8000, "Desktop Recorder stopped", Shorten(message), ToolTipIcon.Error);
             });
         };
@@ -372,7 +486,7 @@ class TrayApp : ApplicationContext
         if (settings.RecordOnLaunch) StartRecording();
         if (!hotkey.Registered)
             tray.ShowBalloonTip(6000, "Desktop Recorder",
-                "Win+Shift+D is used by another program, so the hotkey is off.", ToolTipIcon.Warning);
+                settings.HotkeyText + " is used by another program, so the hotkey is off.", ToolTipIcon.Warning);
     }
 
     static string Shorten(string text)
@@ -380,11 +494,12 @@ class TrayApp : ApplicationContext
         return text.Length > 250 ? text.Substring(0, 250) : text;
     }
 
-    void StartRecording()
+    void StartRecording(bool sound = true)
     {
         string error = recorder.Start(settings);
         Refresh();
         if (error != null) tray.ShowBalloonTip(8000, "Desktop Recorder", error, ToolTipIcon.Error);
+        else if (sound && settings.PlaySounds) Sounds.PlayStart();
     }
 
     void Toggle()
@@ -394,9 +509,11 @@ class TrayApp : ApplicationContext
     }
 
     // Stops and, if the setting is on, puts the finished video file(s) on the clipboard, ready to paste.
-    void StopRecording()
+    void StopRecording(bool sound = true)
     {
         if (!recorder.IsRecording) return;
+        // Play before the stop: the stop can wait some seconds for ffmpeg to finish the file.
+        if (sound && settings.PlaySounds) Sounds.PlayStop();
         recorder.Stop();
         if (!settings.CopyToClipboard) return;
         try
@@ -440,18 +557,22 @@ class TrayApp : ApplicationContext
                 Settings.StartsWithWindows = form.StartWithWindows;
             }
             catch (Exception e) { MessageBox.Show("Cannot save the settings: " + e.Message, "Desktop Recorder"); }
+            if (!hotkey.Register(settings.HotkeyModifiers, settings.HotkeyKey))
+                MessageBox.Show(settings.HotkeyText + " is used by another program, so the hotkey is off. "
+                    + "Pick a different hotkey in Settings.", "Desktop Recorder");
+            Refresh();
             if (recorder.IsRecording)
             {
                 // Restart so the new folder, fps and quality apply now.
                 recorder.Stop();
-                StartRecording();
+                StartRecording(false);
             }
         }
     }
 
     void Quit()
     {
-        StopRecording();
+        StopRecording(false); // no sound: the program ends before the sound can play
         hotkey.Close();
         tray.Visible = false;
         ExitThread();
@@ -462,7 +583,7 @@ class TrayApp : ApplicationContext
         bool on = recorder.IsRecording;
         string fpsText = settings.Fps.ToString("0.###", CultureInfo.InvariantCulture);
         statusItem.Text = on ? "Recording at " + fpsText + " fps" : "Not recording";
-        toggleItem.Text = (on ? "Stop recording" : "Start recording") + (hotkey.Registered ? "\tWin+Shift+D" : "");
+        toggleItem.Text = (on ? "Stop recording" : "Start recording") + (hotkey.Registered ? "\t" + settings.HotkeyText : "");
         tray.Text = on ? "Desktop Recorder: recording" : "Desktop Recorder: stopped";
 
         using (Bitmap bmp = new Bitmap(32, 32))
@@ -503,6 +624,12 @@ class SettingsForm : Form
     readonly CheckBox startupBox = new CheckBox();
     readonly CheckBox recordBox = new CheckBox();
     readonly CheckBox copyBox = new CheckBox();
+    readonly CheckBox soundBox = new CheckBox();
+    readonly CheckBox winBox = new CheckBox();
+    readonly CheckBox ctrlBox = new CheckBox();
+    readonly CheckBox altBox = new CheckBox();
+    readonly CheckBox shiftBox = new CheckBox();
+    readonly ComboBox keyBox = new ComboBox();
 
     public Settings Result;
     public bool StartWithWindows;
@@ -515,7 +642,7 @@ class SettingsForm : Form
         MinimizeBox = false;
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(470, 316);
+        ClientSize = new Size(470, 377);
         Font = SystemFonts.MessageBoxFont;
 
         AddLabel("Save recordings to:", 15);
@@ -554,29 +681,48 @@ class SettingsForm : Form
         splitBox.Value = current.SplitMinutes;
 
         startupBox.Text = "Start Desktop Recorder when Windows starts";
-        startupBox.SetBounds(15, 180, 440, 22);
+        AddLabel("Hotkey:", 180, 70);
+        SetUpModifier(winBox, "Win", 90, 8, current);
+        SetUpModifier(ctrlBox, "Ctrl", 148, 2, current);
+        SetUpModifier(altBox, "Alt", 206, 1, current);
+        SetUpModifier(shiftBox, "Shift", 264, 4, current);
+        keyBox.SetBounds(360, 177, 95, 23);
+        keyBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        for (char c = 'A'; c <= 'Z'; c++) keyBox.Items.Add(c.ToString());
+        for (char c = '0'; c <= '9'; c++) keyBox.Items.Add(c.ToString());
+        for (int f = 1; f <= 12; f++) keyBox.Items.Add("F" + f);
+        string keyName = Settings.KeyName(current.HotkeyKey);
+        if (!keyBox.Items.Contains(keyName)) keyBox.Items.Add(keyName);
+        keyBox.SelectedItem = keyName;
+
+        startupBox.SetBounds(15, 215, 440, 22);
         try { startupBox.Checked = Settings.StartsWithWindows; } catch (Exception) { }
 
         recordBox.Text = "Start recording when Desktop Recorder starts";
-        recordBox.SetBounds(15, 206, 440, 22);
+        recordBox.SetBounds(15, 241, 440, 22);
         recordBox.Checked = current.RecordOnLaunch;
 
         copyBox.Text = "Copy the video to the clipboard when recording stops";
-        copyBox.SetBounds(15, 232, 440, 22);
+        copyBox.SetBounds(15, 267, 440, 22);
         copyBox.Checked = current.CopyToClipboard;
+
+        soundBox.Text = "Play a sound when recording starts and stops";
+        soundBox.SetBounds(15, 293, 440, 22);
+        soundBox.Checked = current.PlaySounds;
 
         Button save = new Button();
         save.Text = "Save";
-        save.SetBounds(290, 276, 80, 27);
+        save.SetBounds(290, 337, 80, 27);
         save.Click += delegate { OnSave(); };
         Button cancel = new Button();
         cancel.Text = "Cancel";
-        cancel.SetBounds(375, 276, 80, 27);
+        cancel.SetBounds(375, 337, 80, 27);
         cancel.DialogResult = DialogResult.Cancel;
 
         Controls.AddRange(new Control[]
         {
-            folderBox, browse, fpsBox, qualityBox, splitBox, startupBox, recordBox, copyBox, save, cancel
+            folderBox, browse, fpsBox, qualityBox, splitBox, winBox, ctrlBox, altBox, shiftBox, keyBox,
+            startupBox, recordBox, copyBox, soundBox, save, cancel
         });
         AcceptButton = save;
         CancelButton = cancel;
@@ -590,8 +736,25 @@ class SettingsForm : Form
         Controls.Add(label);
     }
 
+    void SetUpModifier(CheckBox box, string text, int left, int bit, Settings current)
+    {
+        box.Text = text;
+        box.SetBounds(left, 178, 56, 22);
+        box.Checked = (current.HotkeyModifiers & bit) != 0;
+    }
+
     void OnSave()
     {
+        int mods = (winBox.Checked ? 8 : 0) | (ctrlBox.Checked ? 2 : 0) | (altBox.Checked ? 1 : 0)
+            | (shiftBox.Checked ? 4 : 0);
+        Keys hotkeyKey;
+        if (!Settings.TryParseKey((string)keyBox.SelectedItem ?? "", out hotkeyKey)
+            || !Settings.IsValidHotkey(mods, hotkeyKey))
+        {
+            MessageBox.Show(this, "For the hotkey, tick at least one of Win, Ctrl, Alt and pick a key. "
+                + "Shift alone works only with F1 to F12.", Text);
+            return;
+        }
         string folder = folderBox.Text.Trim().Trim('"');
         if (folder.Length == 0 || !Path.IsPathRooted(folder))
         {
@@ -611,6 +774,9 @@ class SettingsForm : Form
         Result.SplitMinutes = (int)splitBox.Value;
         Result.RecordOnLaunch = recordBox.Checked;
         Result.CopyToClipboard = copyBox.Checked;
+        Result.PlaySounds = soundBox.Checked;
+        Result.HotkeyModifiers = mods;
+        Result.HotkeyKey = hotkeyKey;
         StartWithWindows = startupBox.Checked;
         DialogResult = DialogResult.OK;
         Close();
