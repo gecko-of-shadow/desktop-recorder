@@ -55,8 +55,9 @@ class Settings
 
     public Settings()
     {
-        Folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
-            "Desktop Recordings");
+        // Not in Videos or Documents: Windows "Controlled folder access" blocks writing there.
+        Folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Recordings");
     }
 
     static string FilePath

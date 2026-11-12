@@ -28,7 +28,7 @@ Windows SmartScreen may warn you, because the program is not signed. Click **Mor
 
 | Setting | Default | Notes |
 |---|---|---|
-| Folder | `Videos\Desktop Recordings` | The program makes the folder. |
+| Folder | `C:\Users\<you>\Recordings` | The program makes the folder. |
 | Frames per second | 2 | 0.2 to 60. Lower means smaller files. |
 | Quality | Balanced | Smallest files, Balanced, or Sharpest text. |
 | New file every | 30 minutes | 0 means one file per recording. |
@@ -48,7 +48,7 @@ Settings are stored in `%APPDATA%\DesktopRecorder\settings.txt`.
 ## Problems
 
 **"Protected folder access blocked" from Windows Security.**
-Controlled folder access protects Videos, Documents, Pictures, Desktop and Music. Open Settings from the tray icon and pick a folder outside those, such as `C:\Users\<you>\Recordings`. Or allow both `DesktopRecorder.exe` and `ffmpeg.exe` in Windows Security.
+Controlled folder access protects Videos, Documents, Pictures, Desktop and Music. The default folder, `C:\Users\<you>\Recordings`, is outside those. If you picked a protected folder, open Settings from the tray icon and pick a different folder. Or allow both `DesktopRecorder.exe` and `ffmpeg.exe` in Windows Security.
 
 **"ffmpeg.exe was not found."**
 Run the winget command above, or put `ffmpeg.exe` next to `DesktopRecorder.exe`.
