@@ -2,6 +2,7 @@
 // Builds with the C# compiler that ships with Windows (C# 5, .NET Framework 4.x). See build.cmd.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
@@ -44,8 +45,10 @@ class Settings
     public bool PlaySounds = true;
     public int HotkeyModifiers = 4 | 8;   // 1 = Alt, 2 = Ctrl, 4 = Shift, 8 = Win
     public Keys HotkeyKey = Keys.D;
+    // Keys written by the Linux build. Saved again so a shared settings file does not lose them.
+    public List<string> ExtraLines = new List<string>();
 
-    public static readonly int[] Crf = { 32, 27, 21 };
+    public static readonly int[] Crf = RecorderCore.Crf;
     public static readonly string[] QualityNames =
     {
         "Smallest files (text still readable)",
@@ -72,101 +75,92 @@ class Settings
         }
     }
 
+    public StoredSettings ToStored()
+    {
+        StoredSettings stored = new StoredSettings();
+        stored.Folder = Folder;
+        stored.Fps = Fps;
+        stored.Quality = Quality;
+        stored.SplitMinutes = SplitMinutes;
+        stored.RecordOnLaunch = RecordOnLaunch;
+        stored.CopyToClipboard = CopyToClipboard;
+        stored.PlaySounds = PlaySounds;
+        stored.HotkeyModifiers = HotkeyModifiers;
+        stored.HotkeyKey = (int)HotkeyKey;
+        stored.ExtraLines = ExtraLines ?? new List<string>();
+        return stored;
+    }
+
+    public void Apply(StoredSettings stored)
+    {
+        Folder = stored.Folder;
+        Fps = stored.Fps;
+        Quality = stored.Quality;
+        SplitMinutes = stored.SplitMinutes;
+        RecordOnLaunch = stored.RecordOnLaunch;
+        CopyToClipboard = stored.CopyToClipboard;
+        PlaySounds = stored.PlaySounds;
+        HotkeyModifiers = stored.HotkeyModifiers;
+        HotkeyKey = (Keys)stored.HotkeyKey;
+        ExtraLines = stored.ExtraLines ?? new List<string>();
+    }
+
     public static Settings Load()
     {
         Settings s = new Settings();
         try
         {
             if (!File.Exists(FilePath)) return s;
-            foreach (string line in File.ReadAllLines(FilePath))
-            {
-                int eq = line.IndexOf('=');
-                if (eq < 1) continue;
-                string key = line.Substring(0, eq).Trim();
-                string val = line.Substring(eq + 1).Trim();
-                double d;
-                int i;
-                if (key == "folder" && val.Length > 0) s.Folder = val;
-                else if (key == "fps" && double.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out d)) s.Fps = d;
-                else if (key == "quality" && int.TryParse(val, out i)) s.Quality = i;
-                else if (key == "split_minutes" && int.TryParse(val, out i)) s.SplitMinutes = i;
-                else if (key == "record_on_launch") s.RecordOnLaunch = val == "1";
-                else if (key == "copy_to_clipboard") s.CopyToClipboard = val == "1";
-                else if (key == "play_sounds") s.PlaySounds = val == "1";
-                else if (key == "hotkey") s.SetHotkey(val);
-            }
+            s.Apply(RecorderCore.ParseSettings(File.ReadAllText(FilePath), s.ToStored()));
         }
         catch (Exception) { }
-        s.Fps = Math.Max(0.2, Math.Min(60, s.Fps));
-        s.Quality = Math.Max(0, Math.Min(2, s.Quality));
-        s.SplitMinutes = Math.Max(0, Math.Min(1440, s.SplitMinutes));
         return s;
     }
 
     public void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath));
-        File.WriteAllLines(FilePath, new string[]
-        {
-            "folder=" + Folder,
-            "fps=" + Fps.ToString(CultureInfo.InvariantCulture),
-            "quality=" + Quality,
-            "split_minutes=" + SplitMinutes,
-            "record_on_launch=" + (RecordOnLaunch ? "1" : "0"),
-            "copy_to_clipboard=" + (CopyToClipboard ? "1" : "0"),
-            "play_sounds=" + (PlaySounds ? "1" : "0"),
-            "hotkey=" + HotkeyText
-        });
+        RecorderCore.AtomicWrite(FilePath, RecorderCore.SerializeSettings(ToStored()));
     }
 
     // The hotkey as text, such as "Win+Shift+D".
     public string HotkeyText
     {
-        get
-        {
-            return ((HotkeyModifiers & 8) != 0 ? "Win+" : "") + ((HotkeyModifiers & 2) != 0 ? "Ctrl+" : "")
-                + ((HotkeyModifiers & 1) != 0 ? "Alt+" : "") + ((HotkeyModifiers & 4) != 0 ? "Shift+" : "")
-                + KeyName(HotkeyKey);
-        }
+        get { return RecorderCore.HotkeyText(HotkeyModifiers, (int)HotkeyKey); }
     }
 
     // Reads text such as "Win+Shift+D". Keeps the current hotkey if the text is not valid.
     public void SetHotkey(string text)
     {
-        int mods = 0;
-        Keys found = Keys.None;
-        foreach (string raw in text.Split('+'))
-        {
-            string part = raw.Trim();
-            if (part.Equals("Win", StringComparison.OrdinalIgnoreCase)) mods |= 8;
-            else if (part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)) mods |= 2;
-            else if (part.Equals("Alt", StringComparison.OrdinalIgnoreCase)) mods |= 1;
-            else if (part.Equals("Shift", StringComparison.OrdinalIgnoreCase)) mods |= 4;
-            else if (!TryParseKey(part, out found)) return;
-        }
-        if (!IsValidHotkey(mods, found)) return;
+        int mods = HotkeyModifiers;
+        int key = (int)HotkeyKey;
+        if (!RecorderCore.TrySetHotkey(text, ref mods, ref key)) return;
         HotkeyModifiers = mods;
-        HotkeyKey = found;
+        HotkeyKey = (Keys)key;
     }
 
     // Shift alone is not enough for a letter or a digit: Shift+A must still type a capital A.
     public static bool IsValidHotkey(int mods, Keys key)
     {
-        if (mods == 0 || key == Keys.None) return false;
-        return (mods & (1 | 2 | 8)) != 0 || (key >= Keys.F1 && key <= Keys.F24);
+        return RecorderCore.IsValidHotkey(mods, (int)key);
     }
 
     public static bool TryParseKey(string name, out Keys key)
     {
-        if (name.Length == 1 && char.IsDigit(name[0])) name = "D" + name;
-        return Enum.TryParse<Keys>(name, true, out key) && key != Keys.None;
+        int virtualKey;
+        if (!RecorderCore.TryParseKey(name, out virtualKey))
+        {
+            key = Keys.None;
+            return false;
+        }
+        key = (Keys)virtualKey;
+        return true;
     }
 
     // "D5" is the name of the 5 key. Show it as "5".
     public static string KeyName(Keys key)
     {
-        string name = key.ToString();
-        return name.Length == 2 && name[0] == 'D' && char.IsDigit(name[1]) ? name.Substring(1) : name;
+        return RecorderCore.KeyName((int)key);
     }
 
     public static bool StartsWithWindows
@@ -191,161 +185,52 @@ class Settings
 
 class Recorder
 {
-    Process proc;
-    bool stopping;
-    double fps;
-    string sessionFolder;
-    DateTime sessionStart;
-    readonly StringBuilder errors = new StringBuilder();
+    readonly RecordingSession session = new RecordingSession();
+
+    public Recorder()
+    {
+        session.Failed += delegate(string message)
+        {
+            Action<string> handler = Failed;
+            if (handler != null) handler(message);
+        };
+    }
 
     // Raised on a worker thread when ffmpeg ends by itself. The argument is ffmpeg's error text.
     public event Action<string> Failed;
 
-    public bool IsRecording { get { return proc != null; } }
+    public bool IsRecording { get { return session.IsRecording; } }
 
     public static string FindFfmpeg()
     {
-        string local = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "ffmpeg.exe");
-        if (File.Exists(local)) return local;
-        string winget = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            @"Microsoft\WinGet\Links\ffmpeg.exe");
-        if (File.Exists(winget)) return winget;
+        string exeDirectory = Path.GetDirectoryName(Application.ExecutablePath);
         string path = Environment.GetEnvironmentVariable("PATH") ?? "";
-        foreach (string dir in path.Split(';'))
-        {
-            try
-            {
-                if (dir.Trim().Length == 0) continue;
-                string candidate = Path.Combine(dir.Trim(), "ffmpeg.exe");
-                if (File.Exists(candidate)) return candidate;
-            }
-            catch (Exception) { }
-        }
-        return null;
+        return RecorderCore.FindFfmpeg(exeDirectory, path, true);
     }
 
     public static string BuildArguments(Settings s, DateTime now)
     {
-        string fpsText = s.Fps.ToString("0.###", CultureInfo.InvariantCulture);
-        // One keyframe about every 30 seconds: long gaps keep the files small.
-        int gop = Math.Max(2, (int)Math.Round(s.Fps * 30));
-        StringBuilder a = new StringBuilder();
-        a.Append("-hide_banner -loglevel error -nostats -y ");
-        a.Append("-f gdigrab -framerate " + fpsText + " -draw_mouse 1 -i desktop ");
-        // Full resolution so text stays readable. H.264 needs an even width and height.
-        a.Append("-vf \"crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0\" ");
-        a.Append("-c:v libx264 -preset medium -tune stillimage -crf " + Settings.Crf[s.Quality] + " ");
-        // The encoder holds frames back before it writes them. Keep that to about 2 seconds,
-        // or a power loss costs the last minute at a low frame rate.
-        int lookahead = Math.Max(0, Math.Min(40, (int)Math.Round(s.Fps * 2)));
-        int threads = Math.Max(1, Math.Min(16, (int)Math.Ceiling(s.Fps)));
-        a.Append("-x264-params rc-lookahead=" + lookahead + " -threads " + threads + " ");
-        a.Append("-g " + gop + " -pix_fmt yuv420p ");
-        // Fragmented MP4, written to disk every 2 seconds: the file stays playable if the PC
-        // loses power or ffmpeg is killed.
-        if (s.SplitMinutes > 0)
-        {
-            a.Append("-f segment -segment_time " + (s.SplitMinutes * 60) + " -segment_format mp4 ");
-            a.Append("-segment_format_options movflags=+frag_keyframe+empty_moov:frag_duration=2000000:flush_packets=1 ");
-            a.Append("-reset_timestamps 1 -strftime 1 ");
-            a.Append("\"" + Path.Combine(s.Folder, "desktop_%Y-%m-%d_%H-%M-%S.mp4") + "\"");
-        }
-        else
-        {
-            a.Append("-movflags +frag_keyframe+empty_moov -frag_duration 2000000 -flush_packets 1 ");
-            a.Append("\"" + Path.Combine(s.Folder, "desktop_" + now.ToString("yyyy-MM-dd_HH-mm-ss") + ".mp4") + "\"");
-        }
-        return a.ToString();
+        return RecorderCore.JoinWindowsArguments(RecorderCore.BuildWindowsArguments(s.ToStored(), now));
     }
 
     // Returns null on success, or a message to show.
     public string Start(Settings s)
     {
-        if (proc != null) return null;
         string ffmpeg = FindFfmpeg();
         if (ffmpeg == null)
             return "ffmpeg.exe was not found. Run this in PowerShell: winget install -e --id Gyan.FFmpeg. " +
                 "Or put ffmpeg.exe next to DesktopRecorder.exe.";
-        try { Directory.CreateDirectory(s.Folder); }
-        catch (Exception e) { return "Cannot create the folder " + s.Folder + ": " + e.Message; }
-
-        ProcessStartInfo info = new ProcessStartInfo(ffmpeg, BuildArguments(s, DateTime.Now));
-        info.UseShellExecute = false;
-        info.CreateNoWindow = true;
-        info.RedirectStandardInput = true;
-        info.RedirectStandardError = true;
-
-        Process p = new Process();
-        p.StartInfo = info;
-        p.EnableRaisingEvents = true;
-        lock (errors) { errors.Length = 0; }
-        p.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
-        {
-            if (e.Data == null) return;
-            lock (errors) { if (errors.Length < 2000) errors.AppendLine(e.Data); }
-        };
-        p.Exited += delegate(object sender, EventArgs e)
-        {
-            if (stopping || proc != p) return;
-            proc = null;
-            string text;
-            lock (errors) { text = errors.ToString().Trim(); }
-            Action<string> handler = Failed;
-            if (handler != null) handler(text.Length > 0 ? text : "ffmpeg stopped.");
-        };
-        // Set the state before the start: if ffmpeg ends at once, the Exited handler must see it.
-        stopping = false;
-        fps = s.Fps;
-        sessionFolder = s.Folder;
-        sessionStart = DateTime.Now.AddSeconds(-2);
-        proc = p;
-        try { p.Start(); }
-        catch (Exception e)
-        {
-            proc = null;
-            return "Cannot start ffmpeg: " + e.Message;
-        }
-        p.BeginErrorReadLine();
-        return null;
+        return session.Start(ffmpeg, BuildArguments(s, DateTime.Now), s.Folder, s.Fps);
     }
 
-    // The video files made by the last recording, oldest first.
     public string[] SessionFiles()
     {
-        System.Collections.Generic.List<string> found = new System.Collections.Generic.List<string>();
-        try
-        {
-            if (sessionFolder == null) return found.ToArray();
-            foreach (string file in Directory.GetFiles(sessionFolder, "desktop_*.mp4"))
-            {
-                FileInfo info = new FileInfo(file);
-                if (info.LastWriteTime >= sessionStart && info.Length > 0) found.Add(file);
-            }
-            found.Sort(StringComparer.OrdinalIgnoreCase);
-        }
-        catch (Exception) { }
-        return found.ToArray();
+        return session.SessionFiles();
     }
 
     public void Stop()
     {
-        Process p = proc;
-        if (p == null) return;
-        stopping = true;
-        proc = null;
-        try
-        {
-            // "q" asks ffmpeg to finish the file. It reads it between frames, so wait longer at low fps.
-            p.StandardInput.Write("q");
-            p.StandardInput.Flush();
-            int waitMs = (int)Math.Min(15000, 4000 + 2000 / Math.Max(0.2, fps));
-            if (!p.WaitForExit(waitMs)) p.Kill();
-        }
-        catch (Exception)
-        {
-            try { if (!p.HasExited) p.Kill(); } catch (Exception) { }
-        }
-        p.Dispose();
+        session.Stop();
     }
 }
 
@@ -365,34 +250,7 @@ static class Sounds
 
     static System.Media.SoundPlayer Make(double firstHz, double secondHz)
     {
-        const int rate = 22050;
-        int per = rate * 9 / 100;   // 90 ms for each tone
-        int count = per * 2;
-        MemoryStream stream = new MemoryStream();
-        BinaryWriter w = new BinaryWriter(stream);
-        w.Write(Encoding.ASCII.GetBytes("RIFF"));
-        w.Write(36 + count * 2);
-        w.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
-        w.Write(16);
-        w.Write((short)1);          // PCM
-        w.Write((short)1);          // mono
-        w.Write(rate);
-        w.Write(rate * 2);
-        w.Write((short)2);
-        w.Write((short)16);
-        w.Write(Encoding.ASCII.GetBytes("data"));
-        w.Write(count * 2);
-        double fade = rate * 0.008; // 8 ms fade in and out, so there is no click
-        for (int i = 0; i < count; i++)
-        {
-            int j = i % per;
-            double hz = i < per ? firstHz : secondHz;
-            double envelope = Math.Min(1.0, Math.Min(j, per - 1 - j) / fade);
-            w.Write((short)(Math.Sin(2 * Math.PI * hz * j / rate) * envelope * 0.25 * 32767));
-        }
-        w.Flush();
-        stream.Position = 0;
-        return new System.Media.SoundPlayer(stream);
+        return new System.Media.SoundPlayer(new MemoryStream(RecorderCore.BuildChimeWav(firstHz, secondHz)));
     }
 }
 
@@ -409,7 +267,9 @@ class HotkeyWindow : NativeWindow
 
     public HotkeyWindow()
     {
-        CreateHandle(new CreateParams());
+        CreateParams parameters = new CreateParams();
+        parameters.Caption = "Desktop Recorder";
+        CreateHandle(parameters);
     }
 
     // Replaces the hotkey. Returns false if another program already uses it.
@@ -477,12 +337,16 @@ class TrayApp : ApplicationContext
 
         recorder.Failed += delegate(string message)
         {
-            ui.BeginInvoke((MethodInvoker)delegate
+            try
             {
-                Refresh();
-                if (settings.PlaySounds) Sounds.PlayStop();
-                tray.ShowBalloonTip(8000, "Desktop Recorder stopped", Shorten(message), ToolTipIcon.Error);
-            });
+                ui.BeginInvoke((MethodInvoker)delegate
+                {
+                    Refresh();
+                    if (settings.PlaySounds) Sounds.PlayStop();
+                    tray.ShowBalloonTip(8000, "Desktop Recorder stopped", Shorten(message), ToolTipIcon.Error);
+                });
+            }
+            catch (InvalidOperationException) { }
         };
         SystemEvents.SessionEnding += delegate { recorder.Stop(); };
 
@@ -539,7 +403,11 @@ class TrayApp : ApplicationContext
                                   : files.Length + " video files copied. Press Ctrl+V to paste them.",
                 ToolTipIcon.Info);
         }
-        catch (Exception) { }
+        catch (Exception e)
+        {
+            tray.ShowBalloonTip(6000, "Desktop Recorder",
+                "Could not copy the video to the clipboard: " + e.Message, ToolTipIcon.Warning);
+        }
     }
 
     void OpenFolder()
@@ -547,7 +415,8 @@ class TrayApp : ApplicationContext
         try
         {
             Directory.CreateDirectory(settings.Folder);
-            Process.Start("explorer.exe", "\"" + settings.Folder + "\"");
+            Process started = Process.Start("explorer.exe", RecorderCore.QuoteWindowsArgument(settings.Folder));
+            if (started != null) started.Dispose();
         }
         catch (Exception e) { MessageBox.Show(e.Message, "Desktop Recorder"); }
     }
@@ -586,6 +455,12 @@ class TrayApp : ApplicationContext
         StopRecording(false); // no sound: the program ends before the sound can play
         hotkey.Close();
         tray.Visible = false;
+        tray.Icon = null;
+        if (currentIcon != null) currentIcon.Dispose();
+        if (currentIconHandle != IntPtr.Zero) DestroyIcon(currentIconHandle);
+        currentIcon = null;
+        currentIconHandle = IntPtr.Zero;
+        tray.Dispose();
         ExitThread();
     }
 
@@ -677,19 +552,23 @@ class SettingsForm : Form
         fpsBox.Increment = 1;
         fpsBox.Minimum = 0.2M;
         fpsBox.Maximum = 60;
-        fpsBox.Value = (decimal)current.Fps;
+        try { fpsBox.Value = (decimal)current.Fps; }
+        catch (Exception) { fpsBox.Value = 2; }
 
         AddLabel("Quality:", 110, 180);
         qualityBox.SetBounds(200, 107, 255, 23);
         qualityBox.DropDownStyle = ComboBoxStyle.DropDownList;
         qualityBox.Items.AddRange(Settings.QualityNames);
-        qualityBox.SelectedIndex = current.Quality;
+        qualityBox.SelectedIndex = current.Quality >= 0 && current.Quality < qualityBox.Items.Count ? current.Quality : 1;
 
         AddLabel("Start a new file every (minutes, 0 = never):", 145);
         splitBox.SetBounds(360, 142, 95, 23);
         splitBox.Minimum = 0;
         splitBox.Maximum = 1440;
-        splitBox.Value = current.SplitMinutes;
+        int split = current.SplitMinutes;
+        if (split < 0) split = 0;
+        if (split > 1440) split = 1440;
+        splitBox.Value = split;
 
         startupBox.Text = "Start Desktop Recorder when Windows starts";
         AddLabel("Hotkey:", 180, 70);

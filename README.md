@@ -43,8 +43,8 @@ Settings are stored in `%APPDATA%\DesktopRecorder\settings.txt`.
 
 ## Good to know
 
-- No audio is recorded.
-- All monitors are recorded as one picture.
+- On Windows, no audio is recorded. On Ubuntu, system audio (what you hear) is recorded unless you turn it off in Settings.
+- On Windows, all monitors are recorded as one picture. On Ubuntu with X11, the whole X display is recorded. On Wayland, Ubuntu asks which screen to share and the recorder keeps the first one you pick.
 - The MP4 stays playable if the PC loses power in the middle of a recording. You lose about the last 5 seconds at the default settings, and more at a very low frame rate.
 - A screen that does not change costs almost no space.
 
@@ -73,4 +73,38 @@ Exit the running recorder first, or the build cannot replace the `.exe`.
 
 ## How it works
 
-The program is a tray front end for [ffmpeg](https://ffmpeg.org). It runs ffmpeg with the `gdigrab` screen capture and the H.264 encoder, and writes fragmented MP4.
+The program is a tray front end for [ffmpeg](https://ffmpeg.org). On Windows it runs ffmpeg with the `gdigrab` screen capture and the H.264 encoder, and writes fragmented MP4. A recording is one file named `desktop_yyyy-mm-dd_hh-mm-ss_mmm.mp4`. When a recording is split, the parts are `desktop_yyyy-mm-dd_hh-mm-ss_mmm_000.mp4` and so on.
+
+## Ubuntu Desktop 24.04
+
+The Linux build is the same tray recorder. X11 uses ffmpeg's `x11grab`. Wayland (the default Ubuntu session) asks the desktop for a screen through xdg-desktop-portal and reads the picture from PipeWire, then ffmpeg encodes it. System audio uses the PulseAudio API, which PipeWire provides on Ubuntu 24.04. The Windows `.exe` is unchanged and still has no audio.
+
+Install the packages, then build and install the program for your user:
+
+```
+sudo apt update
+sudo apt install ffmpeg python3 python3-gi python3-gi-cairo \
+  gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1 gir1.2-notify-0.7 \
+  gstreamer1.0-plugins-base gstreamer1.0-pipewire \
+  pipewire pipewire-pulse wireplumber pulseaudio-utils \
+  xdg-desktop-portal xdg-desktop-portal-gnome xdg-desktop-portal-gtk \
+  xclip wl-clipboard
+./build-linux.sh --install
+export PATH="$HOME/.local/bin:$PATH"
+desktop-recorder
+```
+
+Log out and back in if `~/.local/bin` is not on your PATH yet. A monitor icon appears in the tray. On GNOME it uses an app indicator. On an X11 session such as Xfce it uses the classic tray.
+
+- **Super+Shift+D** is the same shortcut as Win+Shift+D. On X11 the program grabs it. On GNOME Wayland it is a custom shortcut named Desktop Recorder. Other Wayland desktops keep the tray menu.
+- The first Wayland recording opens the system screen-share dialog. Later recordings reuse that permission.
+- System audio is the monitor of the default output. If that device is missing or does not answer, the recording continues with video only and the tray says so.
+- Settings are stored in `~/.config/DesktopRecorder/settings.txt`. "Start when I log in" writes `~/.config/autostart/desktop-recorder.desktop`.
+- `desktop-recorder --check` prints the capture backend. `desktop-recorder --smoke 2` records two seconds with X11 and exits.
+
+To run the tests on Ubuntu 24.04 (Mono runs the Windows rules; Python runs the Linux rules):
+
+```
+sudo apt install mono-devel libmono-system-windows-forms4.0-cil libmono-system-drawing4.0-cil x11-utils xdotool
+./run-tests.sh
+```
