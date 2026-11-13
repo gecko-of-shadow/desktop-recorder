@@ -6,14 +6,20 @@ It is made for recordings that an AI model can read: full screen resolution so t
 
 ## Get it
 
-1. Download `DesktopRecorder.exe` from the [Releases page](../../releases/latest).
-2. Install ffmpeg, if you do not have it. In PowerShell:
+Download a portable archive from the [Releases page](../../releases/latest). Unzip or untar it and run it. Nothing is copied into Program Files, and the Linux archive does not need root.
 
-   ```
-   winget install -e --id Gyan.FFmpeg
-   ```
+- Windows: `desktop-recorder-<version>-windows-x64.zip`. Start `DesktopRecorder.exe`.
+- Ubuntu 24.04: `desktop-recorder-<version>-linux-x86_64.tar.gz`. Run `./desktop-recorder`. The README in the archive lists the apt packages it still needs (GTK, GStreamer, ffmpeg, and the Python GI bindings).
 
-3. Start `DesktopRecorder.exe`. A monitor icon appears in the tray. A red screen means recording, a grey screen means stopped.
+Install ffmpeg, if you do not have it. It is not inside the archive. In PowerShell:
+
+```
+winget install -e --id Gyan.FFmpeg
+```
+
+On Ubuntu: `sudo apt install ffmpeg`.
+
+A monitor icon appears in the tray. A red screen means recording, a grey screen means stopped.
 
 Windows SmartScreen may warn you, because the program is not signed. Click **More info**, then **Run anyway**.
 
@@ -66,7 +72,7 @@ You need nothing extra. The C# compiler ships with Windows.
 Double-click `build.cmd`, or run this in PowerShell in the folder:
 
 ```
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll DesktopRecorder.cs
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll RecorderCore.cs RecordingSession.cs DesktopRecorder.cs
 ```
 
 Exit the running recorder first, or the build cannot replace the `.exe`.
