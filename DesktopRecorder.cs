@@ -235,18 +235,24 @@ class Recorder
         // Full resolution so text stays readable. H.264 needs an even width and height.
         a.Append("-vf \"crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0\" ");
         a.Append("-c:v libx264 -preset medium -tune stillimage -crf " + Settings.Crf[s.Quality] + " ");
+        // The encoder holds frames back before it writes them. Keep that to about 2 seconds,
+        // or a power loss costs the last minute at a low frame rate.
+        int lookahead = Math.Max(0, Math.Min(40, (int)Math.Round(s.Fps * 2)));
+        int threads = Math.Max(1, Math.Min(16, (int)Math.Ceiling(s.Fps)));
+        a.Append("-x264-params rc-lookahead=" + lookahead + " -threads " + threads + " ");
         a.Append("-g " + gop + " -pix_fmt yuv420p ");
-        // Fragmented MP4: the file stays playable if the PC loses power or ffmpeg is killed.
+        // Fragmented MP4, written to disk every 2 seconds: the file stays playable if the PC
+        // loses power or ffmpeg is killed.
         if (s.SplitMinutes > 0)
         {
             a.Append("-f segment -segment_time " + (s.SplitMinutes * 60) + " -segment_format mp4 ");
-            a.Append("-segment_format_options movflags=+frag_keyframe+empty_moov ");
+            a.Append("-segment_format_options movflags=+frag_keyframe+empty_moov:frag_duration=2000000:flush_packets=1 ");
             a.Append("-reset_timestamps 1 -strftime 1 ");
             a.Append("\"" + Path.Combine(s.Folder, "desktop_%Y-%m-%d_%H-%M-%S.mp4") + "\"");
         }
         else
         {
-            a.Append("-movflags +frag_keyframe+empty_moov ");
+            a.Append("-movflags +frag_keyframe+empty_moov -frag_duration 2000000 -flush_packets 1 ");
             a.Append("\"" + Path.Combine(s.Folder, "desktop_" + now.ToString("yyyy-MM-dd_HH-mm-ss") + ".mp4") + "\"");
         }
         return a.ToString();
@@ -287,14 +293,19 @@ class Recorder
             Action<string> handler = Failed;
             if (handler != null) handler(text.Length > 0 ? text : "ffmpeg stopped.");
         };
-        try { p.Start(); }
-        catch (Exception e) { return "Cannot start ffmpeg: " + e.Message; }
-        p.BeginErrorReadLine();
+        // Set the state before the start: if ffmpeg ends at once, the Exited handler must see it.
         stopping = false;
         fps = s.Fps;
         sessionFolder = s.Folder;
         sessionStart = DateTime.Now.AddSeconds(-2);
         proc = p;
+        try { p.Start(); }
+        catch (Exception e)
+        {
+            proc = null;
+            return "Cannot start ffmpeg: " + e.Message;
+        }
+        p.BeginErrorReadLine();
         return null;
     }
 

@@ -45,7 +45,7 @@ Settings are stored in `%APPDATA%\DesktopRecorder\settings.txt`.
 
 - No audio is recorded.
 - All monitors are recorded as one picture.
-- The MP4 stays playable if the PC loses power in the middle of a recording.
+- The MP4 stays playable if the PC loses power in the middle of a recording. You lose about the last 5 seconds at the default settings, and more at a very low frame rate.
 - A screen that does not change costs almost no space.
 
 ## Problems
