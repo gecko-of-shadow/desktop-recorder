@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile
+        shell: cmd
+        run: '"%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll RecorderCore.cs RecordingSession.cs DesktopRecorder.cs'
+      - name: Portable zip
+        shell: bash
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          bash packaging/make-windows-zip.sh DesktopRecorder.exe "$ver" "$RUNNER_TEMP"
+          mkdir -p dist
+          cp "$RUNNER_TEMP/desktop-recorder-${ver}-windows-x64.zip" dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable
+          path: dist/*.zip
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Portable archive
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          bash packaging/make-linux-tarball.sh "$ver" "$RUNNER_TEMP"
+          mkdir -p dist
+          cp "$RUNNER_TEMP/desktop-recorder-${ver}-linux-x86_64.tar.gz" dist/
+          tar -tzf dist/*.tar.gz >/dev/null
+          stage=$(mktemp -d)
+          tar -C "$stage" -xzf dist/*.tar.gz
+          "$stage"/desktop-recorder-*/desktop-recorder --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-portable
+          path: dist/*.tar.gz
+
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-portable"
+          merge-multiple: true
+          path: dist
+      - name: Attach archives to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            body=$(git tag -l --format='%(contents)' "$tag")
+            if [ -z "$body" ]; then
+              body="Desktop Recorder $tag"
+            fi
+            gh release create "$tag" dist/* --title "$tag" --notes "$body"
+          fi

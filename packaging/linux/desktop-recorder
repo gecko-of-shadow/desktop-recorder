@@ -1,0 +1,14 @@
+#!/bin/sh
+# Run Desktop Recorder from this folder. No install and no root.
+set -eu
+here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+export DESKTOP_RECORDER_COMMAND="$here/desktop-recorder"
+export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
+
+if [ "$#" -eq 0 ] && ! python3 -c 'import gi' >/dev/null 2>&1; then
+  echo "Desktop Recorder needs system packages. On Ubuntu 24.04:" >&2
+  echo "  sudo apt install ffmpeg python3 python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1 gir1.2-notify-0.7 gstreamer1.0-plugins-base gstreamer1.0-pipewire pipewire pipewire-pulse wireplumber pulseaudio-utils xdg-desktop-portal xdg-desktop-portal-gnome xdg-desktop-portal-gtk xclip wl-clipboard" >&2
+  exit 1
+fi
+
+exec python3 -m desktop_recorder "$@"

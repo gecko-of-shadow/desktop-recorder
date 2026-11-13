@@ -4,8 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  release:
-    types: [published]
 
 permissions:
   contents: write
@@ -22,13 +20,6 @@ jobs:
         with:
           name: DesktopRecorder
           path: DesktopRecorder.exe
-      - name: Attach to release
-        if: github.event_name == 'release'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" DesktopRecorder.exe --clobber
 
   linux:
     runs-on: ubuntu-24.04
