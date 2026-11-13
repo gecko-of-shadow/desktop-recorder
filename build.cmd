@@ -9,7 +9,7 @@ if not exist "%CSC%" (
   exit /b 1
 )
 
-"%CSC%" /nologo /target:winexe /optimize+ /out:"%~dp0DesktopRecorder.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll "%~dp0DesktopRecorder.cs"
+"%CSC%" /nologo /target:winexe /optimize+ /out:"%~dp0DesktopRecorder.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll "%~dp0RecorderCore.cs" "%~dp0RecordingSession.cs" "%~dp0DesktopRecorder.cs"
 if errorlevel 1 (
   echo Build failed.
   pause
