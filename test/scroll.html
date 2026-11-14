@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scroll Test</title>
+<!--
+  Auto-scroll page for the AI read test (HANDOFF.md, section 6.1, item 2).
+  This file is self-contained. It does not use the network.
+  The text of source.md is embedded below in the "source" block.
+  To refresh the embed after source.md changes, run: python test/embed_source.py
+  URL hash example: scroll.html#speed=1000&font=100&delay=5
+-->
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --panel-bg: #f2f2f2;
+    --panel-fg: #111111;
+    --panel-border: #888888;
+    --base-font: 16px;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    overflow: hidden;
+    height: 100%;
+  }
+  /* The viewport clips the text. The text moves with a transform. */
+  #viewport {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  #text {
+    position: absolute;
+    left: 0;
+    top: 0;
+    min-width: 100%;
+    /* One viewport height of padding at the top and at the bottom. */
+    padding: 100vh 0;
+    box-sizing: content-box;
+    font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+    font-size: var(--base-font);
+    line-height: 1.4;
+    will-change: transform;
+  }
+  #text .ln {
+    white-space: pre;
+    padding: 0 16px;
+    color: var(--fg);
+  }
+  /* Colored lines L241 to L270 (SHARED SPEC item 5). */
+  #text .c0 { color: #d00000; } /* red */
+  #text .c1 { color: #0033dd; } /* blue */
+  #text .c2 { color: #008a00; } /* green */
+  #text .c3 { color: #c000c0; } /* magenta */
+  #text .c4 { color: #e06000; } /* orange */
+  #text .c5 { color: #008080; } /* teal */
+  /* The Zalgo line L290 has stacked marks. Extra space keeps the marks off L289 and L291. */
+  #text .ln[data-tag="L290"] { padding-top: 1em; padding-bottom: 1em; }
+
+  #panel {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+    background: var(--panel-bg);
+    color: var(--panel-fg);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font: 13px/1.5 system-ui, "Segoe UI", sans-serif;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    max-width: calc(100vw - 48px);
+  }
+  #panel label { display: block; margin: 2px 0; }
+  #panel select { margin-left: 6px; }
+  #panel .buttons { margin-top: 8px; display: flex; gap: 6px; }
+  #panel button { padding: 3px 10px; }
+  #panel .info { margin-top: 6px; color: #444; font-size: 12px; }
+  body.running #panel, body.counting #panel { display: none; }
+  body.running, body.counting { cursor: none; }
+
+  .overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    font-family: system-ui, "Segoe UI", sans-serif;
+    color: var(--fg);
+    pointer-events: none;
+  }
+  #countdown { font-size: 160px; font-weight: 700; }
+  #endbox .big { font-size: 96px; font-weight: 700; }
+  #endbox .small { font-size: 22px; margin-top: 8px; }
+  body.counting #countdown { display: flex; }
+  body.ended #endbox { display: flex; }
+</style>
+</head>
+<body>
+<div id="viewport"><div id="text"></div></div>
+
+<div id="panel" role="region" aria-label="Scroll controls">
+  <label>Speed (px/s)
+    <select id="speed">
+      <option>200</option><option>500</option><option selected>1000</option>
+      <option>2000</option><option>3000</option>
+    </select>
+  </label>
+  <label>Font size (%)
+    <select id="font">
+      <option selected>100</option><option>125</option><option>150</option>
+    </select>
+  </label>
+  <label>Start delay (s)
+    <select id="delay">
+      <option>0</option><option selected>3</option><option>5</option><option>10</option>
+    </select>
+  </label>
+  <div class="buttons">
+    <button id="start" type="button">Start</button>
+    <button id="reset" type="button">Stop/Reset</button>
+  </div>
+  <div class="info" id="info"></div>
+  <div class="info">Keys: Space = start or stop. R = reset.</div>
+</div>
+
+<div class="overlay" id="countdown"></div>
+<div class="overlay" id="endbox">
+  <div class="big">END</div>
+  <div class="small" id="endstats"></div>
+</div>
+
+<script type="text/plain" id="source">
+L001 The morning train left the station four minutes late, and nobody seemed to mind.
+L002 Marta keeps a jar of buttons on her desk, sorted by color and then by size.
+L003 Our office printer jams every Tuesday, which no engineer has ever explained.
+L004 A heron stood in the shallow pond, ignoring the joggers on the gravel path.
+L005 The recipe asks for two cups of flour, a pinch of salt, and some patience.
+L006 Last winter the river froze solid for nine days, a record in this valley.
+L007 He wrote the grant proposal in one night and slept through the next morning.
+L008 Bright yellow kayaks drifted past the lighthouse just after the fog lifted.
+L009 The museum closed its east wing for repairs after a pipe burst in March.
+L010 Please return library books to the slot beside the main entrance door.
+L011 Our neighbor grows tomatoes on the balcony and gives half of them away.
+L012 The quarterly report shows revenue up, but shipping costs rose even faster.
+L013 Thunder rolled across the hills while the dog hid under the kitchen table.
+L014 She tuned the old piano by ear, one string at a time, over three evenings.
+L015 The bakery on Elm Street sells out of rye bread before nine o'clock.
+L016 Volunteers planted forty oak saplings along the edge of the school field.
+L017 My grandfather repaired watches in a tiny shop that smelled of machine oil.
+L018 The committee postponed the vote because two members were stuck in traffic.
+L019 A cold draft came through the attic window that never quite closed.
+L020 Every spring the swallows return to nest under the barn roof.
+L021 The hiking trail climbs steeply for two miles before it reaches the ridge.
+L022 He forgot his umbrella at the station and walked home through the drizzle.
+L023 Our team ships small updates often, because large releases hide bugs.
+L024 The violinist paused mid-phrase when a phone rang in the third row.
+L025 Fresh snow covered the parking lot, erasing every painted line.
+L026 The cat learned to open the pantry door by pulling on the towel.
+L027 Customs officers checked each crate twice before the ship could unload.
+L028 A good map shows what to ignore as clearly as what to notice.
+L029 The night shift nurse wrote neat notes in green ink for the next team.
+L030 Satellite images revealed an old road buried under the desert sand.
+L031 Two cyclists argued politely about the fastest route to the harbor.
+L032 The town hall clock gains a minute every week, so locals ignore it.
+L033 Rain gauges at the airport recorded 41 millimeters in a single hour.
+L034 Her first novel sold poorly, but her second one won a regional prize.
+L035 The ferry crossing takes forty minutes when the wind is from the west.
+L036 Engineers replaced the bridge bearings without closing a single lane.
+L037 A stray kite tangled itself in the power lines above the market.
+L038 The orchestra rehearsed the final movement until the conductor smiled.
+L039 Bees ignored the plastic flowers and went straight for the clover.
+L040 Tomorrow's lecture covers soil chemistry, so bring the lab handbook.
+L041 The tailor measured my sleeves twice and still made them too short.
+L042 Wind turbines on the ridge turned slowly in the evening calm.
+L043 Nobody claimed the blue scarf left on the bench near the fountain.
+L044 The startup moved offices three times before it found a quiet street.
+L045 An old ledger in the archive listed wages paid in salt and grain.
+L046 The chess club meets on Thursdays, and newcomers always play first.
+L047 Fog horns sounded across the bay long before the sun came up.
+L048 The plumber found a wedding ring lodged deep inside the sink trap.
+L049 Students built a small weather station from spare parts and tape.
+L050 The orchard owner tracks frost dates in a notebook going back decades.
+L051 After the storm, the beach was covered in kelp and broken shells.
+L052 My laptop fan screams whenever a video call lasts more than an hour.
+L053 The translator kept a list of words that have no English equivalent.
+L054 A farmers' market opened in the empty lot behind the train depot.
+L055 The lighthouse keeper's log mentions a whale sighting every August.
+L056 Small typos in contracts can cost far more than the paper they sit on.
+L057 The goalkeeper saved a penalty and then slipped in the mud.
+L058 Archivists scanned ten thousand postcards before the funding ran out.
+L059 A quiet room, a clear task, and a deadline make most work easier.
+L060 The prose section ends here; code samples begin on the next line.
+L061 // C#: clamp the frame rate before the encoder starts
+L062 public static int ClampFps(double fps) {
+L063     if (fps < 0.2 || fps > 60) throw new ArgumentOutOfRangeException(nameof(fps));
+L064     return (int)Math.Ceiling(fps);
+L065 }
+L066 var regions = new List<Rectangle> { new Rectangle(0, 0, 1920, 1080) };
+L067 Dictionary<string, int[]> map = new() { ["a"] = new[] { 1, 2, 3 } };
+L068 bool even = (width & 1) == 0 && (height & 1) == 0;
+L069 foreach (var r in regions.Where(x => x.Width > 0)) {
+L070     Console.WriteLine($"Region {r.X},{r.Y} size {r.Width}x{r.Height}");
+L071 }
+L072 string args = string.Join(" ", parts) + " -pix_fmt yuv444p";
+L073 int flags = WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
+L074 Func<int, int, int> gcd = null; gcd = (a, b) => b == 0 ? a : gcd(b, a % b);
+L075 if (list?.Count > 0 && list[0] is Rectangle { Width: > 2 } first) Use(first);
+L076 # Python: count unique frames by hash
+L077 def unique_frames(paths: list[str]) -> dict[str, int]:
+L078     seen: dict[str, int] = {}
+L079     for p in paths:
+L080         h = hashlib.sha256(open(p, "rb").read()).hexdigest()[:16]
+L081         seen[h] = seen.get(h, 0) + 1
+L082     return {k: v for k, v in seen.items() if v >= 1}
+L083 matrix = [[i * j for j in range(4)] for i in range(3)]
+L084 print(f"{len(matrix)=} {matrix[2][3]=}")
+L085 mask = 0b1010 | 0b0101 ^ 0b1111 & ~0b0011
+L086 with open("out.txt", "w", encoding="utf-8") as fh: fh.write("ok\n")
+L087 top5 = lambda xs: sorted(xs, key=lambda t: (t[1], -t[0]))[:5]
+L088 assert {1, 2} <= {1, 2, 3} and [0] * 3 == [0, 0, 0]
+L089 class Frame(NamedTuple): idx: int; pts: float; digest: str
+L090 if not (0 < fps <= 60): raise ValueError(f"fps out of range: {fps}")
+L091 {
+L092   "recorder": {
+L093     "backend": "ddagrab",
+L094     "encoder": "h264_nvenc",
+L095     "fps": 10,
+L096     "region": [120, 80, 1280, 720],
+L097     "chroma": "yuv444p",
+L098     "split_minutes": null,
+L099     "hotkeys": { "select": "Ctrl+Shift+R", "last": "Ctrl+Shift+L" },
+L100     "sounds": true
+L101   }
+L102 }
+L103 # shell: probe the stream and count frames
+L104 ffprobe -v error -count_frames -show_entries stream=nb_read_frames in.mp4
+L105 for f in frames/*.png; do sha256sum "$f"; done | sort | uniq -c -w 64 | head
+L106 grep -E '^L[0-9]{3} ' source.md | wc -l
+L107 find . -name '*.mkv' -size +10M -printf '%s %p\n' | sort -rn > big.txt
+L108 awk -F'|' 'NR > 1 { sum += $3 } END { print sum }' table.txt
+L109 [ -d out ] || mkdir -p out && echo "ready" >> log.txt 2>&1
+L110 export PATH="$HOME/bin:$PATH"; command -v ffmpeg >/dev/null || exit 1
+L111 tar -czf backup-$(date +%Y%m%d).tgz ./test ./tests
+L112 curl -fsS "https://example.com/api?id=42&mode=raw" | jq '.items[] | {id, name}'
+L113 sed -n '121,140p' source.md | cut -d' ' -f2-
+L114 echo $(( (1920 * 1080 * 3) >> 1 )) bytes per 4:2:0 frame
+L115 diff <(sort a.txt) <(sort b.txt) || true
+L116 ls *.mp4 | xargs -n 1 -P 4 -I{} ffprobe -v error -show_format {}
+L117 if [[ $fps -gt 30 ]]; then echo "high rate"; else echo "low rate"; fi
+L118 ffmpeg -i in.mkv -vf mpdecimate -fps_mode vfr -c:v h264_nvenc out.mp4
+L119 case "$1" in start|stop) run "$1" ;; *) echo "usage" >&2 ;; esac
+L120 printf '%05d\n' {1..3} | paste -sd, -
+L121 sha256(apple) = 3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b
+L122 sha256(Zebra) = 459bed2926d04bcded44a8afc5be9567aafd72d7e865775c5f386a72d7ee7c7f
+L123 sha256(recorder) = 93384247058b5e037a16c08536d5a3b3c20453cda6571c7e016942f9f93b274f
+L124 sha256(frame042) = 17951447c1c474fcf5e116bee622aa557a5c33456312afc242a22d1ba49f751e
+L125 sha256(O0O0) = ee4afef9cdda9df41600bb8a0341d9189666132a5a00cc1bc3a58226c368129f
+L126 sha256(Il1l) = 0d5f723b5b8498d02a97a34b470bfdb36728ddde445aeb7931dcfdb73c0b51f0
+L127 sha256(café) = 850f7dc43910ff890f8879c0ed26fe697c93a067ad93a7d50f466a7028a9bf4e
+L128 sha256(naïve) = f86fd89de87a848a45bfe77708d91a5d2ff48b8e4a4b98af5165af82692f8928
+L129 sha256(ddagrab) = aa03aa3b97d45cbc33eeebf511253575e4f48a9a78f9ffbfe1cfd87bd704b41f
+L130 sha256(nvenc) = 6763d40714d583866163d066d1aa3d299e5ca905d40f07abe2599d7ef8112789
+L131 sha256(42) = 73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049
+L132 sha256(yuv444p) = ebd02716a42c4198407db3f9114376ffbdf483d8c313b93bb00c92066eb68016
+L133 sha256(Region) = d3a008ef1335692d9d045175ba9ea1dcd39ae48da9e2043a9baabad6c3818c28
+L134 sha256(scroll) = e16a9d4d1cf9ead81f53e096a680d278908d60574a8d036eda70baede61287b4
+L135 sha256(kitten) = 58972659401cbee9ac0c6f92382c5cabc26bc5ea44ab8902b68c4363672fafb9
+L136 sha256(mpdecimate) = ef2fc5decd1f6121ae7dc242ca3a4293c32c79d15c8ed09c826bd5c05b3e6fc1
+L137 sha256(Tuesday) = 7d8af1de1262f150187d5938bf649d6c35726970685f916d1ec6392a801b9762
+L138 sha256(x) = 2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881
+L139 sha256(rnm) = 0dbeff59989bbb4c6fc684d103576f95d246bf69e4a33a3ae4fc91e60f3a3e32
+L140 sha256(ŁÓDŹ) = 3a3150a121a8515cc710aa07568191dac1b4fbd5e63b4ae00909d8ff0c6ac130
+L141 b64 VGhpcyBpcyBsaW5lIEwxNDEu
+L142 b64 TGluZSBMMTQyIHNheXMgdGhlIGNhcHR1cmUgd29ya2VkLg==
+L143 b64 RGVjb2RlIEwxNDMgYW5kIGNvbXBhcmUgaXQgd2l0aCB0aGUgc291cmNlLg==
+L144 b64 TDE0NDogdGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZy4=
+L145 b64 RnJhbWUgY291bnQgZm9yIEwxNDUgaXMgZm9ydHkgdHdvLg==
+L146 b64 VGFnIEwxNDYgaGlkZXMgaW5zaWRlIHRoaXMgQmFzZTY0IHN0cmluZy4=
+L147 b64 TDE0NyB3YXMgZW5jb2RlZCBvbiBhIHF1aWV0IEZyaWRheS4=
+L148 b64 Q2hlY2sgTDE0OCB0d2ljZTsgdGhlIGxldHRlcnMgbXVzdCBtYXRjaC4=
+L149 b64 U2V2ZW4gYmx1ZSBib3hlcyBzaXQgYmVzaWRlIEwxNDku
+L150 b64 TDE1MCByZWFkczogemVybyBlcnJvcnMgcGxlYXNlLg==
+L151 b64 VGhlIGFuc3dlciBmb3IgTDE1MSBpcyAxNzI5Lg==
+L152 b64 SGVsbG8gZnJvbSBMMTUyLCB0aGUgcmVhZGVyIGZvdW5kIG1lLg==
+L153 b64 TDE1MyBjb250YWlucyBkaWdpdHMgMDEyMzQ1Njc4OS4=
+L154 b64 SWYgeW91IGNhbiByZWFkIEwxNTQsIHRoZSBzY3JvbGwgd2FzIHNsb3cgZW5vdWdoLg==
+L155 b64 TWl4ZWQgQ2FzZSBUZXN0IEZvciBMMTU1IEhlcmUu
+L156 b64 TDE1NiBlbmRzIHdpdGggYSBxdWVzdGlvbiBtYXJrPw==
+L157 b64 Uml2ZXJzIGJlbmQ7IEwxNTcgZG9lcyBub3Qu
+L158 b64 RG8gbm90IHNraXAgTDE1OCBkdXJpbmcgdGhlIHRlc3Qu
+L159 b64 TDE1OTogQUkgcmVhZGVycyBtdXN0IGNvcHkgdGhpcyBleGFjdGx5Lg==
+L160 b64 UGFjayBteSBib3ggd2l0aCBmaXZlIGRvemVuIGp1Z3MgKEwxNjApLg==
+L161 b64 TDE2MSAtLSBkYXNoZXMsIGNvbW1hcywgYW5kIGRvdHMu
+L162 b64 Tm90aGluZyB0byBzZWUgYXQgTDE2MiwgbW92ZSBhbG9uZy4=
+L163 b64 TDE2MyBzaXRzIGJldHdlZW4gdHdvIG90aGVyIEJhc2U2NCBsaW5lcy4=
+L164 b64 Q29mZmVlIGJyZWFrIHNjaGVkdWxlZCBhZnRlciBMMTY0Lg==
+L165 b64 UGFyaXMsIE9zbG8sIExpbWEsIFJvbWU6IEwxNjUu
+L166 b64 RXZlbiBzaXplcyBvbmx5LCBzYXlzIEwxNjYu
+L167 b64 TDE2NyB1c2VzIHBsYWluIEFTQ0lJIHRleHQu
+L168 b64 U2l4dHkgYnl0ZXMgaXMgdGhlIGxpbWl0IG5lYXIgTDE2OC4=
+L169 b64 QWxtb3N0IGRvbmUgd2l0aCBCYXNlNjQgYXQgTDE2OS4=
+L170 b64 RmluYWwgQmFzZTY0IHNhbXBsZSBpcyBMMTcwLg==
+L171 Order ID: O0O-0o0-OO0 (letters O and o, digits 0).
+L172 Serial Il1|-1lI|-|1Il is not a typo.
+L173 The modern barn has a corner room, not a comer room.
+L174 clear vs dear: the clerk said "clear", not "dear".
+L175 vvide vs wide: write "wide" with one w, not "vvide".
+L176 Codes 5S5S, S5S5, 8B8B, B8B8, 2Z2Z, Z2Z2 in that order.
+L177 Sample code: l0Ol1I|oO0 (mixed letters and digits).
+L178 rnicro vs micro: the label says "micro", the typo says "rnicro".
+L179 Batch B-8058-SB2Z shipped to bay 5B, slot 8S.
+L180 burn, bum, barn, bam, corn, com: six different words.
+L181 Path C:\Il1\0O0\rn_m\cl_d.txt
+L182 Hex 0x00B8 is valid; 0xOOB8 with letters O is not.
+L183 Flight IL1O1 departs gate I1 at 10:01.
+L184 "cloud" and "doud" differ; "clip" and "dip" differ too.
+L185 vvorld, world, wvorld: only the second is a real word.
+L186 Variable names: lI1, Il1, l1I, I1l, 1lI, 1Il.
+L187 Model ZZ22-Z2Z2 and model 2Z2Z-22ZZ are different parts.
+L188 S5 S55 SS5 5SS 55S: five tokens, check each one.
+L189 Room 8B8 is next to room B88 and room 88B.
+L190 The rn-m test: "fern" vs "fem", "warn" vs "wam", "turn" vs "tum".
+L191 Ticket #O1l-0Il-o1L waits in queue |A|B|C|.
+L192 "modem" vs "rnodern": the second one is wrong on purpose.
+L193 vv/w test: savvy, wwvv, vwvw, wvwv.
+L194 clam vs dam, clock vs dock, close vs dose.
+L195 Account ref 0O8B-5S2Z-Il1l-rnm0 (test data only).
+L196 Pipe chain: a|l|1|I|b has four pipes.
+L197 Year 2O25 uses a letter O; year 2025 uses a zero.
+L198 BOOK8, B00K8, 8OOKB, 8OOK8: four different strings.
+L199 Ill1t ill-lit lilies lie still in Illinois.
+L200 End of traps: O0Oo0 Il1| rn/m cl/d vv/w 5S 8B 2Z.
+L201 | 17 | apple | 3.50 |
+L202 | 204 | birch | 0.75 |
+L203 | 9 | cobalt | 12.00 |
+L204 | 3310 | delta | 1.05 |
+L205 | 46 | ember | 7.25 |
+L206 | 0 | fjord | 99.99 |
+L207 | 812 | garnet | 4.40 |
+L208 | 57 | harbor | 0.01 |
+L209 | 1024 | iris | 16.00 |
+L210 | 333 | juniper | 2.22 |
+L211 | 76 | kelp | 8.10 |
+L212 | 5 | lantern | 41.30 |
+L213 | 650 | mango | 0.99 |
+L214 | 28 | nickel | 3.14 |
+L215 | 9001 | onyx | 0.50 |
+L216 | 12 | pepper | 6.75 |
+L217 | 480 | quartz | 11.11 |
+L218 | 64 | raven | 2.56 |
+L219 | 3 | saffron | 120.00 |
+L220 | 777 | tundra | 0.07 |
+L221 Café crème, naïve résumé, and a jalapeño piñata: é ï ñ.
+L222 Über München fährt der Zug; Grüße aus Köln: ü ö ä ß.
+L223 El señor Núñez vive en España desde el año 2009.
+L224 Smørrebrød på Østerbro; blåbær og rødgrød: ø å.
+L225 Ça va? Le garçon parle français, s'il vous plaît: ç.
+L226 Straße, Fußball, weiß, heiß: four words with ß.
+L227 Łódź, Gdańsk, Wrocław: ł ó ń in Polish city names.
+L228 Győr and Pécs: Hungarian ő and é; also hős and erős.
+L229 Žižkov, Češka, Šibenik: ž č š in Czech and Croatian.
+L230 Åland, Ærø, Øresund: Nordic letters å æ ø.
+L231 Emoji: 😀 😎 🚀 🎉 ✅ ❌ ⚠️ 🔥
+L232 Flags: 🇩🇪 🇫🇷 🇯🇵 🇧🇷 🇺🇸 🇳🇴 🇵🇱
+L233 ZWJ family: 👨‍👩‍👧‍👦 and 👩‍👩‍👦 and 👨‍👨‍👧
+L234 Skin tones: 👍🏻 👍🏽 👍🏿 👋🏼
+L235 Professions: 👩‍💻 👨‍🚀 🧑‍🍳 👩‍🔬
+L236 Mixed: café ☕, pizza 🍕, sushi 🍣, crêpe 🥞.
+L237 Weather: ☀️ 🌧️ ⛈️ ❄️ 🌈 (sun, rain, storm, snow, rainbow).
+L238 Rainbow flag 🏳️‍🌈 and pirate flag 🏴‍☠️ are ZWJ sequences.
+L239 Ångström, façade, coöperate, rôle, déjà vu, über, Zoë.
+L240 Keycaps: 1️⃣ 2️⃣ 3️⃣ #️⃣ and hearts ❤️ 💙 💚.
+L241 Red alert: the encoder queue is full at 31 frames.
+L242 if (queue.Count > 30) DropOldest(queue);
+L243 Blue text is harder to read in 4:2:0, so we test it here.
+L244 color = {"r": 220, "g": 40, "b": 40}
+L245 Green means the capture is healthy and on time.
+L246 assert fps_real >= 0.98 * fps_set, "dropped frames"
+L247 Magenta lines often blur when the chroma is subsampled.
+L248 const hue = (index * 60) % 360; // cycle six colors
+L249 Orange warnings appear when CPU use passes 80 percent.
+L250 SELECT tag, COUNT(*) FROM reads WHERE ok = 0 GROUP BY tag;
+L251 Teal is the last color in the cycle before red returns.
+L252 <span class="warn">disk almost full</span>
+L253 Syntax highlighting turns keywords purple and strings green.
+L254 for i in range(241, 271): print(f"L{i:03d}")
+L255 The colored block tests yuv420p against yuv444p.
+L256 let ok = frames.every(f => f.unique && !f.late);
+L257 Thin red strokes lose detail first when color is halved.
+L258 #define MAX_REGION (7680 * 4320)
+L259 Read this sentence slowly and copy every comma, colon; and dash.
+L260 git log --oneline --graph | head -n 12
+L261 Green on white has low luminance contrast, so watch the edges.
+L262 var total = items.Sum(i => i.Price * i.Qty);
+L263 Thin strokes in letters such as f, j, and t blur easily.
+L264 x = [0xFF, 0x80, 0x00]  # orange in RGB
+L265 Teal digits: 3.14159 2.71828 1.41421 1.61803
+L266 fn main() { println!("color test {}", 42); }
+L267 Magenta brackets: ( ) [ ] { } < > must survive.
+L268 if [ "$CHROMA" = "444" ]; then echo full; fi
+L269 Orange URL: https://example.org/color?mode=444&fps=10
+L270 End of the colored block; black text returns next.
+L271 The parser reads each tag, then compares the rest of the line.
+L272 cer = edits / max(1, len(reference))
+L273 Our baseline run used gdigrab at 2 fps and lost many lines.
+L274 ffmpeg -f lavfi -i ddagrab=framerate=30 -c:v h264_nvenc out.mkv
+L275 A scroll at 1000 px/s moves 100 px between frames at 10 fps.
+L276 gap = speed / fps > region_h - 2 * line_h
+L277 Two readers copied the same video and disagreed on 3 lines.
+L278 public record Score(int Caught, double Cer, double Wer);
+L279 Keep the font at 100 percent unless the run says otherwise.
+L280 { "run": "B12", "mode": "changes-only", "mb_per_min": 1.8 }
+L281 Duplicate frames waste bytes but do not lose text.
+L282 while read -r tag rest; do echo "$tag"; done < source.md
+L283 The region selector snaps width and height to even numbers.
+L284 width -= width % 2; height -= height % 2;
+L285 Variable frame rate saves space when the screen is still.
+L286 dups = total - len(set(hashes))
+L287 A missed line is worse than a misread character.
+L288 echo "L$(printf '%03d' 289)"
+L289 Only the Zalgo line below may fail without failing the test.
+L290 Z̫̾͋̀a̟̅l̾̎̆̏gͮ͒͢ͅõ̬̼: h̦̐̿eͨ́ c͈ͣͮ͟o̢̝̓ṃ̦͂͡e͍̪̗ͥs̵̉͆ t̓͜o͙ͣ̌ t̵̎ę̸̆̉s͙͓̔͒t̅͟ t̫ͫ͞h̵͓e̡̖̍͘ r̡͒̀e̜͖ͣã̷d̬̓e̙͛ͣ̕r̞̟̗̈́
+L291 Release 2.4.1 shipped on 2026-11-14 at 09:30 UTC.
+L292 Docs: https://getsharex.com/docs/region-capture (read 2026-11-14).
+L293 Invoice 2026-0457 totals $1,284.50, due 30 Dec 2026.
+L294 Pi to ten places is 3.1415926535; e is 2.7182818284.
+L295 The meeting moved from 14:00 to 15:45 on Friday, 20 Nov 2026.
+L296 Mirror: http://mirror.example.net/pub/v1.0/files?id=7&lang=en
+L297 Population grew from 48,210 in 1990 to 61,975 in 2020.
+L298 Phone support (fake): +44 20 7946 0958, ext. 312.
+L299 The test ran 14 times; 13 passed and 1 timed out after 600 s.
+L300 This is the last line. Thank you for reading every frame.
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  var SPEEDS = [200, 500, 1000, 2000, 3000];
+  var FONTS = [100, 125, 150];
+  var DELAYS = [0, 3, 5, 10];
+  var BASE_FONT_PX = 16;
+  var COLOR_FIRST = 241;
+  var COLOR_LAST = 270;
+  var COLOR_COUNT = 6;
+
+  var body = document.body;
+  var textEl = document.getElementById("text");
+  var speedEl = document.getElementById("speed");
+  var fontEl = document.getElementById("font");
+  var delayEl = document.getElementById("delay");
+  var infoEl = document.getElementById("info");
+  var countdownEl = document.getElementById("countdown");
+  var endStatsEl = document.getElementById("endstats");
+
+  // State: "idle", "counting", "running" or "ended".
+  var state = "idle";
+  var rafId = 0;
+  var timerId = 0;
+  var t0 = 0;          // performance.now() at scroll start, in ms
+  var distance = 0;    // total scroll distance, in CSS px
+  var frames = 0;      // number of animation frames drawn while scrolling
+  var speed = 1000;    // px/s, fixed at start
+
+  // ---- Build one element for each line of the source text. ----
+  function loadLines() {
+    var raw = document.getElementById("source").textContent;
+    raw = raw.replace(/\r\n?/g, "\n");
+    var lines = raw.split("\n");
+    // Remove the empty lines that the script tags add at the start and the end.
+    while (lines.length && lines[0] === "") lines.shift();
+    while (lines.length && lines[lines.length - 1] === "") lines.pop();
+
+    var frag = document.createDocumentFragment();
+    lines.forEach(function (line) {
+      var div = document.createElement("div");
+      div.className = "ln";
+      div.textContent = line;
+      var m = /^L(\d{3}) /.exec(line);
+      if (m) {
+        var n = parseInt(m[1], 10);
+        div.setAttribute("data-tag", "L" + m[1]);
+        if (n >= COLOR_FIRST && n <= COLOR_LAST) {
+          div.classList.add("c" + ((n - COLOR_FIRST) % COLOR_COUNT));
+        }
+      }
+      frag.appendChild(div);
+    });
+    textEl.appendChild(frag);
+    return lines.length;
+  }
+
+  // ---- URL hash: read and write the settings. ----
+  function pick(value, allowed, fallback) {
+    // Number(null) and Number("") give 0. Do not accept them as a value.
+    if (value === null || value === "") return fallback;
+    var n = Number(value);
+    return allowed.indexOf(n) >= 0 ? n : fallback;
+  }
+
+  function readHash() {
+    var params = new URLSearchParams(location.hash.replace(/^#/, ""));
+    speedEl.value = String(pick(params.get("speed"), SPEEDS, Number(speedEl.value)));
+    fontEl.value = String(pick(params.get("font"), FONTS, Number(fontEl.value)));
+    delayEl.value = String(pick(params.get("delay"), DELAYS, Number(delayEl.value)));
+  }
+
+  function writeHash() {
+    var h = "#speed=" + speedEl.value + "&font=" + fontEl.value + "&delay=" + delayEl.value;
+    if (location.hash !== h) history.replaceState(null, "", h);
+  }
+
+  function applyFont() {
+    var px = BASE_FONT_PX * Number(fontEl.value) / 100;
+    document.documentElement.style.setProperty("--base-font", px + "px");
+  }
+
+  // ---- Position. Round to whole device pixels to keep the text sharp. ----
+  function setOffset(px) {
+    var dpr = window.devicePixelRatio || 1;
+    var y = Math.round(px * dpr) / dpr;
+    textEl.style.transform = "translateY(" + (-y) + "px)";
+  }
+
+  function setState(next) {
+    body.classList.remove("idle", "counting", "running", "ended");
+    body.classList.add(next);
+    state = next;
+  }
+
+  // ---- Scroll loop. The position comes from elapsed real time only. ----
+  function tick(now) {
+    var pos = (now - t0) / 1000 * speed;
+    frames++;
+    if (pos >= distance) {
+      setOffset(distance);
+      finish(now);
+      return;
+    }
+    setOffset(pos);
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function beginScroll() {
+    setState("running");
+    // Total distance: the first line starts at the bottom edge,
+    // and the last line leaves at the top edge.
+    distance = textEl.offsetHeight - window.innerHeight;
+    frames = 0;
+    rafId = requestAnimationFrame(function (now) {
+      t0 = now;
+      setOffset(0);
+      rafId = requestAnimationFrame(tick);
+    });
+  }
+
+  function finish(now) {
+    var seconds = (now - t0) / 1000;
+    var avg = seconds > 0 ? distance / seconds : 0;
+    var fps = seconds > 0 ? frames / seconds : 0;
+    endStatsEl.textContent =
+      "Average speed " + avg.toFixed(1) + " px/s (target " + speed + " px/s). " +
+      "Distance " + distance + " px in " + seconds.toFixed(3) + " s. " +
+      "Browser frames " + frames + " (" + fps.toFixed(1) + " per s). Font " + fontEl.value + "%.";
+    setState("ended");
+  }
+
+  function start() {
+    if (state === "counting" || state === "running") return;
+    stopTimers();
+    applyFont();
+    writeHash();
+    setOffset(0);
+    speed = Number(speedEl.value);
+    var delay = Number(delayEl.value);
+    if (delay <= 0) {
+      beginScroll();
+      return;
+    }
+    setState("counting");
+    var left = delay;
+    countdownEl.textContent = String(left);
+    timerId = setInterval(function () {
+      left--;
+      if (left <= 0) {
+        clearInterval(timerId);
+        timerId = 0;
+        countdownEl.textContent = "";
+        beginScroll();
+      } else {
+        countdownEl.textContent = String(left);
+      }
+    }, 1000);
+  }
+
+  function stopTimers() {
+    if (rafId) cancelAnimationFrame(rafId);
+    if (timerId) clearInterval(timerId);
+    rafId = 0;
+    timerId = 0;
+  }
+
+  function reset() {
+    stopTimers();
+    setOffset(0);
+    countdownEl.textContent = "";
+    setState("idle");
+  }
+
+  // ---- Events. ----
+  document.getElementById("start").addEventListener("click", function (e) {
+    e.currentTarget.blur();
+    start();
+  });
+  document.getElementById("reset").addEventListener("click", function (e) {
+    e.currentTarget.blur();
+    reset();
+  });
+  [speedEl, fontEl, delayEl].forEach(function (el) {
+    el.addEventListener("change", function () {
+      applyFont();
+      writeHash();
+      el.blur();
+    });
+  });
+  window.addEventListener("hashchange", function () {
+    if (state === "idle" || state === "ended") {
+      readHash();
+      applyFont();
+    }
+    // Show the settings that are in use. This also removes values that are not valid.
+    writeHash();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.target && e.target.tagName === "SELECT") return;
+    if (e.code === "Space" || e.key === " ") {
+      e.preventDefault();
+      if (state === "counting" || state === "running") reset();
+      else start();
+    } else if (e.key === "r" || e.key === "R") {
+      e.preventDefault();
+      reset();
+    }
+  });
+
+  // ---- Start-up. ----
+  var count = loadLines();
+  readHash();
+  applyFont();
+  writeHash();
+  setState("idle");
+  infoEl.textContent = count + " lines loaded.";
+})();
+</script>
+</body>
+</html>

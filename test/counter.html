@@ -1,0 +1,197 @@
+<!doctype html>
+<!--
+counter.html - frame counter for the capture-rate test (HANDOFF.md 6.2).
+
+The page counts requestAnimationFrame (rAF) callbacks. On each callback it
+increments the counter and draws the counter in two forms:
+  1. A bar code strip near the top of the page (machine-readable).
+  2. A large decimal number (human-readable).
+frames.py --counter reads the bar code in each video frame.
+
+URL options:
+  ?freeze=N   Show the value N and do not count. Use it to test the decoder
+              with a screenshot.
+  ?start=N    Start the counter at N (default 0).
+Keys: R sets the counter and the statistics to zero.
+
+BAR CODE FORMAT (version 1). frames.py uses the same format.
+  - Colors: black (#000) and white (#fff) only. Black = 1. White = 0.
+  - Grid: 33 columns. Cell size C = integer device pixels, the same for
+    width and height. C = min(floor(W / 35), floor(H / 5)), where W x H is
+    the strip canvas in device pixels. The grid is centered in the canvas.
+    The canvas is white, so a white quiet zone of at least 1 cell surrounds
+    the grid on all sides.
+  - Rows (top to bottom):
+      Clock band, 1 cell high: column k is black when k is even.
+        It starts and ends with a black cell. The decoder measures the
+        edge of each cell from this band.
+      Data band, 2 cells high, directly below the clock band:
+        columns 0-3   left guard   B W W B
+        columns 4-27  24 data bits, Gray code of the value, most
+                      significant bit first (column 4 = bit 23)
+        column  28    parity: black when the count of 1 bits in the
+                      Gray code is odd (even parity over columns 4-28)
+        columns 29-32 right guard  B B W B
+  - Gray code: g = v XOR (v >> 1), with v = counter mod 2^24.
+    Decode: v = g XOR (g >> 1) XOR (g >> 2) XOR ... .
+  - The left guard has two white cells next to each other. Thus the data
+    band can never look like the clock band.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frame Counter</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #fff; color: #000; overflow: hidden; }
+  body { font-family: Consolas, "Courier New", monospace; }
+  #strip { display: block; width: 100%; aspect-ratio: 7 / 1; background: #fff; }
+  #num { font-size: 18vw; line-height: 1; text-align: center; font-weight: 700;
+         font-variant-numeric: tabular-nums; margin-top: 2vh; }
+  #info { font-size: 2.2vw; text-align: center; margin-top: 2vh; white-space: pre; }
+</style>
+</head>
+<body>
+<canvas id="strip"></canvas>
+<div id="num">0</div>
+<div id="info">starting</div>
+<script>
+"use strict";
+(function () {
+  var COLS = 33;
+  var MOD = 16777216; // 2^24
+  var LEFT = [1, 0, 0, 1];
+  var RIGHT = [1, 1, 0, 1];
+
+  var params = new URLSearchParams(location.search);
+  // Reduce each value to 0 .. 2^24-1. Then the number and the bar code
+  // always show the same value. A value that is not a number gives 0.
+  function norm(text) {
+    var n = parseInt(text, 10);
+    if (!isFinite(n)) n = 0;
+    return ((n % MOD) + MOD) % MOD;
+  }
+  var freeze = params.has("freeze") ? norm(params.get("freeze")) : null;
+  var counter = params.has("start") ? norm(params.get("start")) : 0;
+
+  var canvas = document.getElementById("strip");
+  var ctx = canvas.getContext("2d", { alpha: false });
+  var numEl = document.getElementById("num");
+  var infoEl = document.getElementById("info");
+
+  var devW = 0, devH = 0;
+
+  // Get the canvas size in real device pixels. This prevents scaled, blurred cells.
+  function applySize(w, h) {
+    w = Math.max(1, Math.round(w));
+    h = Math.max(1, Math.round(h));
+    if (w !== devW || h !== devH) {
+      devW = w; devH = h;
+      canvas.width = w; canvas.height = h;
+    }
+  }
+  function fallbackSize() {
+    var r = canvas.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    applySize(r.width * dpr, r.height * dpr);
+  }
+  // Use the device-pixel box when the browser supports it. Else use the
+  // CSS size x devicePixelRatio and the resize event.
+  var exact = false;
+  if (typeof ResizeObserver !== "undefined") {
+    var ro = new ResizeObserver(function (entries) {
+      var e = entries[0];
+      if (e.devicePixelContentBoxSize && e.devicePixelContentBoxSize[0]) {
+        exact = true;
+        applySize(e.devicePixelContentBoxSize[0].inlineSize, e.devicePixelContentBoxSize[0].blockSize);
+      } else {
+        fallbackSize();
+      }
+    });
+    try { ro.observe(canvas, { box: "device-pixel-content-box" }); }
+    catch (err) { ro.observe(canvas); }
+  }
+  window.addEventListener("resize", function () { if (!exact) fallbackSize(); });
+  fallbackSize();
+
+  function cellsFor(value) {
+    var v = ((value % MOD) + MOD) % MOD;
+    var g = (v ^ (v >>> 1)) >>> 0;
+    var cells = LEFT.slice();
+    var ones = 0;
+    for (var b = 23; b >= 0; b--) {
+      var bit = (g >>> b) & 1;
+      ones += bit;
+      cells.push(bit);
+    }
+    cells.push(ones & 1);
+    return cells.concat(RIGHT);
+  }
+
+  function drawStrip(value) {
+    var c = Math.min(Math.floor(devW / 35), Math.floor(devH / 5));
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, devW, devH);
+    if (c < 1) return;
+    var x0 = Math.floor((devW - COLS * c) / 2);
+    var y0 = Math.floor((devH - 3 * c) / 2);
+    var cells = cellsFor(value);
+    ctx.fillStyle = "#000";
+    for (var k = 0; k < COLS; k++) {
+      var x = x0 + k * c;
+      if (k % 2 === 0) ctx.fillRect(x, y0, c, c);            // clock band
+      if (cells[k]) ctx.fillRect(x, y0 + c, c, 2 * c);       // data band
+    }
+  }
+
+  // Statistics of rAF intervals.
+  var last = null;
+  var recent = [];       // last intervals in ms
+  var late = 0;
+  var callbacks = 0;
+  var startTime = null;
+
+  function median(a) {
+    if (!a.length) return 0;
+    var s = a.slice().sort(function (x, y) { return x - y; });
+    var m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+
+  function reset() {
+    counter = 0; last = null; recent = []; late = 0; callbacks = 0; startTime = null;
+  }
+  window.addEventListener("keydown", function (e) {
+    if (e.key === "r" || e.key === "R") reset();
+  });
+
+  function frame(t) {
+    if (startTime === null) startTime = t;
+    callbacks++;
+    if (last !== null) {
+      var dt = t - last;
+      var med = median(recent);
+      // Count a callback as late when its gap is more than 1.5 x the median gap.
+      if (recent.length >= 30 && dt > 1.5 * med) late++;
+      recent.push(dt);
+      if (recent.length > 240) recent.shift();
+    }
+    last = t;
+
+    var value = freeze !== null ? freeze : counter;
+    drawStrip(value);
+    numEl.textContent = String(value);
+    var med2 = median(recent);
+    var hz = med2 > 0 ? (1000 / med2) : 0;
+    infoEl.textContent =
+      "refresh " + hz.toFixed(1) + " Hz   late " + late +
+      "   callbacks " + callbacks + "   time " + ((t - startTime) / 1000).toFixed(1) + " s" +
+      (freeze !== null ? "   FROZEN" : "");
+    if (freeze === null) counter = (counter + 1) % MOD;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

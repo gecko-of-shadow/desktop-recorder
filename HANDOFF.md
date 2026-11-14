@@ -1,0 +1,254 @@
+# HANDOFF: Desktop Recorder rebuild
+
+Date: 2026-11-14. Repository: `gecko-of-shadow/desktop-recorder` (public). Owner: Bran.
+
+Write all replies, notes and commit messages in ASD-STE100 (Simplified Technical English), in full.
+
+---
+
+## 1. Goal
+
+Rebuild Desktop Recorder. The app records the screen so that an AI model can read the video. The AI takes frames out of the video and reads the text in each frame.
+
+The new app must:
+
+1. Let the user select the part of the screen to record, like the ShareX region selector.
+2. Capture the real frame rate that the user sets. It must not drop frames.
+3. Keep text sharp enough for an AI to read each character.
+4. Keep files small.
+
+A test proves points 2 to 4. Section 6 gives the test.
+
+---
+
+## 2. Current app (checked in the code on 2026-11-14)
+
+- C# WinForms on .NET Framework 4. `build.cmd` compiles it with the `csc.exe` that ships with Windows. No NuGet packages.
+- Files: `DesktopRecorder.cs` (UI and tray), `RecorderCore.cs` (settings and FFmpeg arguments), `RecordingSession.cs` (FFmpeg process), `tests/CoreTests.cs`.
+- A Linux port is in `linux/` (Python, GTK). Do not change the Linux port in this task.
+- `RecorderCore.BuildWindowsArguments` builds this FFmpeg command:
+  - Capture: `gdigrab`, input `desktop`. It records all monitors as one picture. It has no region option.
+  - Encoder: `libx264`, `-preset medium`, `-tune stillimage`, `-pix_fmt yuv420p`.
+  - Quality: CRF 32 (Smallest files), 27 (Balanced), 21 (Sharpest text).
+  - Threads: `ceil(fps)`, from 1 to 16. At 4 fps, x264 gets 4 threads.
+  - Output: fragmented MP4. Optional split with the segment muxer.
+- Default fps in the README: 2. Range: 0.2 to 60.
+- The code has no DPI awareness call and no app manifest.
+
+---
+
+## 3. Problems found
+
+### 3.1 From the Grok test (results NOT checked by Claude)
+
+Bran ran a read test with a Grok bot. Bran recorded a scrolling Markdown file (`ai_tokenization_parsing_anomalies.md`, 269 lines) and Grok read the frames.
+
+| fps | Quality | Lines caught | Word errors |
+|---|---|---|---|
+| 4 | Smallest | 85% | 0.2% |
+| 4 | Balanced | 67% | 9.4% |
+| 4 | Sharpest | 67% | 8.0% |
+| 10 | Smallest | 100% | 1.5% |
+| 10 | Balanced | 99% | 2.4% |
+| 10 | Sharpest | 100% | 0% |
+
+Grok reported these points:
+
+- At 10 fps, many frames were exact copies of the frame before. The real rate was about 5 fps during fast scrolling.
+- At 4 fps, the scroll moved one screen or more between two frames. Text was lost.
+- Quality changed only look-alike characters: 0/O and 1/l/I.
+
+Flaws in that test:
+
+- The scroll speed was different between the 4 fps runs and the 10 fps runs.
+- Grok found the quality setting of the 10 fps videos from the file size only.
+- Different line splits made some scores unreliable.
+
+### 3.2 Probable causes in the code (UNVERIFIED, test them)
+
+- **Dropped frames.** `gdigrab` uses GDI BitBlt. It is slow on a large desktop. `libx264 -preset medium` is also slow. When a frame is late, FFmpeg repeats the last frame. This gives the "copies of the frame before".
+- **Blur on colored text.** `yuv420p` stores color at half resolution. Colored text and syntax highlighting get soft edges.
+- **Wasted pixels.** The app records all monitors. The text that the user wants is a small part of each frame.
+- **DPI.** Without DPI awareness, a region selector gets wrong coordinates on a monitor scaled above 100%.
+
+---
+
+## 4. Requirements for the new app
+
+### 4.1 Region selector (based on ShareX region capture)
+
+ShareX features to copy (source: getsharex.com docs and changelog):
+
+- Click a window or a control that the selector detects, to capture that item.
+- Drag a rectangle.
+- Magnifier near the cursor, for exact positions.
+- Arrow keys move the cursor 1 px. Shift + arrow keys move it 10 px.
+- Shift while dragging keeps a square. Ctrl while dragging moves the selection.
+- Space selects the full screen. `~` selects the active monitor.
+- "Last region" records the same area again.
+- Option: show the position and size of the selection.
+- Option: screen-wide crosshair.
+- Option: dim the area outside the selection.
+- ShareX ignores tool windows that cannot be activated during window detection.
+
+Behavior of the new selector:
+
+1. The hotkey opens the selector. A second hotkey ("record last region") skips the selector.
+2. The selector is one borderless, topmost form that covers `SystemInformation.VirtualScreen` (all monitors).
+3. The selector freezes a screenshot of the desktop and shows it dimmed. The selected area shows at full brightness.
+4. On hover, the selector draws a border around the window under the cursor.
+   - Get windows in Z-order with `EnumWindows`.
+   - Get the real bounds with `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)`. `GetWindowRect` includes the invisible shadow border.
+   - Skip windows that are not visible, minimized, cloaked (`DWMWA_CLOAKED`), tool windows, and the selector itself.
+   - Optional: detect child controls with `ChildWindowFromPointEx`.
+5. Click = select the highlighted window. Drag = select a rectangle.
+6. After the selection, the user can move and resize it with handles and arrow keys. Enter or double-click starts the recording. Esc cancels.
+7. Show the size in px next to the selection. Make the width and the height even numbers, because H.264 needs even sizes.
+8. Show the magnifier (for example 10x10 px enlarged 8 times) next to the cursor.
+9. Save the last region in the settings file.
+10. Make the process per-monitor DPI aware (app manifest or `SetProcessDpiAwarenessContext`). Use physical pixels everywhere.
+
+### 4.2 Frame during recording
+
+- Show a thin colored border around the recorded region. Put the border OUTSIDE the region so that it is not in the video.
+- Make the border windows click-through: `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`.
+- Also call `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` on the border windows (Windows 10 2004 and later). UNVERIFIED: that `gdigrab` and `ddagrab` respect this flag. Test it.
+- Show a small Stop button below the region. Exclude it from capture the same way.
+
+### 4.3 Capture and encoding
+
+Make the capture backend a setting, so the test can compare the backends:
+
+| Backend | FFmpeg input | Notes |
+|---|---|---|
+| A (old) | `gdigrab` with `-offset_x`, `-offset_y`, `-video_size` | CPU capture. Keep as fallback. |
+| B (new) | `ddagrab` (Desktop Duplication API) with `output_idx`, `offset_x`, `offset_y`, `video_size`, `framerate` | GPU capture. Needs FFmpeg 6.0 or later. ShareX added ddagrab support. A region must stay on one monitor. |
+
+Encoders:
+
+- Default: `h264_nvenc` (Bran has an NVIDIA GPU). Keep `libx264` as fallback when NVENC is not available.
+- Test `yuv420p` against `yuv444p` (H.264 High 4:4:4). UNVERIFIED: some browsers and players cannot play 4:4:4. FFmpeg can read it.
+- With `libx264`, test a faster preset (`veryfast`) against `medium`.
+
+Frame-rate modes:
+
+- **Fixed:** the current behavior.
+- **Changes only (test this):** capture at a high rate (for example 15 or 30 fps) and drop frames that do not change, with the `mpdecimate` filter and `-fps_mode vfr`. A still screen costs almost nothing. A fast scroll keeps all frames. UNVERIFIED: that every AI frame tool handles variable frame rate correctly.
+
+Other rules:
+
+- Never scale the picture down.
+- Keep the fragmented MP4 output, so a killed recording stays playable.
+- Keep all current settings: folder, hotkey, sounds, clipboard copy, split, start with Windows.
+- Add a status line after each recording: real frames captured, duplicate frames, file size. FFmpeg can report duplicate frames (`dup=`) in its stats.
+
+---
+
+## 5. Decisions (Bran answered on 2026-11-14)
+
+1. Platform: stay on .NET Framework 4 with `csc.exe` and `build.cmd`. No NuGet. No .NET 8.
+2. Window selection: version 1 records the fixed rectangle only. The recording does not follow a window that moves.
+3. Default frame-rate mode: "Fixed" stays the default. Decide about "Changes only" after Phase B (run B12).
+
+---
+
+## 6. Test plan
+
+### 6.1 Test kit to build
+
+1. **Source text** (`test/source.md`, about 300 lines). Each line starts with a tag `L001` to `L300`. Content:
+   - Plain prose.
+   - Code with `{}[]<>|`.
+   - SHA-256 hashes and Base64 lines. The reader can decode them to check the copy.
+   - Look-alike traps: `O0Oo0`, `Il1|`, `rn` and `m`.
+   - A table, accented letters, emoji, one line of Zalgo text.
+   - Some lines in colored text (to test 4:2:0 against 4:4:4).
+2. **Auto-scroll page** (`test/scroll.html`, one self-contained file). It shows the source text and scrolls at a fixed speed in px/s. Controls: speed (200, 500, 1000, 2000 px/s), font size (100%, 125%, 150%), start delay.
+3. **Frame-counter page** (`test/counter.html`). It shows a large frame number that changes on each display refresh, and a binary bar code of the same number. It measures the real capture rate without an AI.
+4. **Scoring script** (`test/score.py`). Input: the source file and the AI copy. Output: lines caught, character error rate, word error rate, and a list of missed line tags. Match lines by tag, so line splits do not matter.
+5. **Frame script** (`test/frames.py`). Input: a video. Output: total frames, unique frames (by hash), duplicate frames, real fps, and PNG files of the unique frames.
+
+### 6.2 Phase A: capture rate (no AI)
+
+Record `counter.html` for 10 s at each setting. Count the unique frame numbers in the video.
+
+| Run | Backend | Encoder | fps |
+|---|---|---|---|
+| A1 | gdigrab | libx264 medium | 10 |
+| A2 | gdigrab | libx264 veryfast | 10 |
+| A3 | gdigrab | h264_nvenc | 10 |
+| A4 | ddagrab | h264_nvenc | 10 |
+| A5 | ddagrab | h264_nvenc | 30 |
+| A6 | best of A1 to A5 | | 10, region only |
+
+Pass: unique frames are 98% or more of the expected frames.
+
+### 6.3 Phase B: AI read test
+
+Record `scroll.html`. The AI reads the unique frames and writes a copy. `score.py` scores the copy.
+
+Keep the font at 100% and the speed at 1000 px/s unless the row says something different.
+
+| Run | Variable | Values |
+|---|---|---|
+| B1 to B4 | fps (best backend, 4:2:0) | 4, 6, 10, 15 |
+| B5 to B7 | scroll speed (best fps) | 500, 2000, 3000 px/s |
+| B8 | chroma | 4:4:4 |
+| B9 to B11 | quality (NVENC CQ) | 3 levels |
+| B12 | frame-rate mode | Changes only |
+| B13 | font size | 125% |
+| B14 | baseline | old app, old settings |
+
+Record these values for each run: real fps, lines caught, character error rate, word error rate, MB per minute, CPU %.
+
+Rule to check: a gap occurs when (scroll speed ÷ real fps) is more than (region height − 2 lines). If the data follows this rule, the app can show the lowest safe fps for a scroll speed.
+
+Pass for the final default: 100% of lines caught, 0 errors outside the Zalgo line, at 1000 px/s.
+
+---
+
+### 6.4 Test kit limits (found by the test agents on 2026-11-14)
+
+- `scroll.html` speed is in CSS px/s. At 125% Windows scaling, 1000 px/s moves 1250 physical px/s. Convert with the DPI scale before you use the gap rule in 6.3.
+- `scroll.html` cuts long lines in a narrow window. Minimum window width in CSS px: 824 (font 100%), 1040 (125%), 1184 (150%).
+- Flag emoji on L232 show as letter pairs on Windows. The AI copy can contain letter pairs there.
+- `frames.py --threshold` is not reliable on lossy video. Use exact mode (default) for Phase B.
+- `score.py`: tell the AI not to add table headers or notes that start with a tag.
+
+## 7. Tracker
+
+| Item | Status |
+|---|---|
+| Research ShareX region capture | Done |
+| Read current code | Done |
+| Test kit (6.1) | Done. Self-tests pass on Bran's PC (score 28/28, frames 70/70). No real recording yet. |
+| Phase A test | Not done |
+| Region selector | Not done |
+| Recording frame | Not done |
+| ddagrab + NVENC backend | Not done |
+| "Changes only" mode | Not done |
+| Phase B test | Not done |
+| README update | Not done |
+
+Mark an item "checked" only after a run on Bran's PC. Mark all other claims UNVERIFIED.
+
+---
+
+## 8. Rules for the agent
+
+- Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.
+- Never delete a file, branch or other item without Bran's approval. Ask once, near the end, with a list.
+- FFmpeg encodes: use `h264_nvenc` or `hevc_nvenc`. Use `libx264` only as the fallback in the app or when Bran asks.
+- Never write a token or password in output. Use a placeholder.
+- Do not weaken Windows security. Do not suggest turning off Defender or Controlled Folder Access.
+- Write commit messages from a file, in STE100.
+- Keep the Linux port working. Do not change files in `linux/`.
+
+---
+
+## 9. Sources
+
+- ShareX region capture docs: https://getsharex.com/docs/region-capture
+- ShareX changelog (ddagrab support, region options): https://getsharex.com/changelog
+- ShareX screen recording guide: https://getsharex.com/blog/how-to-record-screen-windows/
+- ShareX feature list: https://getsharex.com/
