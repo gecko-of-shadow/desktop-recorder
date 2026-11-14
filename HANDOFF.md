@@ -258,7 +258,24 @@ Conclusion:
 1. At 10 fps on this PC, no backend dropped frames. The cause of the Grok "copies of the frame before" result is still unknown. Possible causes (not checked): encoder load during a scroll, the old full-desktop capture, or the browser that did not repaint during the scroll.
 2. Recommended backend for the app: `ddagrab` + `h264_nvenc`. All five runs tie on capture rate. The choice rests on two weaker points: the lowest CPU (0.3%, under light load), and A5, which kept 30 fps with no loss. Keep `gdigrab` + `h264_nvenc` as the fallback (0.9% CPU, no loss at 10 fps). Keep `libx264 veryfast` as the fallback when NVENC is not available.
 3. Backend for A6: `ddagrab` + `h264_nvenc` (A4 settings). A1 to A5 already used one region (1920x912, nearly the full monitor). Thus A6 with a smaller region adds little on this PC.
-4. Follow-up (not done): a scroll stress run. Record `scroll.html` at 2000 px/s with A1 settings and with A4 settings. Then run `frames.py` (exact mode). Each captured frame must be unique. This checks the encoder load.
+4. Scroll stress run: done. See 6.6.
+
+### 6.6 Scroll stress run (run on Bran's PC on 2026-11-14)
+
+Goal: check the encoder load when every pixel changes. The counter page (6.5) did not give this load.
+
+Setup (checked): `scroll.html#speed=2000&font=100&delay=0` in a maximized Chrome window. Same region as 6.5 (x 0, y 108, 1920x912). 2000 CSS px/s = 2500 physical px/s at 125%. 10 s recordings at 10 fps. The scroll started about 1 s after FFmpeg started and lasted about 4 s. After that, the page stood still. A background workflow (code agents, `csc` builds) was active on the PC during the runs.
+
+| Run | Settings | Frames | Unique frames, threshold 0.1 | Duplicates during the scroll | MB (10 s) | CPU % |
+|---|---|---|---|---|---|---|
+| S1 | A1: gdigrab + libx264 medium, CRF 27 | 100 | 40 (frames 0, 11 to 49) | 0 | 2.355 | 3.0 |
+| S2 | A4: ddagrab + h264_nvenc, CQ 23 | 100 | 41 (frames 0, 9 to 47, and 73) | 0 | 3.075 | 0.3 |
+
+Result: both settings captured every frame during the scroll (39 unique frames in a row each). Each frame moved about 250 physical px, so a lost capture would show as a pair of equal frames. The Grok result "copies of the frame before" (3.1) did not occur on this PC with these settings. Frame 73 in S2 is a small encoder change on a still page, not a scroll frame.
+
+New test kit limit (checked): `frames.py` exact mode (the default) counts still frames after motion as unique. Both encoders keep refining a still picture, so the decoded frames are not bit-identical. Exact mode gave 60 (S1) and 99 (S2) unique frames for the same videos. Thus exact mode can only over-count unique frames. It never hides a lost frame. For Phase B this means extra frames for the AI to read, not missed text. For a count of real changes, use `--threshold 0.1`.
+
+Not checked: why the old app gave copies in the Grok test. Possible causes: the old full-desktop capture, a different monitor setup at the time of that test, a different scroll method, or the Grok frame count itself.
 
 ## 7. Tracker
 
@@ -267,7 +284,7 @@ Conclusion:
 | Research ShareX region capture | Done |
 | Read current code | Done |
 | Test kit (6.1) | Done. Self-tests pass on Bran's PC (score 28/28, frames 70/70). `frames.py --counter` read real recordings in Phase A (0 failed frames). `scroll.html` and `score.py`: no real recording yet. |
-| Phase A test | A1 to A5 checked on Bran's PC (all PASS, see 6.5). A6 not done. 6.5 recommends a scroll stress run in place of A6. |
+| Phase A test | A1 to A5 checked on Bran's PC (all PASS, see 6.5). A6 not done. Scroll stress run checked (6.6): no lost frames with A1 or A4 settings. |
 | Region selector | Not done |
 | Recording frame | Not done |
 | ddagrab + NVENC backend | Not done |
