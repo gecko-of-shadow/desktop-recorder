@@ -215,14 +215,56 @@ Pass for the final default: 100% of lines caught, 0 errors outside the Zalgo lin
 - `frames.py --threshold` is not reliable on lossy video. Use exact mode (default) for Phase B.
 - `score.py`: tell the AI not to add table headers or notes that start with a tag.
 
+### 6.5 Phase A results (run on Bran's PC on 2026-11-14)
+
+Setup (checked):
+
+- PC: one monitor, 1920x1080 physical, 125% scale, 119 Hz. GPU: RTX 4060, driver 621.01. CPU: 12 logical cores.
+- FFmpeg: gyan.dev full build 2026-04-30 (`cc3ca17127`). It has `gdigrab`, `ddagrab`, `h264_nvenc`, `libx264`.
+- Page: `test/counter.html` in a maximized Chrome window. Region = the page area: x 0, y 108, 1920x912 physical px. A DPI-aware call measured the page area. A snapshot PNG from each backend decoded correctly.
+- Script: `test/phase_a.ps1`. It runs FFmpeg directly, 10 s for each run, one run at a time. Cursor off. Constant frame rate. Fragmented MP4.
+- Encoder settings: libx264 = old app settings (`-tune stillimage`, CRF 27, threads = ceil(fps)). h264_nvenc = `-preset p4 -rc vbr -cq 23`.
+- Output: `test/results/phase_a/` (Git ignores it). Each run has the MP4, the FFmpeg log and command, and the `frames.py` JSON. `summary.json` has the table below.
+
+| Run | Backend | Encoder | fps | Frames | Unique values | Expected | Real fps | Result | MB (10 s) | CPU % | Page Hz |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| A1 | gdigrab | libx264 medium | 10 | 100 | 100 | 100 | 10.0 | PASS | 0.189 | 2.6 | 118.9 |
+| A2 | gdigrab | libx264 veryfast | 10 | 100 | 100 | 100 | 10.0 | PASS | 0.236 | 2.1 | 118.8 |
+| A3 | gdigrab | h264_nvenc | 10 | 100 | 100 | 100 | 10.0 | PASS | 0.412 | 0.9 | 118.8 |
+| A4 | ddagrab | h264_nvenc | 10 | 100 | 100 | 100 | 10.0 | PASS | 0.418 | 0.3 | 120.2 |
+| A5 | ddagrab | h264_nvenc | 30 | 300 | 300 | 300 | 30.0 | PASS | 0.927 | 0.3 | 120.0 |
+
+Column notes:
+
+- Unique values = different counter numbers that `frames.py --counter` read. All frames decoded (0 failed). No counter value repeated in any run.
+- CPU % = FFmpeg process CPU time ÷ wall time ÷ 12 cores. It does not include GPU load.
+- Page Hz = (last counter value − first counter value) ÷ 10 s. Near 119 means Chrome did not slow the page. All runs are valid.
+- FFmpeg reported no `dup=` and no `drop=` in any run (this build prints them only when they are not 0).
+- In A1, the counter steps were 10 to 15 values (median 12, 119 Hz ÷ 10 fps). No step was long. Thus no capture was late by a full frame.
+
+Checked: all numbers in the table, from runs on Bran's PC.
+
+Not checked:
+
+- Encoder load with full-screen motion. The counter page changes only a small area. Thus each encoder had little work. The Grok test (3.1) saw copies of frames during fast scrolling, when every pixel changes. This test did not reproduce that load. `gdigrab` capture time does not depend on the content, so the capture part is checked. The encoder part is not checked.
+- File size comparison. libx264 CRF 27 and NVENC CQ 23 are not the same quality level. Do not compare the MB column between encoders. Phase B (B9 to B11) compares quality.
+- A 2 s smoke run of A3 gave 18 of 20 values. The 10 s run of A3 gave 100 of 100. The probable cause is the start of the capture. Not checked.
+- Multi-monitor PCs. This PC has one monitor.
+
+Conclusion:
+
+1. At 10 fps on this PC, no backend dropped frames. The cause of the Grok "copies of the frame before" result is still unknown. Possible causes (not checked): encoder load during a scroll, the old full-desktop capture, or the browser that did not repaint during the scroll.
+2. Recommended backend for the app: `ddagrab` + `h264_nvenc`. It had the lowest CPU (0.3%) and kept 30 fps with no loss. Keep `gdigrab` + `h264_nvenc` as the fallback (0.9% CPU, no loss). Keep `libx264 veryfast` as the fallback when NVENC is not available.
+3. A6 ("region only"): A1 to A5 already used one region (1920x912, nearly the full monitor). Thus A6 gives no new data on this PC. In place of A6, do a stress run: record `scroll.html` at 2000 px/s with A1 settings and with A4 settings, then run `frames.py` (exact mode). Each captured frame must be unique. This checks the encoder load.
+
 ## 7. Tracker
 
 | Item | Status |
 |---|---|
 | Research ShareX region capture | Done |
 | Read current code | Done |
-| Test kit (6.1) | Done. Self-tests pass on Bran's PC (score 28/28, frames 70/70). No real recording yet. |
-| Phase A test | Not done |
+| Test kit (6.1) | Done. Self-tests pass on Bran's PC (score 28/28, frames 70/70). `frames.py --counter` read real recordings in Phase A (0 failed frames). `scroll.html` and `score.py`: no real recording yet. |
+| Phase A test | A1 to A5 checked on Bran's PC (all PASS, see 6.5). A6 not done. 6.5 recommends a scroll stress run in place of A6. |
 | Region selector | Not done |
 | Recording frame | Not done |
 | ddagrab + NVENC backend | Not done |
