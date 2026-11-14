@@ -285,10 +285,11 @@ Not checked: why the old app gave copies in the Grok test. Possible causes: the 
 | Read current code | Done |
 | Test kit (6.1) | Done. Self-tests pass on Bran's PC (score 28/28, frames 70/70). `frames.py --counter` read real recordings in Phase A (0 failed frames). `scroll.html` and `score.py`: no real recording yet. |
 | Phase A test | A1 to A5 checked on Bran's PC (all PASS, see 6.5). A6 not done. Scroll stress run checked (6.6): no lost frames with A1 or A4 settings. |
-| Region selector | Not done |
-| Recording frame | Not done |
-| ddagrab + NVENC backend | Not done |
-| "Changes only" mode | Not done |
+| Region selector | Code done (merge 13afef8). Build and unit tests pass. GUI not run: UNVERIFIED. |
+| Recording frame | Code done (merge 13afef8). GUI not run. Exclusion from capture: UNVERIFIED. |
+| ddagrab + NVENC backend | Code done (merge 13afef8). Fallbacks to gdigrab and libx264. Unit tests pass. No recording with the app yet. Multi-monitor and multi-GPU: UNVERIFIED. |
+| "Changes only" mode | Code done (merge 13afef8). Unit tests for the arguments pass. No recording yet. |
+| GUI test of the new app on Bran's PC | Not done. Open the settings window during a recording. Press the selector hotkey while the settings window is open. Record with ddagrab, gdigrab, 4:4:4, "Changes only" and split. Check that the border and the Stop button are not in the video. |
 | Phase B test | Not done |
 | README update | Not done |
 
