@@ -34,6 +34,7 @@ static class CoreTests
         TestSettings();
         TestArguments();
         TestBackendSettings();
+        TestLastRegionHotkey();
         TestRegion();
         TestPlan();
         TestCaptureArguments();
@@ -224,6 +225,29 @@ static class CoreTests
     static string Joined(string[] args)
     {
         return " " + string.Join(" ", args) + " ";
+    }
+
+    static void TestLastRegionHotkey()
+    {
+        StoredSettings d = new StoredSettings();
+        Expect(d.LastRegionHotkeyModifiers == (1 | 2 | 4) && d.LastRegionHotkeyKey == (int)'R', "default last region hotkey");
+
+        // An old file without the key keeps the default.
+        StoredSettings o = RecorderCore.ParseSettings("hotkey=Win+Shift+D\r\n", d);
+        Expect(o.LastRegionHotkeyModifiers == (1 | 2 | 4) && o.LastRegionHotkeyKey == (int)'R', "old file last region hotkey default");
+        Expect(o.ExtraLines.Count == 0, "last region hotkey no extras");
+        Expect(RecorderCore.SerializeSettings(o).Contains("last_region_hotkey=Ctrl+Alt+Shift+R\r\n"), "last region hotkey serialized");
+
+        // Round trip of a changed value.
+        StoredSettings c = RecorderCore.ParseSettings("last_region_hotkey=Win+F9\r\n", d);
+        Expect(c.LastRegionHotkeyModifiers == 8 && c.LastRegionHotkeyKey == 0x78, "last region hotkey parsed");
+        StoredSettings again = RecorderCore.ParseSettings(RecorderCore.SerializeSettings(c), d);
+        Expect(again.LastRegionHotkeyModifiers == 8 && again.LastRegionHotkeyKey == 0x78, "last region hotkey round trip");
+        Expect(again.HotkeyModifiers == (8 | 4) && again.HotkeyKey == (int)'D', "first hotkey unchanged");
+
+        // A bad value keeps the value from before.
+        StoredSettings bad = RecorderCore.ParseSettings("last_region_hotkey=Shift+A\r\n", d);
+        Expect(bad.LastRegionHotkeyModifiers == (1 | 2 | 4) && bad.LastRegionHotkeyKey == (int)'R', "bad last region hotkey keeps default");
     }
 
     static void TestBackendSettings()
@@ -590,7 +614,10 @@ static class CoreTests
             string linuxBin = Path.Combine(linuxDir, "ffmpeg");
             File.WriteAllText(linuxBin, "x");
             File.WriteAllText(Path.Combine(linuxDir, "ffmpeg.exe"), "x");
-            ExpectEqual(RecorderCore.FindFfmpeg(null, linuxDir, false), linuxBin, "linux name has no exe");
+            // The Linux PATH separator is ':'. A Windows path such as C:\... has a ':' after the drive letter,
+            // so this check can run only where paths have no drive letter (Mono on Linux).
+            if (Path.DirectorySeparatorChar == '/')
+                ExpectEqual(RecorderCore.FindFfmpeg(null, linuxDir, false), linuxBin, "linux name has no exe");
             Expect(RecorderCore.FindFfmpeg(Path.Combine(root, "missing"), "", true) == null
                 || RecorderCore.FindFfmpeg(Path.Combine(root, "missing"), "", true).IndexOf("WinGet", StringComparison.OrdinalIgnoreCase) >= 0,
                 "empty path finds nothing or the real winget link");
