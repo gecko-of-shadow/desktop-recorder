@@ -18,8 +18,111 @@ sealed class StoredSettings
     public bool PlaySounds = true;
     public int HotkeyModifiers = 4 | 8;   // 1 = Alt, 2 = Ctrl, 4 = Shift, 8 = Win
     public int HotkeyKey = (int)'D';
+    // Second hotkey: record the last region again, without the selector. Default Ctrl+Alt+Shift+R.
+    public int LastRegionHotkeyModifiers = 1 | 2 | 4;
+    public int LastRegionHotkeyKey = (int)'R';
+    // Capture and encoding (HANDOFF 4.3). Strings, so the settings file stays readable.
+    public string CaptureBackend = RecorderCore.BackendDdagrab;   // ddagrab | gdigrab
+    public string Encoder = RecorderCore.EncoderAuto;             // auto | h264_nvenc | libx264
+    public string ChromaFormat = RecorderCore.Chroma420;          // yuv420 | yuv444
+    public string FrameRateMode = RecorderCore.ModeFixed;         // fixed | changes
+    public int NvencCq = RecorderCore.DefaultNvencCq;
+    // Physical px, virtual-screen coordinates. Width or height 0 = no region = whole desktop.
+    public int RegionX, RegionY, RegionWidth, RegionHeight;
+    public int LastRegionX, LastRegionY, LastRegionWidth, LastRegionHeight;
+    // Region selector options (HANDOFF 4.1). Keys C, M and P in the selector change them.
+    public bool SelectorCrosshair = false;
+    public bool SelectorMagnifier = true;
+    public bool SelectorPosition = true;
     // Lines this program does not understand. Written back so another OS can keep its keys.
     public List<string> ExtraLines = new List<string>();
+}
+
+// A rectangle in physical px, in virtual-screen coordinates
+// (origin = top left of the primary monitor, the same origin as gdigrab).
+public struct CaptureRegion
+{
+    public int X, Y, Width, Height;
+
+    public CaptureRegion(int x, int y, int width, int height)
+    {
+        X = x;
+        Y = y;
+        Width = width;
+        Height = height;
+    }
+
+    // No region: record the whole desktop.
+    public bool IsEmpty { get { return Width <= 0 || Height <= 0; } }
+
+    // H.264 needs even sizes. Shrink by 1 px (never grow), so the region stays inside its monitor.
+    public CaptureRegion MakeEven()
+    {
+        if (IsEmpty) return new CaptureRegion(0, 0, 0, 0);
+        CaptureRegion r = new CaptureRegion(X, Y, Width & ~1, Height & ~1);
+        if (r.IsEmpty) return new CaptureRegion(0, 0, 0, 0);
+        return r;
+    }
+}
+
+// One DXGI output of adapter 0, as NativeMethods.GetDxgiOutputs reads it.
+// Index is the position in IDXGIAdapter::EnumOutputs, which is the ddagrab output_idx.
+public struct DxgiOutputInfo
+{
+    public int Index, X, Y, Width, Height;
+    public string DeviceName;   // for example \\.\DISPLAY1, the same text as Screen.DeviceName
+    public bool Attached;
+}
+
+// One monitor, as the caller measured it, in physical px and virtual-screen coordinates.
+// Index is the DXGI output index that ddagrab uses (output_idx), from RecorderCore.MatchDxgiOutput.
+// It is not the position in Screen.AllScreens. Index -1 = ddagrab cannot record this monitor
+// (no DXGI output on adapter 0 matches it), so PlanCapture uses gdigrab for it.
+public struct MonitorBounds
+{
+    public int Index, X, Y, Width, Height;
+
+    public MonitorBounds(int index, int x, int y, int width, int height)
+    {
+        Index = index;
+        X = x;
+        Y = y;
+        Width = width;
+        Height = height;
+    }
+
+    public bool Contains(CaptureRegion r)
+    {
+        if (r.IsEmpty || Width <= 0 || Height <= 0) return false;
+        return r.X >= X && r.Y >= Y
+            && (long)r.X + r.Width <= (long)X + Width
+            && (long)r.Y + r.Height <= (long)Y + Height;
+    }
+}
+
+// What the argument builder really does, after the fallbacks. The UI can show Note.
+sealed class CapturePlan
+{
+    public string Backend;          // ddagrab | gdigrab
+    public string Encoder;          // h264_nvenc | libx264
+    public bool WholeDesktop;       // gdigrab only: no region, all monitors
+    public int OutputIndex;         // ddagrab only
+    public int OffsetX, OffsetY;    // gdigrab: virtual screen; ddagrab: relative to the monitor
+    public int Width, Height;       // even; 0 when WholeDesktop
+    public string Note = "";        // empty, or the reason for a fallback
+}
+
+// Cumulative values from one FFmpeg stats line.
+public struct FfmpegProgress
+{
+    public long Frames, Duplicates, Dropped;
+}
+
+// Values for the status line after a recording.
+public struct RecordingStats
+{
+    public bool HasProgress;        // false when FFmpeg printed no stats line
+    public long FramesCaptured, DuplicateFrames, DroppedFrames, FileBytes;
 }
 
 static class RecorderCore
@@ -28,6 +131,83 @@ static class RecorderCore
     public const double MinFps = 0.2;
     public const double MaxFps = 60;
     public static readonly int[] Crf = { 32, 27, 21 };
+
+    public const string BackendDdagrab = "ddagrab";
+    public const string BackendGdigrab = "gdigrab";
+    public const string EncoderAuto = "auto";
+    public const string EncoderNvenc = "h264_nvenc";
+    public const string EncoderX264 = "libx264";
+    public const string Chroma420 = "yuv420";
+    public const string Chroma444 = "yuv444";
+    public const string ModeFixed = "fixed";
+    public const string ModeChanges = "changes";
+    // Phase A (HANDOFF 6.5) used CQ 23 with -preset p4 -rc vbr.
+    public const int DefaultNvencCq = 23;
+
+    public static string NormalizeBackend(string v)
+    {
+        return v == BackendGdigrab ? BackendGdigrab : BackendDdagrab;
+    }
+
+    public static string NormalizeEncoder(string v)
+    {
+        if (v == EncoderNvenc || v == EncoderX264) return v;
+        return EncoderAuto;
+    }
+
+    public static string NormalizeChroma(string v)
+    {
+        return v == Chroma444 ? Chroma444 : Chroma420;
+    }
+
+    public static string NormalizeMode(string v)
+    {
+        return v == ModeChanges ? ModeChanges : ModeFixed;
+    }
+
+    // NVENC reads CQ 0 as "automatic", so the range starts at 1.
+    public static int ClampNvencCq(int cq)
+    {
+        if (cq < 1) return 1;
+        if (cq > 51) return 51;
+        return cq;
+    }
+
+    // The CQ for one quality level. NvencCq is the "Balanced" value.
+    // "Smallest" and "Sharpest" use the same steps as the x264 CRF ladder (32/27/21 = +5/-6),
+    // so the three levels keep the spacing of the old app and of the Grok test (HANDOFF 3.1).
+    // With the default 23 the result is 28 / 23 / 17. Phase B (B9 to B11) must tune it. UNVERIFIED.
+    public static int NvencCqForQuality(int baseCq, int quality)
+    {
+        int q = ClampQuality(quality);
+        return ClampNvencCq(ClampNvencCq(baseCq) + Crf[q] - Crf[1]);
+    }
+
+    public static CaptureRegion MakeEven(CaptureRegion r)
+    {
+        return r.MakeEven();
+    }
+
+    static void NormalizeRegion(ref int x, ref int y, ref int w, ref int h)
+    {
+        if (w > 0 && h > 0) return;
+        x = 0;
+        y = 0;
+        w = 0;
+        h = 0;
+    }
+
+    public static CaptureRegion RegionOf(StoredSettings s)
+    {
+        if (s == null) return new CaptureRegion();
+        return new CaptureRegion(s.RegionX, s.RegionY, s.RegionWidth, s.RegionHeight);
+    }
+
+    public static CaptureRegion LastRegionOf(StoredSettings s)
+    {
+        if (s == null) return new CaptureRegion();
+        return new CaptureRegion(s.LastRegionX, s.LastRegionY, s.LastRegionWidth, s.LastRegionHeight);
+    }
 
     public static double ClampFps(double fps)
     {
@@ -164,6 +344,13 @@ static class RecorderCore
         s.Fps = ClampFps(s.Fps);
         s.Quality = ClampQuality(s.Quality);
         s.SplitMinutes = ClampSplitMinutes(s.SplitMinutes);
+        s.CaptureBackend = NormalizeBackend(s.CaptureBackend);
+        s.Encoder = NormalizeEncoder(s.Encoder);
+        s.ChromaFormat = NormalizeChroma(s.ChromaFormat);
+        s.FrameRateMode = NormalizeMode(s.FrameRateMode);
+        s.NvencCq = ClampNvencCq(s.NvencCq);
+        NormalizeRegion(ref s.RegionX, ref s.RegionY, ref s.RegionWidth, ref s.RegionHeight);
+        NormalizeRegion(ref s.LastRegionX, ref s.LastRegionY, ref s.LastRegionWidth, ref s.LastRegionHeight);
         return s;
     }
 
@@ -194,6 +381,45 @@ static class RecorderCore
         if (key == "record_on_launch") { s.RecordOnLaunch = val == "1"; return true; }
         if (key == "copy_to_clipboard") { s.CopyToClipboard = val == "1"; return true; }
         if (key == "play_sounds") { s.PlaySounds = val == "1"; return true; }
+        // A bad value keeps the value from before (the default for an old file).
+        if (key == "capture_backend")
+        {
+            if (val == BackendDdagrab || val == BackendGdigrab) s.CaptureBackend = val;
+            return true;
+        }
+        if (key == "encoder")
+        {
+            if (val == EncoderAuto || val == EncoderNvenc || val == EncoderX264) s.Encoder = val;
+            return true;
+        }
+        if (key == "chroma")
+        {
+            if (val == Chroma420 || val == Chroma444) s.ChromaFormat = val;
+            return true;
+        }
+        if (key == "frame_rate_mode")
+        {
+            if (val == ModeFixed || val == ModeChanges) s.FrameRateMode = val;
+            return true;
+        }
+        if (key == "nvenc_cq")
+        {
+            if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out i)) s.NvencCq = i;
+            return true;
+        }
+        if (key == "selector_crosshair") { s.SelectorCrosshair = val == "1"; return true; }
+        if (key == "selector_magnifier") { s.SelectorMagnifier = val == "1"; return true; }
+        if (key == "selector_position") { s.SelectorPosition = val == "1"; return true; }
+        if (key == "region")
+        {
+            TryParseRegion(val, ref s.RegionX, ref s.RegionY, ref s.RegionWidth, ref s.RegionHeight);
+            return true;
+        }
+        if (key == "last_region")
+        {
+            TryParseRegion(val, ref s.LastRegionX, ref s.LastRegionY, ref s.LastRegionWidth, ref s.LastRegionHeight);
+            return true;
+        }
         if (key == "hotkey")
         {
             int mods = s.HotkeyModifiers;
@@ -205,7 +431,42 @@ static class RecorderCore
             }
             return true;
         }
+        if (key == "last_region_hotkey")
+        {
+            int mods = s.LastRegionHotkeyModifiers;
+            int hotkey = s.LastRegionHotkeyKey;
+            if (TrySetHotkey(val, ref mods, ref hotkey))
+            {
+                s.LastRegionHotkeyModifiers = mods;
+                s.LastRegionHotkeyKey = hotkey;
+            }
+            return true;
+        }
         return false;
+    }
+
+    // "x,y,width,height". A bad value changes nothing.
+    static bool TryParseRegion(string val, ref int x, ref int y, ref int w, ref int h)
+    {
+        string[] parts = (val ?? "").Split(',');
+        if (parts.Length != 4) return false;
+        int[] n = new int[4];
+        for (int k = 0; k < 4; k++)
+        {
+            if (!int.TryParse(parts[k].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out n[k])) return false;
+        }
+        x = n[0];
+        y = n[1];
+        w = n[2];
+        h = n[3];
+        return true;
+    }
+
+    static string RegionText(int x, int y, int w, int h)
+    {
+        NormalizeRegion(ref x, ref y, ref w, ref h);
+        return x.ToString(CultureInfo.InvariantCulture) + "," + y.ToString(CultureInfo.InvariantCulture) + ","
+            + w.ToString(CultureInfo.InvariantCulture) + "," + h.ToString(CultureInfo.InvariantCulture);
     }
 
     public static string SerializeSettings(StoredSettings s)
@@ -220,6 +481,17 @@ static class RecorderCore
         Append(sb, "copy_to_clipboard", s.CopyToClipboard ? "1" : "0");
         Append(sb, "play_sounds", s.PlaySounds ? "1" : "0");
         Append(sb, "hotkey", HotkeyText(s.HotkeyModifiers, s.HotkeyKey));
+        Append(sb, "last_region_hotkey", HotkeyText(s.LastRegionHotkeyModifiers, s.LastRegionHotkeyKey));
+        Append(sb, "capture_backend", NormalizeBackend(s.CaptureBackend));
+        Append(sb, "encoder", NormalizeEncoder(s.Encoder));
+        Append(sb, "chroma", NormalizeChroma(s.ChromaFormat));
+        Append(sb, "frame_rate_mode", NormalizeMode(s.FrameRateMode));
+        Append(sb, "nvenc_cq", ClampNvencCq(s.NvencCq).ToString(CultureInfo.InvariantCulture));
+        Append(sb, "selector_crosshair", s.SelectorCrosshair ? "1" : "0");
+        Append(sb, "selector_magnifier", s.SelectorMagnifier ? "1" : "0");
+        Append(sb, "selector_position", s.SelectorPosition ? "1" : "0");
+        Append(sb, "region", RegionText(s.RegionX, s.RegionY, s.RegionWidth, s.RegionHeight));
+        Append(sb, "last_region", RegionText(s.LastRegionX, s.LastRegionY, s.LastRegionWidth, s.LastRegionHeight));
         if (s.ExtraLines != null)
         {
             for (int i = 0; i < s.ExtraLines.Count; i++)
@@ -255,6 +527,24 @@ static class RecorderCore
         s.PlaySounds = defaults.PlaySounds;
         s.HotkeyModifiers = defaults.HotkeyModifiers;
         s.HotkeyKey = defaults.HotkeyKey;
+        s.LastRegionHotkeyModifiers = defaults.LastRegionHotkeyModifiers;
+        s.LastRegionHotkeyKey = defaults.LastRegionHotkeyKey;
+        s.CaptureBackend = defaults.CaptureBackend;
+        s.Encoder = defaults.Encoder;
+        s.ChromaFormat = defaults.ChromaFormat;
+        s.FrameRateMode = defaults.FrameRateMode;
+        s.NvencCq = defaults.NvencCq;
+        s.SelectorCrosshair = defaults.SelectorCrosshair;
+        s.SelectorMagnifier = defaults.SelectorMagnifier;
+        s.SelectorPosition = defaults.SelectorPosition;
+        s.RegionX = defaults.RegionX;
+        s.RegionY = defaults.RegionY;
+        s.RegionWidth = defaults.RegionWidth;
+        s.RegionHeight = defaults.RegionHeight;
+        s.LastRegionX = defaults.LastRegionX;
+        s.LastRegionY = defaults.LastRegionY;
+        s.LastRegionWidth = defaults.LastRegionWidth;
+        s.LastRegionHeight = defaults.LastRegionHeight;
         return s;
     }
 
@@ -318,12 +608,240 @@ static class RecorderCore
         return null;
     }
 
-    public static string[] BuildWindowsArguments(StoredSettings s, DateTime now)
+    // "auto" = NVENC when the probe found it, else libx264 (HANDOFF 6.5 fallback order).
+    // An explicit "h264_nvenc" is kept even when the probe failed: the user asked for it,
+    // and FFmpeg then reports the real error.
+    // NVENC H.264 frame size limits. Maximum: 4096 x 4096 on NVIDIA GPUs. Minimum: about 145 x 49
+    // (NV_ENC_CAPS_WIDTH_MIN / HEIGHT_MIN), rounded up to even sizes. FFmpeg stops with an error outside them.
+    // UNVERIFIED: the exact limits of Bran's GPU (the minimum changes with the GPU).
+    public const int NvencMaxSize = 4096;
+    public const int NvencMinWidth = 146;
+    public const int NvencMinHeight = 50;
+
+    public static bool NvencCanEncodeSize(int width, int height)
+    {
+        return width >= NvencMinWidth && height >= NvencMinHeight
+            && width <= NvencMaxSize && height <= NvencMaxSize;
+    }
+
+    // Finds the ddagrab output_idx for one monitor (Screen.DeviceName and Screen.Bounds, physical px).
+    // outputs: the DXGI outputs of adapter 0 (NativeMethods.GetDxgiOutputs), or null when DXGI failed.
+    // Match by device name first, then by the desktop rectangle. Returns -1 when no output matches:
+    // the monitor is not on the adapter that ddagrab uses, so ddagrab cannot record it.
+    // With no DXGI data, a PC with one monitor still gets 0 (ddagrab output 0 is that monitor).
+    public static int MatchDxgiOutput(string deviceName, int x, int y, int width, int height,
+        IList<DxgiOutputInfo> outputs, int screenCount)
+    {
+        if (outputs == null) return screenCount == 1 ? 0 : -1;
+        if (deviceName != null && deviceName.Length > 0)
+        {
+            for (int i = 0; i < outputs.Count; i++)
+            {
+                if (string.Equals(outputs[i].DeviceName, deviceName, StringComparison.OrdinalIgnoreCase))
+                    return outputs[i].Index;
+            }
+        }
+        for (int i = 0; i < outputs.Count; i++)
+        {
+            DxgiOutputInfo o = outputs[i];
+            if (o.X == x && o.Y == y && o.Width == width && o.Height == height) return o.Index;
+        }
+        return -1;
+    }
+
+    // What to change when FFmpeg stops by itself soon after the start (HANDOFF 6.5 fallback order).
+    // An NVENC error with Encoder=auto: use libx264. Any error with ddagrab: use gdigrab.
+    // Any other error with gdigrab and NVENC from "auto": use libx264.
+    // Returns false when no fallback is left. reason is a short text for the balloon.
+    public static bool ChooseFallback(CapturePlan plan, string encoderSetting, string ffmpegError,
+        out bool useGdigrab, out bool useX264, out string reason)
+    {
+        useGdigrab = false;
+        useX264 = false;
+        reason = "";
+        if (plan == null) return false;
+        bool auto = NormalizeEncoder(encoderSetting) == EncoderAuto;
+        bool nvenc = plan.Encoder == EncoderNvenc;
+        if (nvenc && auto && LooksLikeNvencError(ffmpegError))
+        {
+            useX264 = true;
+            reason = "NVENC failed. Recording again with libx264.";
+            return true;
+        }
+        if (plan.Backend == BackendDdagrab)
+        {
+            useGdigrab = true;
+            reason = "ddagrab failed. Recording again with gdigrab.";
+            return true;
+        }
+        if (nvenc && auto)
+        {
+            useX264 = true;
+            reason = "FFmpeg failed with NVENC. Recording again with libx264.";
+            return true;
+        }
+        return false;
+    }
+
+    public static bool LooksLikeNvencError(string text)
+    {
+        if (text == null) return false;
+        string t = text.ToLowerInvariant();
+        string[] marks = { "nvenc", "nvcuda", "cuda", "nvencodeapi", "no capable devices", "openencodesessionex" };
+        for (int i = 0; i < marks.Length; i++) if (t.IndexOf(marks[i], StringComparison.Ordinal) >= 0) return true;
+        return false;
+    }
+
+    public static string ResolveEncoder(string setting, bool nvencAvailable)
+    {
+        string e = NormalizeEncoder(setting);
+        if (e == EncoderX264) return EncoderX264;
+        if (e == EncoderNvenc) return EncoderNvenc;
+        return nvencAvailable ? EncoderNvenc : EncoderX264;
+    }
+
+    // Decides the backend, the monitor and the offsets. Pure: the caller measures the monitors.
+    // ddagrab captures one DXGI output only. Two cases cannot use it:
+    //  - a region that is not fully inside one monitor;
+    //  - no region (whole desktop) on a PC with more than one monitor (or an empty monitor list).
+    // In both cases the plan FALLS BACK to gdigrab (not an error), and Note says why.
+    // Reason: HANDOFF 6.5 names gdigrab as the fallback backend, and a recording that starts
+    // is better than an error after the hotkey. The UI can show Note in the status line.
+    // After the geometry, PlanCapture checks the NVENC size limits. Outside them it uses libx264,
+    // also for an explicit "h264_nvenc" (NVENC cannot encode that size), and Note says why.
+    public static CapturePlan PlanCapture(StoredSettings s, CaptureRegion region,
+        IList<MonitorBounds> monitors, bool nvencAvailable)
+    {
+        CapturePlan plan = PlanGeometry(s, region, monitors, nvencAvailable);
+        if (plan.Encoder != EncoderNvenc) return plan;
+        int w = plan.Width, h = plan.Height;
+        if (plan.WholeDesktop)
+        {
+            // gdigrab records the bounding box of all monitors (cropped to even sizes).
+            int monitorCount = monitors == null ? 0 : monitors.Count;
+            if (monitorCount == 0) return plan;
+            long left = long.MaxValue, top = long.MaxValue, right = long.MinValue, bottom = long.MinValue;
+            for (int i = 0; i < monitorCount; i++)
+            {
+                MonitorBounds m = monitors[i];
+                left = Math.Min(left, m.X);
+                top = Math.Min(top, m.Y);
+                right = Math.Max(right, (long)m.X + m.Width);
+                bottom = Math.Max(bottom, (long)m.Y + m.Height);
+            }
+            w = (int)Math.Min(int.MaxValue, right - left) & ~1;
+            h = (int)Math.Min(int.MaxValue, bottom - top) & ~1;
+        }
+        if (NvencCanEncodeSize(w, h)) return plan;
+        plan.Encoder = EncoderX264;
+        string size = w.ToString(CultureInfo.InvariantCulture) + "x" + h.ToString(CultureInfo.InvariantCulture);
+        string why = (w > NvencMaxSize || h > NvencMaxSize)
+            ? "NVENC cannot encode " + size + " (maximum " + NvencMaxSize.ToString(CultureInfo.InvariantCulture) + " px). libx264 records it."
+            : "NVENC cannot encode " + size + " (too small). libx264 records it.";
+        plan.Note = plan.Note.Length > 0 ? plan.Note + " " + why : why;
+        return plan;
+    }
+
+    static CapturePlan PlanGeometry(StoredSettings s, CaptureRegion region,
+        IList<MonitorBounds> monitors, bool nvencAvailable)
     {
         if (s == null) s = new StoredSettings();
+        CapturePlan plan = new CapturePlan();
+        plan.Encoder = ResolveEncoder(s.Encoder, nvencAvailable);
+        CaptureRegion r = region.MakeEven();
+        int monitorCount = monitors == null ? 0 : monitors.Count;
+
+        if (NormalizeBackend(s.CaptureBackend) == BackendDdagrab)
+        {
+            if (r.IsEmpty)
+            {
+                if (monitorCount == 1 && monitors[0].Width > 1 && monitors[0].Height > 1 && monitors[0].Index >= 0)
+                {
+                    MonitorBounds m = monitors[0];
+                    plan.Backend = BackendDdagrab;
+                    plan.OutputIndex = m.Index;
+                    plan.Width = m.Width & ~1;
+                    plan.Height = m.Height & ~1;
+                    return plan;
+                }
+                plan.Note = monitorCount == 0
+                    ? "No monitor data. gdigrab records the whole desktop."
+                    : monitorCount == 1
+                        ? "ddagrab cannot find this monitor. gdigrab records the whole desktop."
+                        : "ddagrab records one monitor only. gdigrab records the whole desktop.";
+            }
+            else
+            {
+                bool notOnDdagrabGpu = false;
+                for (int i = 0; i < monitorCount; i++)
+                {
+                    MonitorBounds m = monitors[i];
+                    if (!m.Contains(r)) continue;
+                    if (m.Index < 0)
+                    {
+                        notOnDdagrabGpu = true;
+                        break;
+                    }
+                    plan.Backend = BackendDdagrab;
+                    plan.OutputIndex = m.Index;
+                    plan.OffsetX = r.X - m.X;
+                    plan.OffsetY = r.Y - m.Y;
+                    plan.Width = r.Width;
+                    plan.Height = r.Height;
+                    return plan;
+                }
+                plan.Note = notOnDdagrabGpu
+                    ? "ddagrab cannot record this monitor (no DXGI output on its GPU). gdigrab records it."
+                    : "The region is not inside one monitor. gdigrab records it.";
+            }
+        }
+
+        plan.Backend = BackendGdigrab;
+        if (r.IsEmpty)
+        {
+            plan.WholeDesktop = true;
+            return plan;
+        }
+        plan.OffsetX = r.X;
+        plan.OffsetY = r.Y;
+        plan.Width = r.Width;
+        plan.Height = r.Height;
+        return plan;
+    }
+
+    // Old entry point, kept so the current UI compiles and behaves as before:
+    // gdigrab and libx264 (now preset veryfast, see HANDOFF 6.5), region from the settings
+    // (none = whole desktop). It does not use ddagrab or NVENC, because it has no monitor
+    // list and no NVENC probe.
+    public static string[] BuildWindowsArguments(StoredSettings s, DateTime now)
+    {
+        StoredSettings c = CopySettings(s ?? new StoredSettings());
+        c.ExtraLines = new List<string>();
+        c.CaptureBackend = BackendGdigrab;
+        c.Encoder = EncoderX264;
+        return BuildCaptureArguments(c, RegionOf(c), null, now, false);
+    }
+
+    // Overload with the signature in the task. It assumes that NVENC is available for "auto".
+    // Prefer the overload with nvencAvailable, after a call to HasNvencEncoder / TestNvencEncode.
+    public static string[] BuildCaptureArguments(StoredSettings s, CaptureRegion region,
+        IList<MonitorBounds> monitors, DateTime now)
+    {
+        return BuildCaptureArguments(s, region, monitors, now, true);
+    }
+
+    public static string[] BuildCaptureArguments(StoredSettings s, CaptureRegion region,
+        IList<MonitorBounds> monitors, DateTime now, bool nvencAvailable)
+    {
+        if (s == null) s = new StoredSettings();
+        CapturePlan plan = PlanCapture(s, region, monitors, nvencAvailable);
         double fps = ClampFps(s.Fps);
         int quality = ClampQuality(s.Quality);
         int split = ClampSplitMinutes(s.SplitMinutes);
+        bool nvenc = plan.Encoder == EncoderNvenc;
+        bool chroma444 = NormalizeChroma(s.ChromaFormat) == Chroma444;
+        bool changes = NormalizeMode(s.FrameRateMode) == ModeChanges;
+        string pixFmt = chroma444 ? "yuv444p" : "yuv420p";
         string fpsText = fps.ToString("0.###", CultureInfo.InvariantCulture);
         int gop = Math.Max(2, (int)Math.Round(fps * 30));
         int lookahead = Math.Max(0, Math.Min(40, (int)Math.Round(fps * 2)));
@@ -334,34 +852,125 @@ static class RecorderCore
         a.Add("-hide_banner");
         a.Add("-loglevel");
         a.Add("error");
-        a.Add("-nostats");
+        // With -loglevel error, FFmpeg still writes the stats line (frame=, dup=, drop=) to stderr.
+        // RecordingSession parses it for the status line. Checked with this FFmpeg build.
+        a.Add("-stats");
         a.Add("-y");
-        a.Add("-f");
-        a.Add("gdigrab");
-        a.Add("-framerate");
-        a.Add(fpsText);
-        a.Add("-draw_mouse");
-        a.Add("1");
-        a.Add("-i");
-        a.Add("desktop");
-        a.Add("-vf");
-        a.Add("crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0");
-        a.Add("-c:v");
-        a.Add("libx264");
-        a.Add("-preset");
-        a.Add("medium");
-        a.Add("-tune");
-        a.Add("stillimage");
-        a.Add("-crf");
-        a.Add(Crf[quality].ToString(CultureInfo.InvariantCulture));
-        a.Add("-x264-params");
-        a.Add("rc-lookahead=" + lookahead.ToString(CultureInfo.InvariantCulture));
-        a.Add("-threads");
-        a.Add(threads.ToString(CultureInfo.InvariantCulture));
-        a.Add("-g");
-        a.Add(gop.ToString(CultureInfo.InvariantCulture));
-        a.Add("-pix_fmt");
-        a.Add("yuv420p");
+
+        // Filters. Never scale down: no filter here changes the size, except the crop to even
+        // sizes for the whole desktop (at most 1 px on the right or bottom edge).
+        List<string> vf = new List<string>();
+        if (plan.Backend == BackendDdagrab)
+        {
+            a.Add("-f");
+            a.Add("lavfi");
+            a.Add("-i");
+            a.Add("ddagrab=output_idx=" + plan.OutputIndex.ToString(CultureInfo.InvariantCulture)
+                + ":framerate=" + fpsText
+                + ":draw_mouse=1"
+                + ":offset_x=" + plan.OffsetX.ToString(CultureInfo.InvariantCulture)
+                + ":offset_y=" + plan.OffsetY.ToString(CultureInfo.InvariantCulture)
+                + ":video_size=" + plan.Width.ToString(CultureInfo.InvariantCulture)
+                + "x" + plan.Height.ToString(CultureInfo.InvariantCulture));
+            // ddagrab gives D3D11 frames in GPU memory. h264_nvenc reads them directly
+            // (Phase A run A4 had no download filter). libx264 and mpdecimate are CPU filters,
+            // so only these two cases copy the frames to the CPU first.
+            if (!nvenc || changes) vf.Add("hwdownload,format=bgra");
+        }
+        else
+        {
+            a.Add("-f");
+            a.Add("gdigrab");
+            a.Add("-framerate");
+            a.Add(fpsText);
+            a.Add("-draw_mouse");
+            a.Add("1");
+            if (!plan.WholeDesktop)
+            {
+                a.Add("-offset_x");
+                a.Add(plan.OffsetX.ToString(CultureInfo.InvariantCulture));
+                a.Add("-offset_y");
+                a.Add(plan.OffsetY.ToString(CultureInfo.InvariantCulture));
+                a.Add("-video_size");
+                a.Add(plan.Width.ToString(CultureInfo.InvariantCulture) + "x" + plan.Height.ToString(CultureInfo.InvariantCulture));
+            }
+            a.Add("-i");
+            a.Add("desktop");
+            if (plan.WholeDesktop) vf.Add("crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0");
+        }
+        if (changes)
+        {
+            // mpdecimate does not accept BGRA. Without an explicit format, FFmpeg picks yuva444p,
+            // which NVENC cannot read (checked with -v verbose on this FFmpeg build).
+            // Convert once to the target chroma, then drop the frames that do not change.
+            vf.Add("format=" + pixFmt);
+            vf.Add("mpdecimate");
+        }
+        if (vf.Count > 0)
+        {
+            a.Add("-vf");
+            a.Add(string.Join(",", vf.ToArray()));
+        }
+        if (changes)
+        {
+            // Keep the real time of each kept frame. Without it, FFmpeg copies frames to fill the gaps.
+            a.Add("-fps_mode");
+            a.Add("vfr");
+        }
+
+        if (nvenc)
+        {
+            // Phase A settings (HANDOFF 6.5). -b:v 0 lets the CQ value control the size.
+            a.Add("-c:v");
+            a.Add(EncoderNvenc);
+            a.Add("-preset");
+            a.Add("p4");
+            a.Add("-rc");
+            a.Add("vbr");
+            a.Add("-cq");
+            a.Add(NvencCqForQuality(s.NvencCq, quality).ToString(CultureInfo.InvariantCulture));
+            a.Add("-b:v");
+            a.Add("0");
+            if (chroma444)
+            {
+                a.Add("-profile:v");
+                a.Add("high444p");
+                // RGB input (gdigrab, or ddagrab frames that stay on the GPU): NVENC converts
+                // RGB to YUV itself, and its default is 4:2:0. rgb_mode=yuv444 keeps 4:4:4 on the GPU,
+                // so no hwdownload is necessary. In "changes" mode the input is yuv444p already.
+                // UNVERIFIED: no 4:4:4 encode ran on Bran's PC yet (option checked in the help text only).
+                if (!changes)
+                {
+                    a.Add("-rgb_mode");
+                    a.Add("yuv444");
+                }
+            }
+            a.Add("-g");
+            a.Add(gop.ToString(CultureInfo.InvariantCulture));
+            // No -pix_fmt: with D3D11 frames, a format conversion would need a CPU copy.
+        }
+        else
+        {
+            // Old app settings, with preset veryfast: Phase A (A1 against A2) showed that
+            // medium gives no better capture rate.
+            a.Add("-c:v");
+            a.Add(EncoderX264);
+            a.Add("-preset");
+            a.Add("veryfast");
+            a.Add("-tune");
+            a.Add("stillimage");
+            a.Add("-crf");
+            a.Add(Crf[quality].ToString(CultureInfo.InvariantCulture));
+            a.Add("-x264-params");
+            a.Add("rc-lookahead=" + lookahead.ToString(CultureInfo.InvariantCulture));
+            a.Add("-threads");
+            a.Add(threads.ToString(CultureInfo.InvariantCulture));
+            a.Add("-g");
+            a.Add(gop.ToString(CultureInfo.InvariantCulture));
+            // yuv444p makes x264 use the High 4:4:4 Predictive profile by itself.
+            a.Add("-pix_fmt");
+            a.Add(pixFmt);
+        }
         if (split > 0)
         {
             // The segment muxer only cuts on a keyframe. Force one at each boundary
@@ -369,6 +978,13 @@ static class RecorderCore
             int seconds = split * 60;
             a.Add("-force_key_frames");
             a.Add("expr:gte(t,n_forced*" + seconds.ToString(CultureInfo.InvariantCulture) + ")");
+            if (nvenc)
+            {
+                // NVENC makes a forced keyframe a non-IDR I frame by default. A new segment
+                // must start on an IDR frame to play alone.
+                a.Add("-forced-idr");
+                a.Add("1");
+            }
             a.Add("-f");
             a.Add("segment");
             a.Add("-segment_time");
@@ -394,6 +1010,145 @@ static class RecorderCore
             a.Add(CombinePath(folder, "desktop_" + stamp + ".mp4", true));
         }
         return a.ToArray();
+    }
+
+    // Reads the output of "ffmpeg -hide_banner -encoders". A line looks like:
+    //  " V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)"
+    // This proves only that the FFmpeg build has the encoder, not that a GPU can run it.
+    public static bool HasNvencEncoder(string encodersText)
+    {
+        if (encodersText == null) return false;
+        string[] lines = encodersText.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        char[] space = { ' ', '\t' };
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string[] parts = lines[i].Split(space, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && parts[0].Length > 0 && parts[0][0] == 'V' && parts[1] == EncoderNvenc) return true;
+        }
+        return false;
+    }
+
+    // Runs "ffmpeg -encoders" and reads it. Not called by the unit tests.
+    public static bool ProbeNvencListed(string ffmpegPath, int timeoutMs)
+    {
+        string output;
+        int exit;
+        if (!RunFfmpeg(ffmpegPath, "-hide_banner -encoders", timeoutMs, out output, out exit)) return false;
+        return HasNvencEncoder(output);
+    }
+
+    // Encodes 5 small black frames with h264_nvenc and discards them. Exit code 0 means
+    // that the driver and the GPU can encode. It does not capture the screen.
+    // Recorder.IsNvencUsable calls it once for each ffmpeg path ("auto" encoder). Not called by the unit tests.
+    public static bool TestNvencEncode(string ffmpegPath, int timeoutMs)
+    {
+        string output;
+        int exit;
+        string args = "-hide_banner -loglevel error -f lavfi -i color=c=black:s=256x256:r=10 -frames:v 5 -c:v h264_nvenc -f null -";
+        if (!RunFfmpeg(ffmpegPath, args, timeoutMs, out output, out exit)) return false;
+        return exit == 0;
+    }
+
+    static bool RunFfmpeg(string ffmpegPath, string args, int timeoutMs, out string output, out int exitCode)
+    {
+        output = "";
+        exitCode = -1;
+        if (ffmpegPath == null || ffmpegPath.Length == 0) return false;
+        try
+        {
+            using (System.Diagnostics.Process p = new System.Diagnostics.Process())
+            {
+                p.StartInfo = new System.Diagnostics.ProcessStartInfo(ffmpegPath, args);
+                p.StartInfo.UseShellExecute = false;
+                p.StartInfo.CreateNoWindow = true;
+                p.StartInfo.RedirectStandardInput = true;
+                p.StartInfo.RedirectStandardOutput = true;
+                p.StartInfo.RedirectStandardError = true;
+                // Read both pipes with events (.NET 4), so a full pipe cannot block the wait below.
+                StringBuilder text = new StringBuilder();
+                System.Diagnostics.DataReceivedEventHandler collect = delegate(object sender, System.Diagnostics.DataReceivedEventArgs e)
+                {
+                    if (e.Data == null) return;
+                    lock (text) { if (text.Length < 200000) text.AppendLine(e.Data); }
+                };
+                p.OutputDataReceived += collect;
+                p.ErrorDataReceived += collect;
+                p.Start();
+                p.BeginOutputReadLine();
+                p.BeginErrorReadLine();
+                p.StandardInput.Close();
+                if (!p.WaitForExit(Math.Max(1000, timeoutMs)))
+                {
+                    try { p.Kill(); } catch (Exception) { }
+                    return false;
+                }
+                // The overload without a timeout also waits for the end of the redirected pipes.
+                p.WaitForExit();
+                lock (text) { output = text.ToString(); }
+                exitCode = p.ExitCode;
+                return true;
+            }
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    // Reads one FFmpeg stats line, for example:
+    //  "frame=  100 fps= 10 q=23.0 size=     256KiB time=00:00:10.00 bitrate= 209.7kbits/s dup=3 drop=1 speed=1x"
+    // The values are cumulative. This FFmpeg build omits dup= and drop= when they are 0,
+    // so a line with frame= and no dup= means 0 duplicates at that time.
+    // Returns false when the line is not a stats line.
+    public static bool TryParseProgress(string line, out FfmpegProgress progress)
+    {
+        progress = new FfmpegProgress();
+        if (line == null) return false;
+        string t = line.Trim();
+        if (!t.StartsWith("frame=", StringComparison.Ordinal)) return false;
+        bool sawFrame = false;
+        int i = 0;
+        while (i < t.Length)
+        {
+            int eq = t.IndexOf('=', i);
+            if (eq < 0) break;
+            int keyStart = eq;
+            while (keyStart > i && t[keyStart - 1] != ' ') keyStart--;
+            string key = t.Substring(keyStart, eq - keyStart);
+            int v = eq + 1;
+            while (v < t.Length && t[v] == ' ') v++;
+            int end = v;
+            while (end < t.Length && t[end] != ' ') end++;
+            string val = t.Substring(v, end - v);
+            long n;
+            bool isNumber = long.TryParse(val, NumberStyles.None, CultureInfo.InvariantCulture, out n);
+            if (key == "frame")
+            {
+                if (!isNumber) return false;
+                progress.Frames = n;
+                sawFrame = true;
+            }
+            else if (key == "dup" && isNumber) progress.Duplicates = n;
+            else if (key == "drop" && isNumber) progress.Dropped = n;
+            i = end;
+        }
+        return sawFrame;
+    }
+
+    // The status line after a recording.
+    public static string FormatStats(RecordingStats stats)
+    {
+        string size = (stats.FileBytes / (1024.0 * 1024.0)).ToString("0.00", CultureInfo.InvariantCulture) + " MB";
+        if (!stats.HasProgress) return "Frames: unknown. File size: " + size + ".";
+        // FFmpeg frame= counts all frames in the file, with the duplicates that FFmpeg added when the
+        // capture was late. Real frames = frame - dup. ddagrab can also repeat a frame itself when the
+        // screen does not change; FFmpeg does not count these as dup.
+        long real = Math.Max(0, stats.FramesCaptured - stats.DuplicateFrames);
+        return "Real frames: " + real.ToString(CultureInfo.InvariantCulture)
+            + " of " + stats.FramesCaptured.ToString(CultureInfo.InvariantCulture)
+            + ". Duplicates: " + stats.DuplicateFrames.ToString(CultureInfo.InvariantCulture)
+            + ". Dropped: " + stats.DroppedFrames.ToString(CultureInfo.InvariantCulture)
+            + ". File size: " + size + ".";
     }
 
     public static string CombinePath(string folder, string file, bool windows)

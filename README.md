@@ -72,7 +72,7 @@ You need nothing extra. The C# compiler ships with Windows.
 Double-click `build.cmd`, or run this in PowerShell in the folder:
 
 ```
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll RecorderCore.cs RecordingSession.cs DesktopRecorder.cs
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /win32manifest:DesktopRecorder.manifest RecorderCore.cs RecordingSession.cs NativeMethods.cs RegionSelector.cs RecordingFrame.cs DesktopRecorder.cs
 ```
 
 Exit the running recorder first, or the build cannot replace the `.exe`.
