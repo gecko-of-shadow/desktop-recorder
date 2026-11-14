@@ -22,6 +22,7 @@ public sealed class RecordingFrame : IDisposable
     bool shown;
     bool disposed;
     bool excludedFromCapture;
+    bool partlyInside;
 
     /// <summary>The user clicked the Stop button.</summary>
     public event EventHandler StopClicked;
@@ -41,6 +42,12 @@ public sealed class RecordingFrame : IDisposable
     /// False on Windows older than 10 2004, or when a call failed.
     /// </summary>
     public bool ExcludedFromCapture { get { return excludedFromCapture; } }
+
+    /// <summary>
+    /// True after Show when a side of the border or the Stop button is inside the region
+    /// (the region touches the screen edge). Then they are in the video, unless ExcludedFromCapture is true.
+    /// </summary>
+    public bool PartlyInsideRegion { get { return partlyInside; } }
 
     /// <summary>Shows the border and the Stop button. A second call does nothing.</summary>
     public void Show()
@@ -68,7 +75,12 @@ public sealed class RecordingFrame : IDisposable
         }
 
         Rectangle monitor = NativeMethods.GetMonitorBounds(region);
-        Rectangle stopBounds = ComputeStopRect(region, outer, monitor, scale);
+        Rectangle workArea = NativeMethods.GetMonitorWorkArea(region);
+        bool stopInside;
+        Rectangle stopBounds = ComputeStopRect(region, outer, monitor, workArea, monitors, scale, out stopInside);
+        partlyInside = stopInside
+            || outer.Left == region.Left || outer.Top == region.Top
+            || outer.Right == region.Right || outer.Bottom == region.Bottom;
         StopButtonForm stop = new StopButtonForm(stopBounds, scale);
         stop.Clicked += OnStopButtonClicked;
         forms.Add(stop);
@@ -138,25 +150,46 @@ public sealed class RecordingFrame : IDisposable
     }
 
     /// <summary>
-    /// Computes the bounds of the Stop button: below the border, centered. When there is no space below,
-    /// above the border. When there is no space above too, inside the region at the bottom
-    /// (then it is in the video, unless Windows keeps it out of the capture).
+    /// Computes the bounds of the Stop button, in this order:
+    /// 1. Below the border, centered, inside the work area of the monitor (not on the taskbar).
+    /// 2. Above the border.
+    /// 3. At the top center of another monitor that the region does not touch.
+    /// 4. Inside the region, at the top center (at the bottom center when the taskbar is at the top).
+    ///    Then inside is true: the button is in the video, unless Windows keeps it out of the capture.
+    /// The button never goes to the bottom center of a full monitor, where the Windows 11 taskbar icons are.
     /// </summary>
-    internal static Rectangle ComputeStopRect(Rectangle region, Rectangle outer, Rectangle monitor, float scale)
+    internal static Rectangle ComputeStopRect(Rectangle region, Rectangle outer, Rectangle monitor, Rectangle workArea,
+        Rectangle[] monitors, float scale, out bool inside)
     {
         int w = (int)Math.Round(84 * scale);
         int h = (int)Math.Round(28 * scale);
         int gap = (int)Math.Round(4 * scale);
+        inside = false;
+        if (workArea.Width <= 0 || workArea.Height <= 0) workArea = monitor;
 
         int x = region.X + (region.Width - w) / 2;
-        int y = outer.Bottom + gap;
-        if (y + h > monitor.Bottom)
+        x = Math.Max(workArea.Left, Math.Min(x, workArea.Right - w));
+        int below = outer.Bottom + gap;
+        if (below + h <= workArea.Bottom && below >= workArea.Top) return new Rectangle(x, below, w, h);
+        int above = outer.Top - gap - h;
+        if (above >= workArea.Top && above + h <= workArea.Bottom) return new Rectangle(x, above, w, h);
+
+        if (monitors != null)
         {
-            y = outer.Top - gap - h;
-            if (y < monitor.Top) y = region.Bottom - gap - h;
+            foreach (Rectangle m in monitors)
+            {
+                if (m.IntersectsWith(region) || m.Width < w || m.Height < h + gap) continue;
+                return new Rectangle(m.X + (m.Width - w) / 2, m.Y + gap, w, h);
+            }
         }
-        x = Math.Max(monitor.Left, Math.Min(x, monitor.Right - w));
-        y = Math.Max(monitor.Top, Math.Min(y, monitor.Bottom - h));
+
+        inside = true;
+        bool taskbarAtTop = workArea.Top > monitor.Top;
+        int y = taskbarAtTop ? region.Bottom - gap - h : region.Top + gap;
+        Rectangle area = Rectangle.Intersect(region, workArea);
+        if (area.Width <= 0 || area.Height <= 0) area = region;
+        x = Math.Max(area.Left, Math.Min(x, area.Right - w));
+        y = Math.Max(area.Top, Math.Min(y, area.Bottom - h));
         return new Rectangle(x, y, w, h);
     }
 

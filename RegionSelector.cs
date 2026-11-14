@@ -9,7 +9,8 @@
 // Keys:   Enter = accept. Esc = cancel. Space = full virtual screen (accept). ~ = monitor under the cursor (accept).
 //         Arrow keys move the selection 1 px (Shift = 10 px). Ctrl + arrow keys change the size.
 //         With no selection, or while a mouse button is down, the arrow keys move the cursor.
-//         C = crosshair on/off. M = magnifier on/off.
+//         C = crosshair on/off. M = magnifier on/off. P = position text on/off.
+//         The app saves these three options in the settings file (TrayApp sets and reads the static properties).
 //
 // All coordinates are physical pixels. The process must be per-monitor DPI aware (NativeMethods.EnableDpiAwareness).
 using System;
@@ -151,6 +152,7 @@ sealed class RegionSelectorForm : Form
     Point downPoint;
     Point anchor;
     Rectangle selectionAtDown;
+    bool hasSelectionAtDown;
     int activeHandle = -1;
 
     Font font;
@@ -314,6 +316,11 @@ sealed class RegionSelectorForm : Form
                 RefreshOverlay();
                 return true;
 
+            case Keys.P:
+                RegionSelector.ShowPosition = !RegionSelector.ShowPosition;
+                RefreshOverlay();
+                return true;
+
             case Keys.Left:
             case Keys.Right:
             case Keys.Up:
@@ -376,7 +383,10 @@ sealed class RegionSelectorForm : Form
         {
             if (mode != DragMode.None)
             {
+                // Cancel the drag: go back to the selection from before the mouse-down.
                 mode = DragMode.None;
+                selection = selectionAtDown;
+                hasSelection = hasSelectionAtDown;
             }
             else if (hasSelection)
             {
@@ -404,6 +414,7 @@ sealed class RegionSelectorForm : Form
 
         downPoint = e.Location;
         selectionAtDown = selection;
+        hasSelectionAtDown = hasSelection;
         int handle = hasSelection ? HitHandle(e.Location) : -1;
         if (handle >= 0)
         {

@@ -37,6 +37,10 @@ static class CoreTests
         TestLastRegionHotkey();
         TestRegion();
         TestPlan();
+        TestNvencSizeLimits();
+        TestDxgiMatch();
+        TestFallback();
+        TestSelectorOptions();
         TestCaptureArguments();
         TestNvencProbe();
         TestProgressParser();
@@ -385,10 +389,132 @@ static class CoreTests
         Expect(p.Backend == "gdigrab" && !p.WholeDesktop, "plan null monitors falls back");
         // gdigrab chosen: never ddagrab, no note.
         s.CaptureBackend = "gdigrab";
-        p = RecorderCore.PlanCapture(s, new CaptureRegion(0, 0, 100, 100), OneMonitor(), true);
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(0, 0, 400, 300), OneMonitor(), true);
         Expect(p.Backend == "gdigrab" && p.Note == "", "plan gdigrab setting");
         p = RecorderCore.PlanCapture(s, new CaptureRegion(), OneMonitor(), false);
         Expect(p.WholeDesktop && p.Encoder == "libx264", "plan gdigrab whole x264");
+    }
+
+    static void TestNvencSizeLimits()
+    {
+        StoredSettings s = Base();
+        // Two 2560x1440 monitors side by side.
+        List<MonitorBounds> wide = new List<MonitorBounds>();
+        wide.Add(new MonitorBounds(0, 0, 0, 2560, 1440));
+        wide.Add(new MonitorBounds(1, 2560, 0, 2560, 1440));
+        // No region: gdigrab whole desktop at 5120x1440. NVENC cannot encode it.
+        CapturePlan p = RecorderCore.PlanCapture(s, new CaptureRegion(), wide, true);
+        Expect(p.Backend == "gdigrab" && p.WholeDesktop && p.Encoder == "libx264"
+            && p.Note.IndexOf("5120x1440") >= 0, "nvenc whole desktop 5120 uses x264");
+        // Space in the selector: one region over both monitors.
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(0, 0, 5120, 1440), wide, true);
+        Expect(p.Backend == "gdigrab" && p.Encoder == "libx264", "nvenc region 5120 uses x264");
+        string[] a = RecorderCore.BuildCaptureArguments(s, new CaptureRegion(0, 0, 5120, 1440), wide, new DateTime(2026, 1, 1), true);
+        Expect(IndexOf(a, "libx264") >= 0 && IndexOf(a, "h264_nvenc") < 0, "nvenc 5120 arguments use x264");
+        // One 5K monitor: ddagrab, but libx264.
+        List<MonitorBounds> fiveK = new List<MonitorBounds>();
+        fiveK.Add(new MonitorBounds(0, 0, 0, 5120, 2880));
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(), fiveK, true);
+        Expect(p.Backend == "ddagrab" && p.Encoder == "libx264", "nvenc 5K monitor uses x264");
+        // Small region (status line).
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(10, 10, 120, 30), OneMonitor(), true);
+        Expect(p.Backend == "ddagrab" && p.Encoder == "libx264" && p.Note.IndexOf("120x30") >= 0, "nvenc 120x30 uses x264");
+        // Explicit NVENC also changes, because NVENC cannot encode the size.
+        s.Encoder = "h264_nvenc";
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(10, 10, 120, 30), OneMonitor(), false);
+        Expect(p.Encoder == "libx264", "explicit nvenc 120x30 uses x264");
+        s.Encoder = "auto";
+        // Limits: 146x50 and 4096x4096 stay on NVENC.
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(0, 0, 146, 50), OneMonitor(), true);
+        Expect(p.Encoder == "h264_nvenc" && p.Note == "", "nvenc minimum size kept");
+        List<MonitorBounds> big = new List<MonitorBounds>();
+        big.Add(new MonitorBounds(0, 0, 0, 4096, 4096));
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(), big, true);
+        Expect(p.Encoder == "h264_nvenc", "nvenc maximum size kept");
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(0, 0, 144, 50), OneMonitor(), true);
+        Expect(p.Encoder == "libx264", "nvenc below minimum width");
+    }
+
+    static void TestDxgiMatch()
+    {
+        // DXGI gives index 0 to the primary. Screen.AllScreens lists the secondary (left) monitor first.
+        List<DxgiOutputInfo> outputs = new List<DxgiOutputInfo>();
+        DxgiOutputInfo primary = new DxgiOutputInfo();
+        primary.Index = 0; primary.DeviceName = "\\\\.\\DISPLAY2"; primary.X = 0; primary.Y = 0; primary.Width = 1920; primary.Height = 1080;
+        DxgiOutputInfo left = new DxgiOutputInfo();
+        left.Index = 1; left.DeviceName = "\\\\.\\DISPLAY1"; left.X = -2560; left.Y = -200; left.Width = 2560; left.Height = 1440;
+        outputs.Add(primary);
+        outputs.Add(left);
+        // AllScreens order: DISPLAY1 (left) first, then DISPLAY2 (primary).
+        int leftIndex = RecorderCore.MatchDxgiOutput("\\\\.\\DISPLAY1", -2560, -200, 2560, 1440, outputs, 2);
+        int primaryIndex = RecorderCore.MatchDxgiOutput("\\\\.\\display2", 0, 0, 1920, 1080, outputs, 2);
+        Expect(leftIndex == 1 && primaryIndex == 0, "dxgi match by name, primary not first");
+        // Name not known, rectangle matches.
+        Expect(RecorderCore.MatchDxgiOutput("", -2560, -200, 2560, 1440, outputs, 2) == 1, "dxgi match by rectangle");
+        // Monitor on a second GPU: not on adapter 0.
+        Expect(RecorderCore.MatchDxgiOutput("\\\\.\\DISPLAY3", 1920, 0, 1920, 1080, outputs, 3) == -1, "dxgi no match");
+        // No DXGI data.
+        Expect(RecorderCore.MatchDxgiOutput("\\\\.\\DISPLAY1", 0, 0, 1920, 1080, null, 1) == 0, "dxgi null one monitor");
+        Expect(RecorderCore.MatchDxgiOutput("\\\\.\\DISPLAY1", 0, 0, 1920, 1080, null, 2) == -1, "dxgi null two monitors");
+
+        // The plan uses the matched index, and gdigrab for a monitor with index -1.
+        StoredSettings s = Base();
+        List<MonitorBounds> monitors = new List<MonitorBounds>();
+        monitors.Add(new MonitorBounds(leftIndex, -2560, -200, 2560, 1440));
+        monitors.Add(new MonitorBounds(primaryIndex, 0, 0, 1920, 1080));
+        monitors.Add(new MonitorBounds(-1, 1920, 0, 1920, 1080));
+        CapturePlan p = RecorderCore.PlanCapture(s, new CaptureRegion(100, 100, 800, 600), monitors, true);
+        Expect(p.Backend == "ddagrab" && p.OutputIndex == 0 && p.OffsetX == 100, "plan primary not first in list");
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(-2000, 100, 800, 600), monitors, true);
+        Expect(p.Backend == "ddagrab" && p.OutputIndex == 1 && p.OffsetX == 560 && p.OffsetY == 300, "plan left monitor dxgi index");
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(2000, 100, 800, 600), monitors, true);
+        Expect(p.Backend == "gdigrab" && p.OffsetX == 2000 && p.Note.Length > 0, "plan monitor on second gpu uses gdigrab");
+        List<MonitorBounds> unknown = new List<MonitorBounds>();
+        unknown.Add(new MonitorBounds(-1, 0, 0, 1920, 1080));
+        p = RecorderCore.PlanCapture(s, new CaptureRegion(), unknown, true);
+        Expect(p.Backend == "gdigrab" && p.WholeDesktop, "plan whole desktop unknown output uses gdigrab");
+    }
+
+    static void TestFallback()
+    {
+        bool gdi, x264;
+        string reason;
+        CapturePlan p = new CapturePlan();
+        p.Backend = "ddagrab";
+        p.Encoder = "h264_nvenc";
+        Expect(RecorderCore.ChooseFallback(p, "auto", "[h264_nvenc @ 0x1] Cannot load nvcuda.dll", out gdi, out x264, out reason)
+            && x264 && !gdi && reason.Length > 0, "fallback nvenc error auto");
+        Expect(RecorderCore.ChooseFallback(p, "auto", "No capable devices found", out gdi, out x264, out reason)
+            && x264 && !gdi, "fallback no capable devices");
+        Expect(RecorderCore.ChooseFallback(p, "auto", "No such filter: 'ddagrab'", out gdi, out x264, out reason)
+            && gdi && !x264, "fallback ddagrab error");
+        Expect(RecorderCore.ChooseFallback(p, "h264_nvenc", "Cannot load nvcuda.dll", out gdi, out x264, out reason)
+            && gdi && !x264, "fallback explicit nvenc keeps nvenc");
+        p.Backend = "gdigrab";
+        Expect(RecorderCore.ChooseFallback(p, "auto", "some error", out gdi, out x264, out reason)
+            && x264 && !gdi, "fallback gdigrab nvenc auto");
+        Expect(!RecorderCore.ChooseFallback(p, "h264_nvenc", "some error", out gdi, out x264, out reason), "fallback explicit nvenc gdigrab none");
+        p.Encoder = "libx264";
+        Expect(!RecorderCore.ChooseFallback(p, "auto", "Cannot load nvcuda.dll", out gdi, out x264, out reason), "fallback none left");
+        Expect(!RecorderCore.ChooseFallback(null, "auto", "x", out gdi, out x264, out reason), "fallback null plan");
+    }
+
+    static void TestSelectorOptions()
+    {
+        StoredSettings d = new StoredSettings();
+        Expect(!d.SelectorCrosshair && d.SelectorMagnifier && d.SelectorPosition, "selector defaults");
+        StoredSettings s = new StoredSettings();
+        s.SelectorCrosshair = true;
+        s.SelectorMagnifier = false;
+        s.SelectorPosition = false;
+        string text = RecorderCore.SerializeSettings(s);
+        Expect(text.Contains("selector_crosshair=1") && text.Contains("selector_magnifier=0")
+            && text.Contains("selector_position=0"), "selector options written");
+        StoredSettings back = RecorderCore.ParseSettings(text, new StoredSettings());
+        Expect(back.SelectorCrosshair && !back.SelectorMagnifier && !back.SelectorPosition, "selector options read");
+        StoredSettings old = RecorderCore.ParseSettings("fps=2\r\n", new StoredSettings());
+        Expect(!old.SelectorCrosshair && old.SelectorMagnifier && old.SelectorPosition, "selector options old file");
+        Expect(old.ExtraLines.Count == 0, "selector keys not extra");
     }
 
     static void TestCaptureArguments()
@@ -531,7 +657,12 @@ static class CoreTests
         st.DuplicateFrames = 3;
         st.DroppedFrames = 0;
         st.FileBytes = 1572864;
-        ExpectEqual(RecorderCore.FormatStats(st), "Frames: 600. Duplicates: 3. Dropped: 0. File size: 1.50 MB.", "stats text");
+        ExpectEqual(RecorderCore.FormatStats(st), "Real frames: 597 of 600. Duplicates: 3. Dropped: 0. File size: 1.50 MB.", "stats text");
+        st.FramesCaptured = 100;
+        st.DuplicateFrames = 48;
+        ExpectEqual(RecorderCore.FormatStats(st), "Real frames: 52 of 100. Duplicates: 48. Dropped: 0. File size: 1.50 MB.", "stats real frames");
+        st.DuplicateFrames = 150;
+        Expect(RecorderCore.FormatStats(st).StartsWith("Real frames: 0 of 100."), "stats real frames not negative");
         st.HasProgress = false;
         ExpectEqual(RecorderCore.FormatStats(st), "Frames: unknown. File size: 1.50 MB.", "stats text without progress");
     }

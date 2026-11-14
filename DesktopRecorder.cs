@@ -60,6 +60,10 @@ class Settings
     // Physical px, virtual-screen coordinates. Empty = no region (whole desktop).
     public Rectangle Region = Rectangle.Empty;
     public Rectangle LastRegion = Rectangle.Empty;
+    // Region selector options (keys C, M and P in the selector).
+    public bool SelectorCrosshair = false;
+    public bool SelectorMagnifier = true;
+    public bool SelectorPosition = true;
     // Keys written by the Linux build. Saved again so a shared settings file does not lose them.
     public List<string> ExtraLines = new List<string>();
 
@@ -109,6 +113,9 @@ class Settings
         stored.ChromaFormat = ChromaFormat;
         stored.FrameRateMode = FrameRateMode;
         stored.NvencCq = NvencCq;
+        stored.SelectorCrosshair = SelectorCrosshair;
+        stored.SelectorMagnifier = SelectorMagnifier;
+        stored.SelectorPosition = SelectorPosition;
         stored.RegionX = Region.X;
         stored.RegionY = Region.Y;
         stored.RegionWidth = Region.Width;
@@ -139,6 +146,9 @@ class Settings
         ChromaFormat = RecorderCore.NormalizeChroma(stored.ChromaFormat);
         FrameRateMode = RecorderCore.NormalizeMode(stored.FrameRateMode);
         NvencCq = RecorderCore.ClampNvencCq(stored.NvencCq);
+        SelectorCrosshair = stored.SelectorCrosshair;
+        SelectorMagnifier = stored.SelectorMagnifier;
+        SelectorPosition = stored.SelectorPosition;
         Region = ToRectangle(stored.RegionX, stored.RegionY, stored.RegionWidth, stored.RegionHeight);
         LastRegion = ToRectangle(stored.LastRegionX, stored.LastRegionY, stored.LastRegionWidth, stored.LastRegionHeight);
         ExtraLines = new List<string>(stored.ExtraLines ?? new List<string>());
@@ -244,8 +254,8 @@ class Settings
 class Recorder
 {
     readonly RecordingSession session = new RecordingSession();
-    // Result of "ffmpeg -encoders" for each ffmpeg path. The probe runs once for each path.
-    static readonly Dictionary<string, bool> nvencListed = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+    // NVENC probe result for each ffmpeg path. The probe runs once for each path.
+    static readonly Dictionary<string, bool> nvencUsable = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
     public Recorder()
     {
@@ -268,34 +278,52 @@ class Recorder
         return RecorderCore.FindFfmpeg(exeDirectory, path, true);
     }
 
-    // True when this ffmpeg build lists h264_nvenc. Runs "ffmpeg -encoders" only the first time.
-    static bool IsNvencListed(string ffmpeg)
+    // True when this ffmpeg build lists h264_nvenc AND a short test encode with h264_nvenc works.
+    // The gyan.dev builds list h264_nvenc also on a PC without an NVIDIA GPU, so the list alone is not proof.
+    // The list is the quick first check. Both run only the first time for each ffmpeg path.
+    static bool IsNvencUsable(string ffmpeg)
     {
-        bool listed;
-        if (nvencListed.TryGetValue(ffmpeg, out listed)) return listed;
-        listed = RecorderCore.ProbeNvencListed(ffmpeg, 5000);
-        nvencListed[ffmpeg] = listed;
-        return listed;
+        bool usable;
+        lock (nvencUsable)
+        {
+            if (nvencUsable.TryGetValue(ffmpeg, out usable)) return usable;
+        }
+        usable = RecorderCore.ProbeNvencListed(ffmpeg, 5000) && RecorderCore.TestNvencEncode(ffmpeg, 15000);
+        lock (nvencUsable) { nvencUsable[ffmpeg] = usable; }
+        return usable;
+    }
+
+    // After an NVENC failure during a recording: "auto" uses libx264 until the app restarts.
+    public static void MarkNvencUnusable()
+    {
+        string ffmpeg = FindFfmpeg();
+        if (ffmpeg == null) return;
+        lock (nvencUsable) { nvencUsable[ffmpeg] = false; }
     }
 
     // The monitors in physical px (the process is DPI aware).
-    // Index = position in Screen.AllScreens. ddagrab output_idx uses the DXGI output order.
-    // UNVERIFIED: that both orders are the same on a PC with 2 or more monitors.
+    // Index = the ddagrab output_idx: the DXGI output of adapter 0 with the same device name (or the same
+    // desktop rectangle). The order of Screen.AllScreens is not the DXGI order. Index -1 = not on adapter 0,
+    // so PlanCapture uses gdigrab for that monitor. UNVERIFIED: a run on a PC with 2 or more monitors.
     public static List<MonitorBounds> Monitors()
     {
         List<MonitorBounds> list = new List<MonitorBounds>();
         Screen[] screens = Screen.AllScreens;
+        List<DxgiOutputInfo> outputs = NativeMethods.GetDxgiOutputs();
         for (int i = 0; i < screens.Length; i++)
         {
             Rectangle b = screens[i].Bounds;
-            list.Add(new MonitorBounds(i, b.X, b.Y, b.Width, b.Height));
+            int index = RecorderCore.MatchDxgiOutput(screens[i].DeviceName, b.X, b.Y, b.Width, b.Height,
+                outputs, screens.Length);
+            list.Add(new MonitorBounds(index, b.X, b.Y, b.Width, b.Height));
         }
         return list;
     }
 
     // Records the region (physical px, virtual-screen coordinates). An empty region records the whole desktop.
     // Returns null on success, or a message to show. plan tells which backend and encoder the recording uses.
-    public string Start(Settings s, Rectangle region, out CapturePlan plan)
+    // forceGdigrab and forceX264 are for the automatic fallback after a failed start (TrayApp).
+    public string Start(Settings s, Rectangle region, bool forceGdigrab, bool forceX264, out CapturePlan plan)
     {
         plan = null;
         string ffmpeg = FindFfmpeg();
@@ -303,9 +331,11 @@ class Recorder
             return "ffmpeg.exe was not found. Run this in PowerShell: winget install -e --id Gyan.FFmpeg. " +
                 "Or put ffmpeg.exe next to DesktopRecorder.exe.";
         StoredSettings stored = s.ToStored();
+        if (forceGdigrab) stored.CaptureBackend = RecorderCore.BackendGdigrab;
+        if (forceX264) stored.Encoder = RecorderCore.EncoderX264;
         // Only "auto" needs the probe. An explicit encoder is used as set.
         bool nvenc = RecorderCore.NormalizeEncoder(stored.Encoder) == RecorderCore.EncoderAuto
-            ? IsNvencListed(ffmpeg) : true;
+            ? IsNvencUsable(ffmpeg) : true;
         CaptureRegion capture = region.IsEmpty
             ? new CaptureRegion(0, 0, 0, 0)
             : new CaptureRegion(region.X, region.Y, region.Width, region.Height);
@@ -426,6 +456,12 @@ class TrayApp : ApplicationContext
     SettingsForm openForm;
     RecordingFrame frame;
     Rectangle recordingRegion = Rectangle.Empty;   // empty = whole desktop
+    // Automatic fallback after a failed start (HANDOFF 6.5 order): the plan and the time of the last start,
+    // and the fallbacks that the current recording uses already.
+    CapturePlan recordingPlan;
+    int recordingStartTicks;
+    bool forcedGdigrab, forcedX264;
+    const int FallbackWindowMs = 10000;
     bool selecting;
     Icon currentIcon;
     IntPtr currentIconHandle = IntPtr.Zero;
@@ -460,6 +496,7 @@ class TrayApp : ApplicationContext
             {
                 ui.BeginInvoke((MethodInvoker)delegate
                 {
+                    if (TryFallback(message)) return;
                     DisposeFrame();
                     Refresh();
                     if (settings.PlaySounds) Sounds.PlayStop();
@@ -488,6 +525,25 @@ class TrayApp : ApplicationContext
         if (settings.RecordOnLaunch) StartSavedRegion(true, false);
         string warning = HotkeyWarning();
         if (warning != null) tray.ShowBalloonTip(6000, "Desktop Recorder", warning, ToolTipIcon.Warning);
+    }
+
+    // FFmpeg stopped by itself. When that happens in the first seconds and a fallback is left
+    // (NVENC -> libx264, ddagrab -> gdigrab), start again with the fallback. Returns true when it did.
+    bool TryFallback(string message)
+    {
+        if (recorder.IsRecording || recordingPlan == null) return false;
+        if (unchecked(Environment.TickCount - recordingStartTicks) > FallbackWindowMs) return false;
+        bool useGdigrab, useX264;
+        string reason;
+        if (!RecorderCore.ChooseFallback(recordingPlan, settings.Encoder, message,
+            out useGdigrab, out useX264, out reason)) return false;
+        if (useX264) Recorder.MarkNvencUnusable();
+        Rectangle region = recordingRegion;
+        DisposeFrame();
+        string firstLine = (message ?? "").Replace("\r", "").Split('\n')[0];
+        StartRecordingWith(region, false, true, reason + "\nFFmpeg: " + firstLine,
+            forcedGdigrab || useGdigrab, forcedX264 || useX264);
+        return true;
     }
 
     // A balloon text must be shorter than 256 characters.
@@ -544,6 +600,12 @@ class TrayApp : ApplicationContext
         if (selecting || recorder.IsRecording) return;
         selecting = true;
         Rectangle? picked;
+        RegionSelector.ShowCrosshair = settings.SelectorCrosshair;
+        RegionSelector.ShowMagnifier = settings.SelectorMagnifier;
+        RegionSelector.ShowPosition = settings.SelectorPosition;
+        // The hotkey can come while the settings dialog is open. That dialog sets the thread to system aware,
+        // so set per-monitor aware here: the selector needs physical pixels.
+        IntPtr oldDpi = NativeMethods.SetThreadDpiContext(NativeMethods.DpiContextPerMonitorAwareV2);
         try
         {
             picked = RegionSelector.Show(settings.LastRegion.IsEmpty ? (Rectangle?)null : settings.LastRegion);
@@ -553,12 +615,29 @@ class TrayApp : ApplicationContext
             tray.ShowBalloonTip(8000, "Desktop Recorder", "The region selector failed: " + Shorten(e.Message), ToolTipIcon.Error);
             return;
         }
-        finally { selecting = false; }
+        finally
+        {
+            NativeMethods.RestoreThreadDpiContext(oldDpi);
+            selecting = false;
+            SaveSelectorOptions();
+        }
         if (!picked.HasValue) return; // cancelled
         settings.Region = picked.Value;
         settings.LastRegion = picked.Value;
         SaveSettingsQuietly();
         StartRecording(picked.Value, true, true, null);
+    }
+
+    // Keys C, M and P in the selector change these options. Keep them for the next start of the app.
+    void SaveSelectorOptions()
+    {
+        if (settings.SelectorCrosshair == RegionSelector.ShowCrosshair
+            && settings.SelectorMagnifier == RegionSelector.ShowMagnifier
+            && settings.SelectorPosition == RegionSelector.ShowPosition) return;
+        settings.SelectorCrosshair = RegionSelector.ShowCrosshair;
+        settings.SelectorMagnifier = RegionSelector.ShowMagnifier;
+        settings.SelectorPosition = RegionSelector.ShowPosition;
+        SaveSettingsQuietly();
     }
 
     // The second hotkey and the second tray item: record the last region again, without the selector.
@@ -590,12 +669,23 @@ class TrayApp : ApplicationContext
     // region: physical px, virtual-screen coordinates. Empty = whole desktop (no frame).
     void StartRecording(Rectangle region, bool sound, bool balloon, string note)
     {
+        StartRecordingWith(region, sound, balloon, note, false, false);
+    }
+
+    void StartRecordingWith(Rectangle region, bool sound, bool balloon, string note, bool forceGdigrab, bool forceX264)
+    {
         CapturePlan plan;
-        string error = recorder.Start(settings, region, out plan);
+        string error = recorder.Start(settings, region, forceGdigrab, forceX264, out plan);
+        string frameWarning = null;
         if (error == null)
         {
             recordingRegion = region;
-            ShowFrame(region);
+            recordingPlan = plan;
+            recordingStartTicks = Environment.TickCount;
+            forcedGdigrab = forceGdigrab;
+            forcedX264 = forceX264;
+            frameWarning = ShowFrame(region);
+            if (frameWarning != null) balloon = true;
         }
         Refresh();
         if (error != null)
@@ -612,14 +702,19 @@ class TrayApp : ApplicationContext
             text += ".";
             if (note != null) text += "\n" + note;
             if (planNote != null && planNote.Length > 0) text += "\n" + planNote;
+            if (frameWarning != null) text += "\n" + frameWarning;
             tray.ShowBalloonTip(3000, "Desktop Recorder", Shorten(text), ToolTipIcon.Info);
         }
     }
 
-    void ShowFrame(Rectangle region)
+    // Returns a warning when part of the frame is inside the region and Windows did not accept
+    // WDA_EXCLUDEFROMCAPTURE, so the frame can be in the video. Else returns null.
+    string ShowFrame(Rectangle region)
     {
         DisposeFrame();
-        if (region.IsEmpty) return;
+        if (region.IsEmpty) return null;
+        // The frame needs physical pixels (see SelectAndRecord).
+        IntPtr oldDpi = NativeMethods.SetThreadDpiContext(NativeMethods.DpiContextPerMonitorAwareV2);
         try
         {
             frame = new RecordingFrame(region);
@@ -637,11 +732,20 @@ class TrayApp : ApplicationContext
                 catch (InvalidOperationException) { }
             };
             frame.Show();
+            if (frame.PartlyInsideRegion && !frame.ExcludedFromCapture)
+                return "The region touches the screen edge, so part of the red frame or the Stop button is inside it. "
+                    + "Windows cannot keep them out of the video.";
+            return null;
         }
         catch (Exception)
         {
             // The recording continues without the frame.
             DisposeFrame();
+            return null;
+        }
+        finally
+        {
+            NativeMethods.RestoreThreadDpiContext(oldDpi);
         }
     }
 
@@ -726,10 +830,27 @@ class TrayApp : ApplicationContext
     void ShowSettings()
     {
         if (openForm != null) { openForm.Activate(); return; }
-        using (SettingsForm form = new SettingsForm(settings))
+        // The dialog does not use screen coordinates. Make it system DPI aware, so Windows scales it on a
+        // monitor with a different DPI. In a per-monitor aware window, .NET Framework WinForms scales only once,
+        // to the system DPI, and the dialog is too small on a monitor with a higher DPI.
+        IntPtr oldDpi = NativeMethods.SetThreadDpiContext(NativeMethods.DpiContextSystemAware);
+        SettingsForm created;
+        try { created = new SettingsForm(settings); }
+        catch (Exception)
+        {
+            NativeMethods.RestoreThreadDpiContext(oldDpi);
+            throw;
+        }
+        using (SettingsForm form = created)
         {
             openForm = form;
-            DialogResult result = form.ShowDialog();
+            DialogResult result;
+            try { result = form.ShowDialog(); }
+            finally
+            {
+                // The window keeps its DPI mode. Windows made after this line are per-monitor aware again.
+                NativeMethods.RestoreThreadDpiContext(oldDpi);
+            }
             openForm = null;
             if (result != DialogResult.OK) return;
             // The form copies the current settings. Keep a region that the selector saved while the form was open.
@@ -754,6 +875,7 @@ class TrayApp : ApplicationContext
                 Rectangle region = recordingRegion;
                 recorder.Stop();
                 DisposeFrame();
+                // New settings: the fallbacks of the old recording do not apply.
                 StartRecording(region, false, false, null);
             }
         }
@@ -852,6 +974,9 @@ class SettingsForm : Form
     readonly ComboBox encoderBox = new ComboBox();
     readonly ComboBox chromaBox = new ComboBox();
     readonly ComboBox modeBox = new ComboBox();
+    readonly CheckBox crosshairBox = new CheckBox();
+    readonly CheckBox magnifierBox = new CheckBox();
+    readonly CheckBox positionBox = new CheckBox();
 
     public Settings Result;
     public bool StartWithWindows;
@@ -870,7 +995,7 @@ class SettingsForm : Form
         MinimizeBox = false;
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(470, 552);
+        ClientSize = new Size(470, 578);
         Font = SystemFonts.MessageBoxFont;
 
         AddLabel("Save recordings to:", 15);
@@ -951,13 +1076,24 @@ class SettingsForm : Form
         soundBox.SetBounds(15, 468, 440, 22);
         soundBox.Checked = current.PlaySounds;
 
+        AddLabel("Region selector:", 497, 110);
+        crosshairBox.Text = "Crosshair";
+        crosshairBox.SetBounds(130, 494, 95, 22);
+        crosshairBox.Checked = current.SelectorCrosshair;
+        magnifierBox.Text = "Magnifier";
+        magnifierBox.SetBounds(230, 494, 95, 22);
+        magnifierBox.Checked = current.SelectorMagnifier;
+        positionBox.Text = "Position";
+        positionBox.SetBounds(330, 494, 95, 22);
+        positionBox.Checked = current.SelectorPosition;
+
         Button save = new Button();
         save.Text = "Save";
-        save.SetBounds(290, 512, 80, 27);
+        save.SetBounds(290, 538, 80, 27);
         save.Click += delegate { OnSave(); };
         Button cancel = new Button();
         cancel.Text = "Cancel";
-        cancel.SetBounds(375, 512, 80, 27);
+        cancel.SetBounds(375, 538, 80, 27);
         cancel.DialogResult = DialogResult.Cancel;
 
         Controls.AddRange(new Control[]
@@ -965,7 +1101,7 @@ class SettingsForm : Form
             folderBox, browse, fpsBox, qualityBox, splitBox, winBox, ctrlBox, altBox, shiftBox, keyBox,
             lastWinBox, lastCtrlBox, lastAltBox, lastShiftBox, lastKeyBox,
             backendBox, encoderBox, chromaBox, modeBox,
-            startupBox, recordBox, copyBox, soundBox, save, cancel
+            startupBox, recordBox, copyBox, soundBox, crosshairBox, magnifierBox, positionBox, save, cancel
         });
         AcceptButton = save;
         CancelButton = cancel;
@@ -1071,6 +1207,9 @@ class SettingsForm : Form
         Result.Encoder = ChoiceValue(encoderBox, EncoderValues);
         Result.ChromaFormat = ChoiceValue(chromaBox, ChromaValues);
         Result.FrameRateMode = ChoiceValue(modeBox, ModeValues);
+        Result.SelectorCrosshair = crosshairBox.Checked;
+        Result.SelectorMagnifier = magnifierBox.Checked;
+        Result.SelectorPosition = positionBox.Checked;
         StartWithWindows = startupBox.Checked;
         DialogResult = DialogResult.OK;
         Close();

@@ -236,6 +236,17 @@ static class NativeMethods
         return GetVirtualScreen();
     }
 
+    /// <summary>The work area (the monitor without the taskbar) of the monitor that has the largest part of the rectangle.</summary>
+    public static Rectangle GetMonitorWorkArea(Rectangle screenRect)
+    {
+        RECT r = RECT.FromRectangle(screenRect);
+        IntPtr monitor = MonitorFromRect(ref r, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO info = new MONITORINFO();
+        info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+        if (monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref info)) return info.rcWork.ToRectangle();
+        return GetMonitorBounds(screenRect);
+    }
+
     /// <summary>The bounds of each monitor.</summary>
     public static Rectangle[] GetAllMonitorBounds()
     {
@@ -313,6 +324,129 @@ static class NativeMethods
         catch (EntryPointNotFoundException)
         {
             return false;
+        }
+    }
+
+    // ---------------------------------------------------------------- thread DPI awareness
+
+    [DllImport("user32.dll")]
+    static extern IntPtr SetThreadDpiAwarenessContext(IntPtr value);
+
+    /// <summary>DPI_AWARENESS_CONTEXT_SYSTEM_AWARE. Windows scales the window as a bitmap on a monitor with a different DPI.</summary>
+    public static readonly IntPtr DpiContextSystemAware = new IntPtr(-2);
+
+    /// <summary>DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2. The process default (see the manifest).</summary>
+    public static readonly IntPtr DpiContextPerMonitorAwareV2 = new IntPtr(-4);
+
+    /// <summary>
+    /// Sets the DPI awareness of the current thread. A top-level window keeps the awareness of the thread
+    /// at the time Windows makes the window. Returns the old context, or IntPtr.Zero when Windows cannot do it
+    /// (Windows older than 10 1607). Give the old context back to RestoreThreadDpiContext.
+    /// </summary>
+    public static IntPtr SetThreadDpiContext(IntPtr context)
+    {
+        try { return SetThreadDpiAwarenessContext(context); }
+        catch (EntryPointNotFoundException) { return IntPtr.Zero; }
+    }
+
+    public static void RestoreThreadDpiContext(IntPtr oldContext)
+    {
+        if (oldContext == IntPtr.Zero) return;
+        try { SetThreadDpiAwarenessContext(oldContext); }
+        catch (EntryPointNotFoundException) { }
+    }
+
+    // ---------------------------------------------------------------- DXGI outputs (for ddagrab output_idx)
+
+    [DllImport("dxgi.dll")]
+    static extern int CreateDXGIFactory1(ref Guid riid, out IntPtr factory);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    delegate int ComEnumDelegate(IntPtr self, uint index, out IntPtr item);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    delegate int ComGetDescDelegate(IntPtr self, IntPtr desc);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    delegate uint ComReleaseDelegate(IntPtr self);
+
+    static readonly Guid IID_IDXGIFactory1 = new Guid("770aae78-f26f-4dba-a829-253c83d1b387");
+    const int DXGI_ERROR_NOT_FOUND = unchecked((int)0x887A0002);
+    // Vtable slots. IUnknown = 0 to 2, IDXGIObject = 3 to 6.
+    // IDXGIFactory::EnumAdapters, IDXGIAdapter::EnumOutputs and IDXGIOutput::GetDesc are all slot 7.
+    const int SlotRelease = 2;
+    const int SlotFirstOwn = 7;
+
+    static T ComMethod<T>(IntPtr obj, int slot) where T : class
+    {
+        IntPtr vtable = Marshal.ReadIntPtr(obj);
+        IntPtr fn = Marshal.ReadIntPtr(vtable, slot * IntPtr.Size);
+        return (T)(object)Marshal.GetDelegateForFunctionPointer(fn, typeof(T));
+    }
+
+    static void ComRelease(IntPtr obj)
+    {
+        if (obj == IntPtr.Zero) return;
+        try { ComMethod<ComReleaseDelegate>(obj, SlotRelease)(obj); }
+        catch (Exception) { }
+    }
+
+    /// <summary>
+    /// The outputs of DXGI adapter 0, in DXGI order. FFmpeg ddagrab makes its D3D11 device on the default
+    /// adapter (adapter 0) and calls EnumOutputs(output_idx) on it, so DxgiOutputInfo.Index is the ddagrab output_idx.
+    /// A monitor on a second adapter is not in the list. Returns null when DXGI fails.
+    /// UNVERIFIED: a per-app GPU preference for ffmpeg.exe (Windows graphics settings) can change the adapter of FFmpeg.
+    /// </summary>
+    public static List<DxgiOutputInfo> GetDxgiOutputs()
+    {
+        IntPtr factory = IntPtr.Zero, adapter = IntPtr.Zero;
+        IntPtr desc = IntPtr.Zero;
+        try
+        {
+            Guid iid = IID_IDXGIFactory1;
+            if (CreateDXGIFactory1(ref iid, out factory) < 0 || factory == IntPtr.Zero) return null;
+            if (ComMethod<ComEnumDelegate>(factory, SlotFirstOwn)(factory, 0, out adapter) < 0 || adapter == IntPtr.Zero)
+                return null;
+            List<DxgiOutputInfo> list = new List<DxgiOutputInfo>();
+            // DXGI_OUTPUT_DESC: WCHAR DeviceName[32] (64 bytes), RECT DesktopCoordinates (offset 64),
+            // BOOL AttachedToDesktop (80), DXGI_MODE_ROTATION (84), HMONITOR (88). 128 bytes is enough.
+            desc = Marshal.AllocHGlobal(128);
+            for (uint i = 0; i < 16; i++)
+            {
+                IntPtr output;
+                int hr = ComMethod<ComEnumDelegate>(adapter, SlotFirstOwn)(adapter, i, out output);
+                if (hr == DXGI_ERROR_NOT_FOUND) break;
+                if (hr < 0 || output == IntPtr.Zero) return null;
+                try
+                {
+                    for (int k = 0; k < 128; k++) Marshal.WriteByte(desc, k, 0);
+                    if (ComMethod<ComGetDescDelegate>(output, SlotFirstOwn)(output, desc) < 0) return null;
+                    DxgiOutputInfo info = new DxgiOutputInfo();
+                    info.Index = (int)i;
+                    info.DeviceName = Marshal.PtrToStringUni(desc, 32).TrimEnd('\0');
+                    int left = Marshal.ReadInt32(desc, 64), top = Marshal.ReadInt32(desc, 68);
+                    int right = Marshal.ReadInt32(desc, 72), bottom = Marshal.ReadInt32(desc, 76);
+                    info.X = left;
+                    info.Y = top;
+                    info.Width = right - left;
+                    info.Height = bottom - top;
+                    info.Attached = Marshal.ReadInt32(desc, 80) != 0;
+                    list.Add(info);
+                }
+                finally { ComRelease(output); }
+            }
+            return list;
+        }
+        catch (Exception)
+        {
+            // DllNotFoundException, EntryPointNotFoundException or a bad vtable call: no DXGI data.
+            return null;
+        }
+        finally
+        {
+            if (desc != IntPtr.Zero) Marshal.FreeHGlobal(desc);
+            ComRelease(adapter);
+            ComRelease(factory);
         }
     }
 }
