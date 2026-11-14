@@ -761,7 +761,13 @@ sealed class RegionSelectorForm : Form
 
     void InvalidateArea(Rectangle r)
     {
-        if (r.Width > 0 && r.Height > 0) Invalidate(r);
+        // Paint each area at once. Otherwise Windows joins all invalid areas, and the clip box of
+        // two far-apart areas (for example the crosshair lines) becomes the full virtual screen.
+        if (r.Width > 0 && r.Height > 0)
+        {
+            Invalidate(r);
+            Update();
+        }
     }
 
     // ---------------------------------------------------------------- painting
