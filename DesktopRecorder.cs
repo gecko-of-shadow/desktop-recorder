@@ -984,8 +984,9 @@ class SettingsForm : Form
     public SettingsForm(Settings current)
     {
         this.current = current;
-        // The process is per-monitor DPI aware. The layout below is in 96 DPI units, and Windows Forms
-        // scales it to the DPI of the screen. UNVERIFIED: the look at 125% (no GUI run yet).
+        // TrayApp makes this dialog system DPI aware (see ShowSettings). The layout below is in 96 DPI units,
+        // Windows Forms scales it to the system DPI, and Windows scales the window on other monitors.
+        // UNVERIFIED: the look at 125% and on a second monitor with a different DPI (no GUI run yet).
         SuspendLayout();
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
