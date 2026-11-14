@@ -222,7 +222,7 @@ Setup (checked):
 - PC: one monitor, 1920x1080 physical, 125% scale, 119 Hz. GPU: RTX 4060, driver 621.01. CPU: 12 logical cores.
 - FFmpeg: gyan.dev full build 2026-04-30 (`cc3ca17127`). It has `gdigrab`, `ddagrab`, `h264_nvenc`, `libx264`.
 - Page: `test/counter.html` in a maximized Chrome window. Region = the page area: x 0, y 108, 1920x912 physical px. A DPI-aware call measured the page area. A snapshot PNG from each backend decoded correctly.
-- Script: `test/phase_a.ps1`. It runs FFmpeg directly, 10 s for each run, one run at a time. Cursor off. Constant frame rate. Fragmented MP4.
+- Script: `test/phase_a.ps1`. It runs FFmpeg directly, 10 s for each run, one run at a time. Cursor off. Fragmented MP4. The script does not set `-fps_mode`. A late frame shows as a gap in the timestamps, not as a copy (see the smoke run below).
 - Encoder settings: libx264 = old app settings (`-tune stillimage`, CRF 27, threads = ceil(fps)). h264_nvenc = `-preset p4 -rc vbr -cq 23`.
 - Output: `test/results/phase_a/` (Git ignores it). Each run has the MP4, the FFmpeg log and command, and the `frames.py` JSON. `summary.json` has the table below.
 
@@ -239,23 +239,26 @@ Column notes:
 - Unique values = different counter numbers that `frames.py --counter` read. All frames decoded (0 failed). No counter value repeated in any run.
 - CPU % = FFmpeg process CPU time ÷ wall time ÷ 12 cores. It does not include GPU load.
 - Page Hz = (last counter value − first counter value) ÷ 10 s. Near 119 means Chrome did not slow the page. All runs are valid.
-- FFmpeg reported no `dup=` and no `drop=` in any run (this build prints them only when they are not 0).
+- FFmpeg reported no `dup=` and no `drop=` in any run. This proves little: the output timing is passed through, so FFmpeg does not add copies. The unique-value count is the real check.
+- The frame timestamps of A1 and A4 step by 0.1 s with no gap.
 - In A1, the counter steps were 10 to 15 values (median 12, 119 Hz ÷ 10 fps). No step was long. Thus no capture was late by a full frame.
 
 Checked: all numbers in the table, from runs on Bran's PC.
 
 Not checked:
 
-- Encoder load with full-screen motion. The counter page changes only a small area. Thus each encoder had little work. The Grok test (3.1) saw copies of frames during fast scrolling, when every pixel changes. This test did not reproduce that load. `gdigrab` capture time does not depend on the content, so the capture part is checked. The encoder part is not checked.
+- Encoder load with full-screen motion. The counter page changes only a small area. Thus each encoder had little work. The Grok test (3.1) saw copies of frames during fast scrolling, when every pixel changes. This test did not reproduce that load. UNVERIFIED: `gdigrab` capture time does not depend on the content. No run tested it.
+- `gdigrab` at 30 fps. Only `ddagrab` ran at 30 fps (A5).
 - File size comparison. libx264 CRF 27 and NVENC CQ 23 are not the same quality level. Do not compare the MB column between encoders. Phase B (B9 to B11) compares quality.
-- A 2 s smoke run of A3 gave 18 of 20 values. The 10 s run of A3 gave 100 of 100. The probable cause is the start of the capture. Not checked.
+- A 2 s smoke run of A3 gave 18 of 20 values. Its timestamps jump from 0.6 s to 0.9 s near the start: two captures were late. The 10 s run of A3 gave 100 of 100. The probable cause is the start of `gdigrab`. Not checked.
 - Multi-monitor PCs. This PC has one monitor.
 
 Conclusion:
 
 1. At 10 fps on this PC, no backend dropped frames. The cause of the Grok "copies of the frame before" result is still unknown. Possible causes (not checked): encoder load during a scroll, the old full-desktop capture, or the browser that did not repaint during the scroll.
-2. Recommended backend for the app: `ddagrab` + `h264_nvenc`. It had the lowest CPU (0.3%) and kept 30 fps with no loss. Keep `gdigrab` + `h264_nvenc` as the fallback (0.9% CPU, no loss). Keep `libx264 veryfast` as the fallback when NVENC is not available.
-3. A6 ("region only"): A1 to A5 already used one region (1920x912, nearly the full monitor). Thus A6 gives no new data on this PC. In place of A6, do a stress run: record `scroll.html` at 2000 px/s with A1 settings and with A4 settings, then run `frames.py` (exact mode). Each captured frame must be unique. This checks the encoder load.
+2. Recommended backend for the app: `ddagrab` + `h264_nvenc`. All five runs tie on capture rate. The choice rests on two weaker points: the lowest CPU (0.3%, under light load), and A5, which kept 30 fps with no loss. Keep `gdigrab` + `h264_nvenc` as the fallback (0.9% CPU, no loss at 10 fps). Keep `libx264 veryfast` as the fallback when NVENC is not available.
+3. Backend for A6: `ddagrab` + `h264_nvenc` (A4 settings). A1 to A5 already used one region (1920x912, nearly the full monitor). Thus A6 with a smaller region adds little on this PC.
+4. Follow-up (not done): a scroll stress run. Record `scroll.html` at 2000 px/s with A1 settings and with A4 settings. Then run `frames.py` (exact mode). Each captured frame must be unique. This checks the encoder load.
 
 ## 7. Tracker
 
