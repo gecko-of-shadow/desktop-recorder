@@ -23,6 +23,11 @@ sealed class RecordingSession
     string folder;
     double fps = RecorderCore.DefaultFps;
     List<string> before = new List<string>();
+    // Last FFmpeg stats line of the current or last recording. Guarded by statsGate.
+    readonly object statsGate = new object();
+    FfmpegProgress progress;
+    bool hasProgress;
+    int generation;
 
     // Raised on a background thread when ffmpeg ends by itself. The argument is ffmpeg's error text.
     public event Action<string> Failed;
@@ -63,10 +68,18 @@ sealed class RecordingSession
             fps = RecorderCore.ClampFps(framesPerSecond);
             before = existing;
             lock (errors) { errors.Length = 0; }
+            int gen;
+            lock (statsGate)
+            {
+                generation++;
+                gen = generation;
+                progress = new FfmpegProgress();
+                hasProgress = false;
+            }
             state = Recording;
             idleEvent.Reset();
             Process started = p;
-            watcher = new Thread(delegate() { Watch(started); });
+            watcher = new Thread(delegate() { Watch(started, gen); });
             watcher.IsBackground = true;
             watcher.Name = "ffmpeg-stderr";
             try { watcher.Start(); }
@@ -191,18 +204,77 @@ sealed class RecordingSession
         }
     }
 
-    void Watch(Process p)
+    // Stats of the last recording: frames, duplicates and drops from the last FFmpeg stats line,
+    // and the size of the files that the recording made. Call it after Stop (or after Failed).
+    public RecordingStats LastStats()
+    {
+        RecordingStats stats = new RecordingStats();
+        lock (statsGate)
+        {
+            stats.HasProgress = hasProgress;
+            stats.FramesCaptured = progress.Frames;
+            stats.DuplicateFrames = progress.Duplicates;
+            stats.DroppedFrames = progress.Dropped;
+        }
+        string[] files = SessionFiles();
+        for (int i = 0; i < files.Length; i++)
+        {
+            try { stats.FileBytes += new FileInfo(files[i]).Length; }
+            catch (Exception) { }
+        }
+        return stats;
+    }
+
+    void HandleLine(string line, int gen)
+    {
+        FfmpegProgress parsed;
+        if (RecorderCore.TryParseProgress(line, out parsed))
+        {
+            // Stats lines do not go into the error text, or they fill the Failed message.
+            lock (statsGate)
+            {
+                if (gen == generation)
+                {
+                    progress = parsed;
+                    hasProgress = true;
+                }
+            }
+            return;
+        }
+        lock (errors)
+        {
+            if (errors.Length < 2000) errors.AppendLine(line);
+        }
+    }
+
+    void Watch(Process p, int gen)
     {
         try
         {
-            string line;
-            while ((line = p.StandardError.ReadLine()) != null)
+            // FFmpeg ends each stats line with a lone '\r'. StreamReader.ReadLine waits for the
+            // next character after a '\r' (to look for "\r\n"), so the newest stats line would
+            // stay unread until FFmpeg writes more. Split the lines here instead.
+            TextReader reader = p.StandardError;
+            char[] buffer = new char[4096];
+            StringBuilder current = new StringBuilder();
+            int count;
+            while ((count = reader.Read(buffer, 0, buffer.Length)) > 0)
             {
-                lock (errors)
+                for (int i = 0; i < count; i++)
                 {
-                    if (errors.Length < 2000) errors.AppendLine(line);
+                    char c = buffer[i];
+                    if (c == '\r' || c == '\n')
+                    {
+                        if (current.Length > 0) HandleLine(current.ToString(), gen);
+                        current.Length = 0;
+                    }
+                    else if (current.Length < 8192)
+                    {
+                        current.Append(c);
+                    }
                 }
             }
+            if (current.Length > 0) HandleLine(current.ToString(), gen);
         }
         catch (Exception) { }
         try { p.WaitForExit(); } catch (Exception) { }
