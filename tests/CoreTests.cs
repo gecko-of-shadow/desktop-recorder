@@ -663,8 +663,13 @@ static class CoreTests
             Expect(!empty.HasProgress && empty.FramesCaptured == 0, "no stats before start");
             string output = Path.Combine(dir, "desktop_stats.mp4");
             Expect(session.Start(python, Arg(fake) + " " + Arg(output), dir, 2) == null, "stats start");
-            Thread.Sleep(400);
+            // Poll, so a slow test machine does not fail the check.
             RecordingStats mid = session.LastStats();
+            for (int wait = 0; wait < 100 && mid.FramesCaptured != 10; wait++)
+            {
+                Thread.Sleep(50);
+                mid = session.LastStats();
+            }
             Expect(mid.HasProgress && mid.FramesCaptured == 10 && mid.DuplicateFrames == 1 && mid.DroppedFrames == 0,
                 "stats while recording: " + mid.FramesCaptured + "/" + mid.DuplicateFrames);
             session.Stop();

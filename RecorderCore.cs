@@ -898,25 +898,27 @@ static class RecorderCore
                 p.StartInfo.RedirectStandardInput = true;
                 p.StartInfo.RedirectStandardOutput = true;
                 p.StartInfo.RedirectStandardError = true;
-                StringBuilder err = new StringBuilder();
-                p.ErrorDataReceived += delegate(object sender, System.Diagnostics.DataReceivedEventArgs e)
+                // Read both pipes with events (.NET 4), so a full pipe cannot block the wait below.
+                StringBuilder text = new StringBuilder();
+                System.Diagnostics.DataReceivedEventHandler collect = delegate(object sender, System.Diagnostics.DataReceivedEventArgs e)
                 {
                     if (e.Data == null) return;
-                    lock (err) { if (err.Length < 20000) err.AppendLine(e.Data); }
+                    lock (text) { if (text.Length < 200000) text.AppendLine(e.Data); }
                 };
+                p.OutputDataReceived += collect;
+                p.ErrorDataReceived += collect;
                 p.Start();
+                p.BeginOutputReadLine();
                 p.BeginErrorReadLine();
                 p.StandardInput.Close();
-                // Read stdout on a worker, so a full pipe cannot block the wait below.
-                System.Threading.Tasks.Task<string> read = p.StandardOutput.ReadToEndAsync();
                 if (!p.WaitForExit(Math.Max(1000, timeoutMs)))
                 {
                     try { p.Kill(); } catch (Exception) { }
                     return false;
                 }
+                // The overload without a timeout also waits for the end of the redirected pipes.
                 p.WaitForExit();
-                string stdout = read.Wait(2000) ? read.Result : "";
-                lock (err) { output = stdout + err.ToString(); }
+                lock (text) { output = text.ToString(); }
                 exitCode = p.ExitCode;
                 return true;
             }
