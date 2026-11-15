@@ -51,6 +51,9 @@ class Settings
     // Second hotkey: record the last region again, without the selector.
     public int LastRegionHotkeyModifiers = 1 | 2 | 4;
     public Keys LastRegionHotkeyKey = Keys.R;
+    // Third hotkey: stop the recording.
+    public int StopHotkeyModifiers = 1 | 2 | 4;
+    public Keys StopHotkeyKey = Keys.S;
     // Capture and encoding (HANDOFF 4.3).
     public string CaptureBackend = RecorderCore.BackendDdagrab;
     public string Encoder = RecorderCore.EncoderAuto;
@@ -108,6 +111,8 @@ class Settings
         stored.HotkeyKey = (int)HotkeyKey;
         stored.LastRegionHotkeyModifiers = LastRegionHotkeyModifiers;
         stored.LastRegionHotkeyKey = (int)LastRegionHotkeyKey;
+        stored.StopHotkeyModifiers = StopHotkeyModifiers;
+        stored.StopHotkeyKey = (int)StopHotkeyKey;
         stored.CaptureBackend = CaptureBackend;
         stored.Encoder = Encoder;
         stored.ChromaFormat = ChromaFormat;
@@ -141,6 +146,8 @@ class Settings
         HotkeyKey = (Keys)stored.HotkeyKey;
         LastRegionHotkeyModifiers = stored.LastRegionHotkeyModifiers;
         LastRegionHotkeyKey = (Keys)stored.LastRegionHotkeyKey;
+        StopHotkeyModifiers = stored.StopHotkeyModifiers;
+        StopHotkeyKey = (Keys)stored.StopHotkeyKey;
         CaptureBackend = RecorderCore.NormalizeBackend(stored.CaptureBackend);
         Encoder = RecorderCore.NormalizeEncoder(stored.Encoder);
         ChromaFormat = RecorderCore.NormalizeChroma(stored.ChromaFormat);
@@ -195,6 +202,11 @@ class Settings
     public string LastRegionHotkeyText
     {
         get { return RecorderCore.HotkeyText(LastRegionHotkeyModifiers, (int)LastRegionHotkeyKey); }
+    }
+
+    public string StopHotkeyText
+    {
+        get { return RecorderCore.HotkeyText(StopHotkeyModifiers, (int)StopHotkeyKey); }
     }
 
     // Reads text such as "Win+Shift+D". Keeps the current hotkey if the text is not valid.
@@ -440,6 +452,7 @@ class TrayApp : ApplicationContext
 {
     const int SelectHotkeyId = 1;
     const int LastRegionHotkeyId = 2;
+    const int StopHotkeyId = 3;
 
     readonly HotkeyWindow hotkey = new HotkeyWindow();
     [DllImport("user32.dll")]
@@ -512,6 +525,16 @@ class TrayApp : ApplicationContext
 
         hotkey.Pressed += delegate(int id)
         {
+            if (id == StopHotkeyId)
+            {
+                // The stop hotkey only stops. It never opens the selector.
+                if (recorder.IsRecording)
+                {
+                    StopRecording();
+                    Refresh();
+                }
+                return;
+            }
             if (recorder.IsRecording)
             {
                 StopRecording();
@@ -557,6 +580,7 @@ class TrayApp : ApplicationContext
     {
         hotkey.Register(SelectHotkeyId, settings.HotkeyModifiers, settings.HotkeyKey);
         hotkey.Register(LastRegionHotkeyId, settings.LastRegionHotkeyModifiers, settings.LastRegionHotkeyKey);
+        hotkey.Register(StopHotkeyId, settings.StopHotkeyModifiers, settings.StopHotkeyKey);
     }
 
     // Null when both hotkeys work.
@@ -565,6 +589,7 @@ class TrayApp : ApplicationContext
         List<string> used = new List<string>();
         if (!hotkey.IsRegistered(SelectHotkeyId)) used.Add(settings.HotkeyText);
         if (!hotkey.IsRegistered(LastRegionHotkeyId)) used.Add(settings.LastRegionHotkeyText);
+        if (!hotkey.IsRegistered(StopHotkeyId)) used.Add(settings.StopHotkeyText);
         if (used.Count == 0) return null;
         return string.Join(" and ", used.ToArray()) + (used.Count == 1 ? " is" : " are")
             + " used by another program, so that hotkey is off.";
@@ -608,7 +633,9 @@ class TrayApp : ApplicationContext
         IntPtr oldDpi = NativeMethods.SetThreadDpiContext(NativeMethods.DpiContextPerMonitorAwareV2);
         try
         {
-            picked = RegionSelector.Show(settings.LastRegion.IsEmpty ? (Rectangle?)null : settings.LastRegion);
+            // No preselected region: the release of the mouse starts the recording, so a drag must always
+            // draw a new box. The last region has its own hotkey.
+            picked = RegionSelector.Show(null);
         }
         catch (Exception e)
         {
@@ -904,8 +931,12 @@ class TrayApp : ApplicationContext
             : recordingRegion.Width.ToString(CultureInfo.InvariantCulture) + "x"
               + recordingRegion.Height.ToString(CultureInfo.InvariantCulture) + " region";
         statusItem.Text = on ? "Recording at " + fpsText + " fps, " + where : "Not recording";
+        string toggleKey = on
+            ? (hotkey.IsRegistered(StopHotkeyId) ? settings.StopHotkeyText
+               : hotkey.IsRegistered(SelectHotkeyId) ? settings.HotkeyText : null)
+            : (hotkey.IsRegistered(SelectHotkeyId) ? settings.HotkeyText : null);
         toggleItem.Text = (on ? "Stop recording" : "Select region and record")
-            + (hotkey.IsRegistered(SelectHotkeyId) ? "\t" + settings.HotkeyText : "");
+            + (toggleKey != null ? "\t" + toggleKey : "");
         lastRegionItem.Text = "Record last region"
             + (hotkey.IsRegistered(LastRegionHotkeyId) ? "\t" + settings.LastRegionHotkeyText : "");
         lastRegionItem.Enabled = !on;
@@ -970,6 +1001,11 @@ class SettingsForm : Form
     readonly CheckBox lastAltBox = new CheckBox();
     readonly CheckBox lastShiftBox = new CheckBox();
     readonly ComboBox lastKeyBox = new ComboBox();
+    readonly CheckBox stopWinBox = new CheckBox();
+    readonly CheckBox stopCtrlBox = new CheckBox();
+    readonly CheckBox stopAltBox = new CheckBox();
+    readonly CheckBox stopShiftBox = new CheckBox();
+    readonly ComboBox stopKeyBox = new ComboBox();
     readonly ComboBox backendBox = new ComboBox();
     readonly ComboBox encoderBox = new ComboBox();
     readonly ComboBox chromaBox = new ComboBox();
@@ -996,7 +1032,7 @@ class SettingsForm : Form
         MinimizeBox = false;
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(470, 578);
+        ClientSize = new Size(470, 613);
         Font = SystemFonts.MessageBoxFont;
 
         AddLabel("Save recordings to:", 15);
@@ -1052,55 +1088,63 @@ class SettingsForm : Form
         SetUpModifier(lastShiftBox, "Shift", 264, 213, 4, current.LastRegionHotkeyModifiers);
         SetUpKeyBox(lastKeyBox, 212, current.LastRegionHotkeyKey);
 
-        AddLabel("Capture:", 250, 180);
-        SetUpChoice(backendBox, 247, BackendNames, BackendValues, current.CaptureBackend);
-        AddLabel("Encoder:", 285, 180);
-        SetUpChoice(encoderBox, 282, EncoderNames, EncoderValues, current.Encoder);
-        AddLabel("Color detail (chroma):", 320, 180);
-        SetUpChoice(chromaBox, 317, ChromaNames, ChromaValues, current.ChromaFormat);
-        AddLabel("Frame-rate mode:", 355, 180);
-        SetUpChoice(modeBox, 352, ModeNames, ModeValues, current.FrameRateMode);
+        AddLabel("Stop:", 250, 75);
+        SetUpModifier(stopWinBox, "Win", 90, 248, 8, current.StopHotkeyModifiers);
+        SetUpModifier(stopCtrlBox, "Ctrl", 148, 248, 2, current.StopHotkeyModifiers);
+        SetUpModifier(stopAltBox, "Alt", 206, 248, 1, current.StopHotkeyModifiers);
+        SetUpModifier(stopShiftBox, "Shift", 264, 248, 4, current.StopHotkeyModifiers);
+        SetUpKeyBox(stopKeyBox, 247, current.StopHotkeyKey);
+
+        AddLabel("Capture:", 285, 180);
+        SetUpChoice(backendBox, 282, BackendNames, BackendValues, current.CaptureBackend);
+        AddLabel("Encoder:", 320, 180);
+        SetUpChoice(encoderBox, 317, EncoderNames, EncoderValues, current.Encoder);
+        AddLabel("Color detail (chroma):", 355, 180);
+        SetUpChoice(chromaBox, 352, ChromaNames, ChromaValues, current.ChromaFormat);
+        AddLabel("Frame-rate mode:", 390, 180);
+        SetUpChoice(modeBox, 387, ModeNames, ModeValues, current.FrameRateMode);
 
         startupBox.Text = "Start Desktop Recorder when Windows starts";
-        startupBox.SetBounds(15, 390, 440, 22);
+        startupBox.SetBounds(15, 425, 440, 22);
         try { startupBox.Checked = Settings.StartsWithWindows; } catch (Exception) { }
 
         recordBox.Text = "Start recording (saved region) when Desktop Recorder starts";
-        recordBox.SetBounds(15, 416, 440, 22);
+        recordBox.SetBounds(15, 451, 440, 22);
         recordBox.Checked = current.RecordOnLaunch;
 
         copyBox.Text = "Copy the video to the clipboard when recording stops";
-        copyBox.SetBounds(15, 442, 440, 22);
+        copyBox.SetBounds(15, 477, 440, 22);
         copyBox.Checked = current.CopyToClipboard;
 
         soundBox.Text = "Play a sound when recording starts and stops";
-        soundBox.SetBounds(15, 468, 440, 22);
+        soundBox.SetBounds(15, 503, 440, 22);
         soundBox.Checked = current.PlaySounds;
 
-        AddLabel("Region selector:", 497, 110);
+        AddLabel("Region selector:", 532, 110);
         crosshairBox.Text = "Crosshair";
-        crosshairBox.SetBounds(130, 494, 95, 22);
+        crosshairBox.SetBounds(130, 529, 95, 22);
         crosshairBox.Checked = current.SelectorCrosshair;
         magnifierBox.Text = "Magnifier";
-        magnifierBox.SetBounds(230, 494, 95, 22);
+        magnifierBox.SetBounds(230, 529, 95, 22);
         magnifierBox.Checked = current.SelectorMagnifier;
         positionBox.Text = "Position";
-        positionBox.SetBounds(330, 494, 95, 22);
+        positionBox.SetBounds(330, 529, 95, 22);
         positionBox.Checked = current.SelectorPosition;
 
         Button save = new Button();
         save.Text = "Save";
-        save.SetBounds(290, 538, 80, 27);
+        save.SetBounds(290, 573, 80, 27);
         save.Click += delegate { OnSave(); };
         Button cancel = new Button();
         cancel.Text = "Cancel";
-        cancel.SetBounds(375, 538, 80, 27);
+        cancel.SetBounds(375, 573, 80, 27);
         cancel.DialogResult = DialogResult.Cancel;
 
         Controls.AddRange(new Control[]
         {
             folderBox, browse, fpsBox, qualityBox, splitBox, winBox, ctrlBox, altBox, shiftBox, keyBox,
             lastWinBox, lastCtrlBox, lastAltBox, lastShiftBox, lastKeyBox,
+            stopWinBox, stopCtrlBox, stopAltBox, stopShiftBox, stopKeyBox,
             backendBox, encoderBox, chromaBox, modeBox,
             startupBox, recordBox, copyBox, soundBox, crosshairBox, magnifierBox, positionBox, save, cancel
         });
@@ -1168,14 +1212,17 @@ class SettingsForm : Form
 
     void OnSave()
     {
-        int mods, lastMods;
-        Keys hotkeyKey, lastKey;
+        int mods, lastMods, stopMods;
+        Keys hotkeyKey, lastKey, stopKey;
         if (!ReadHotkey("hotkey", winBox, ctrlBox, altBox, shiftBox, keyBox, out mods, out hotkeyKey)) return;
         if (!ReadHotkey("last region hotkey", lastWinBox, lastCtrlBox, lastAltBox, lastShiftBox, lastKeyBox,
             out lastMods, out lastKey)) return;
-        if (mods == lastMods && hotkeyKey == lastKey)
+        if (!ReadHotkey("stop hotkey", stopWinBox, stopCtrlBox, stopAltBox, stopShiftBox, stopKeyBox,
+            out stopMods, out stopKey)) return;
+        if ((mods == lastMods && hotkeyKey == lastKey) || (mods == stopMods && hotkeyKey == stopKey)
+            || (lastMods == stopMods && lastKey == stopKey))
         {
-            MessageBox.Show(this, "The hotkey and the last region hotkey must be different.", Text);
+            MessageBox.Show(this, "The three hotkeys must be different.", Text);
             return;
         }
         string folder = folderBox.Text.Trim().Trim('"');
@@ -1204,6 +1251,8 @@ class SettingsForm : Form
         Result.HotkeyKey = hotkeyKey;
         Result.LastRegionHotkeyModifiers = lastMods;
         Result.LastRegionHotkeyKey = lastKey;
+        Result.StopHotkeyModifiers = stopMods;
+        Result.StopHotkeyKey = stopKey;
         Result.CaptureBackend = ChoiceValue(backendBox, BackendValues);
         Result.Encoder = ChoiceValue(encoderBox, EncoderValues);
         Result.ChromaFormat = ChoiceValue(chromaBox, ChromaValues);

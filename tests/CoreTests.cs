@@ -252,6 +252,16 @@ static class CoreTests
         // A bad value keeps the value from before.
         StoredSettings bad = RecorderCore.ParseSettings("last_region_hotkey=Shift+A\r\n", d);
         Expect(bad.LastRegionHotkeyModifiers == (1 | 2 | 4) && bad.LastRegionHotkeyKey == (int)'R', "bad last region hotkey keeps default");
+
+        // Stop hotkey: default Ctrl+Alt+Shift+S, parsed, saved, and a bad value keeps the default.
+        Expect(d.StopHotkeyModifiers == (1 | 2 | 4) && d.StopHotkeyKey == (int)'S', "default stop hotkey");
+        Expect(RecorderCore.SerializeSettings(d).Contains("stop_hotkey=Ctrl+Alt+Shift+S\r\n"), "stop hotkey serialized");
+        StoredSettings st = RecorderCore.ParseSettings("stop_hotkey=Win+F10\r\n", d);
+        Expect(st.StopHotkeyModifiers == 8 && st.StopHotkeyKey == 0x79, "stop hotkey parsed");
+        StoredSettings stAgain = RecorderCore.ParseSettings(RecorderCore.SerializeSettings(st), d);
+        Expect(stAgain.StopHotkeyModifiers == 8 && stAgain.StopHotkeyKey == 0x79, "stop hotkey round trip");
+        StoredSettings stBad = RecorderCore.ParseSettings("stop_hotkey=Shift+A\r\n", d);
+        Expect(stBad.StopHotkeyModifiers == (1 | 2 | 4) && stBad.StopHotkeyKey == (int)'S', "bad stop hotkey keeps default");
     }
 
     static void TestBackendSettings()

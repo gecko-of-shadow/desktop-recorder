@@ -2,10 +2,11 @@
 // One borderless topmost form covers all monitors. It shows a frozen, dimmed screenshot.
 // The selected area shows at full brightness.
 //
-// Mouse:  move = highlight the window under the cursor. Click = select that window. Drag = select a rectangle.
+// Mouse:  move = highlight the window under the cursor. Click = select that window and accept.
+//         Drag = select a rectangle; the release of the button accepts it (Bran's flow, 2026-11-14).
 //         Shift while dragging keeps a square. Ctrl while dragging moves the new rectangle.
-//         Drag a handle to resize the selection. Drag inside the selection to move it.
-//         Double-click inside the selection = accept. Right-click = clear the selection, or cancel when there is none.
+//         The app calls Show(null), so the handles and the move/resize code are used only when a caller
+//         passes a last region. Right-click = cancel the drag, or cancel the selector.
 // Keys:   Enter = accept. Esc = cancel. Space = full virtual screen (accept). ~ = monitor under the cursor (accept).
 //         Arrow keys move the selection 1 px (Shift = 10 px). Ctrl + arrow keys change the size.
 //         With no selection, or while a mouse button is down, the arrow keys move the cursor.
@@ -532,6 +533,8 @@ sealed class RegionSelectorForm : Form
         if (e.Button != MouseButtons.Left) return;
         mouse = e.Location;
 
+        // Bran's flow (2026-11-14): hotkey, drag a box, release the mouse, and the recording starts.
+        // A click on a window also starts at once. Enter is not necessary.
         if (mode == DragMode.Pending)
         {
             // A click without a drag selects the highlighted window.
@@ -539,11 +542,20 @@ sealed class RegionSelectorForm : Form
             {
                 selection = hover;
                 hasSelection = true;
+                mode = DragMode.None;
+                Accept();
+                return;
             }
         }
         else if (mode == DragMode.Creating)
         {
             if (selection.Width < 2 || selection.Height < 2) hasSelection = false;
+            else
+            {
+                mode = DragMode.None;
+                Accept();
+                return;
+            }
         }
 
         mode = DragMode.None;
