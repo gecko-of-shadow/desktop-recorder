@@ -52,7 +52,7 @@ class Settings
     public string CaptureBackend = RecorderCore.BackendDdagrab;
     public string Encoder = RecorderCore.EncoderAuto;
     public string ChromaFormat = RecorderCore.Chroma420;
-    public string FrameRateMode = RecorderCore.ModeFixed;
+    public string FrameRateMode = RecorderCore.ModeChanges;   // default since Phase B (HANDOFF 5)
     public int NvencCq = RecorderCore.DefaultNvencCq;
     // Physical px, virtual-screen coordinates. Empty = no region (whole desktop).
     public Rectangle Region = Rectangle.Empty;

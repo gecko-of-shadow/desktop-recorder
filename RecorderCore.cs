@@ -22,7 +22,9 @@ sealed class StoredSettings
     public string CaptureBackend = RecorderCore.BackendDdagrab;   // ddagrab | gdigrab
     public string Encoder = RecorderCore.EncoderAuto;             // auto | h264_nvenc | libx264
     public string ChromaFormat = RecorderCore.Chroma420;          // yuv420 | yuv444
-    public string FrameRateMode = RecorderCore.ModeFixed;         // fixed | changes
+    // Default "changes": Bran's decision after Phase B (HANDOFF 5, 6.8). Same read result as fixed fps, and a still
+    // screen costs almost nothing.
+    public string FrameRateMode = RecorderCore.ModeChanges;       // fixed | changes
     public int NvencCq = RecorderCore.DefaultNvencCq;
     // Physical px, virtual-screen coordinates. Width or height 0 = no region = whole desktop.
     public int RegionX, RegionY, RegionWidth, RegionHeight;
@@ -805,6 +807,7 @@ static class RecorderCore
         c.ExtraLines = new List<string>();
         c.CaptureBackend = BackendGdigrab;
         c.Encoder = EncoderX264;
+        c.FrameRateMode = ModeFixed;   // as before: the default changed to "changes" after Phase B
         return BuildCaptureArguments(c, RegionOf(c), null, now, false);
     }
 

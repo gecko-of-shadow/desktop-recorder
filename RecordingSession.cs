@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
@@ -63,6 +64,7 @@ sealed class RecordingSession
                 try { p.Dispose(); } catch (Exception) { }
                 return "Cannot start ffmpeg: " + e.Message;
             }
+            ChildProcessJob.Add(p);
             process = p;
             folder = outputFolder;
             fps = RecorderCore.ClampFps(framesPerSecond);
@@ -299,6 +301,82 @@ sealed class RecordingSession
         try { p.Dispose(); } catch (Exception) { }
         if (handler == null) return;
         try { handler(text.Length > 0 ? text : "ffmpeg stopped."); }
+        catch (Exception) { }
+    }
+}
+
+// A Windows job object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE. The app keeps the only handle open.
+// When the app ends in any way (Exit, a crash, Task Manager), Windows closes the handle and ends ffmpeg.
+// Without it, a killed app left ffmpeg recording with no way to stop it (bug 5, HANDOFF 6.7).
+// The fragmented MP4 stays playable when ffmpeg ends this way. Does nothing on other platforms.
+static class ChildProcessJob
+{
+    [StructLayout(LayoutKind.Sequential)]
+    struct BasicLimits
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct IoCounters
+    {
+        public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount;
+        public ulong ReadTransferCount, WriteTransferCount, OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct ExtendedLimits
+    {
+        public BasicLimits Basic;
+        public IoCounters Io;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+    [DllImport("kernel32.dll")]
+    static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref ExtendedLimits info, uint length);
+    [DllImport("kernel32.dll")]
+    static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    const int ExtendedLimitInformation = 9;
+    const uint KillOnJobClose = 0x2000;
+    static readonly object gate = new object();
+    static IntPtr job = IntPtr.Zero;
+    static bool failed;
+
+    public static void Add(Process p)
+    {
+        if (Environment.OSVersion.Platform != PlatformID.Win32NT) return;
+        try
+        {
+            lock (gate)
+            {
+                if (failed) return;
+                if (job == IntPtr.Zero)
+                {
+                    IntPtr created = CreateJobObject(IntPtr.Zero, null);
+                    if (created == IntPtr.Zero) { failed = true; return; }
+                    ExtendedLimits info = new ExtendedLimits();
+                    info.Basic.LimitFlags = KillOnJobClose;
+                    if (!SetInformationJobObject(created, ExtendedLimitInformation, ref info,
+                        (uint)Marshal.SizeOf(typeof(ExtendedLimits)))) { failed = true; return; }
+                    job = created;   // never closed: the handle must live as long as the app
+                }
+                AssignProcessToJobObject(job, p.Handle);
+            }
+        }
         catch (Exception) { }
     }
 }

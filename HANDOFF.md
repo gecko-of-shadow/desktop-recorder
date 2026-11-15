@@ -148,7 +148,7 @@ Other rules:
 
 1. Platform: stay on .NET Framework 4 with `csc.exe` and `build.cmd`. No NuGet. No .NET 8.
 2. Window selection: version 1 records the fixed rectangle only. The recording does not follow a window that moves.
-3. Default frame-rate mode: "Fixed" stays the default. Decide about "Changes only" after Phase B (run B12).
+3. Default frame-rate mode: "Changes only" (Bran decided after Phase B, 2026-11-14). Code default changed; Bran's settings file set to `frame_rate_mode=changes`. The Linux port keeps its own default (not changed in this task).
 4. Start flow (GUI test, 2026-11-14): Win+Shift+D, drag a box, release the mouse. The recording starts at once. No Enter.
 5. Stop: the same hotkey (Win+Shift+D) stops. No separate stop hotkey.
 6. Remove the "record last region" feature (hotkey, tray item, settings row). Bran does not use it.
@@ -293,6 +293,7 @@ Bugs found and fixed:
 | 1 | The selector did not open. `CopyFromScreen(SourceCopy \| CaptureBlt)` throws `InvalidEnumArgumentException` on .NET Framework. The app showed the error only in a tray balloon, and Windows did not show the balloon. | Use `SourceCopy` only (06767e2). |
 | 2 | "Changes only": a 10 s recording of a still page gave a file of 0.1 s (1 frame). The file lost its real length. | `mpdecimate=max=ceil(fps)-1`: at least one frame each second. Checked: 11 frames, 10.1 s, 12 KB (00056cc). |
 | 3 | Settings dialog at 125%: the labels covered the input fields (fps value, split value, the start of each list, the Win check box). Cause: the first control in `Controls` is on top, and the labels were added first. | Put the labels behind the other controls (0ffacbf). Checked with a screenshot. |
+| 5 | When the app ended without a normal stop (killed, crash), FFmpeg kept recording with no way to stop it. Found when a test script stopped the app during Bran's recording: FFmpeg recorded the full screen for 5.5 min. | FFmpeg runs in a job object with "kill on job close", so it ends with the app. Checked: app killed, FFmpeg ended. A file shorter than one fragment (2 s) then has no readable length. |
 | 4 | Save in Settings during a recording stopped it and started a new file. The clipboard got only the second file (1 s), without the part that Bran wanted. | Save no longer touches a running recording. New capture settings apply to the next recording (5fee682). Not checked with a real click. |
 
 Start and stop time (Bran: "start and stop feel laggy"; measured with synthetic keys and `counter.html`, commit cc64aa4):
@@ -437,8 +438,8 @@ Not checked: multi-monitor PCs, other AI readers, 2 or more reads for each run, 
 | Region selector | Checked on Bran's PC (6.7). Bug 1 fixed. Flow changed by Bran: release starts, one hotkey starts and stops, no "record last region". |
 | Recording frame | Checked on Bran's PC (6.7). Border and Stop button show and work. WDA_EXCLUDEFROMCAPTURE works with ddagrab and gdigrab. |
 | ddagrab + NVENC backend | Checked on Bran's PC (6.7): ddagrab and gdigrab with NVENC, 4:2:0 and 4:4:4, no lost frames. libx264 fallback, multi-monitor and multi-GPU: UNVERIFIED. |
-| "Changes only" mode | Checked on Bran's PC (6.7). Bug 2 fixed (still screen lost the file length). Phase B (B12) still decides the default. |
-| GUI test of the new app on Bran's PC | Done (6.7). 4 bugs fixed. Start and stop made faster. Not checked: multi-monitor, `~`, Shift and Ctrl while dragging. |
+| "Changes only" mode | Checked on Bran's PC (6.7, 6.8). Bug 2 fixed. Default since 2026-11-14 (section 5). UNVERIFIED: that every AI frame tool handles variable frame rate. |
+| GUI test of the new app on Bran's PC | Done (6.7). 5 bugs fixed. Start and stop made faster. Not checked: multi-monitor, `~`, Shift and Ctrl while dragging. |
 | Phase B test | Done (6.8). Gap rule holds. No run passes the 6.3 pass rule, because the reader fails emoji lines also on lossless frames. Decision about the default quality and "Changes only" is open for Bran. |
 | README update | Not done |
 

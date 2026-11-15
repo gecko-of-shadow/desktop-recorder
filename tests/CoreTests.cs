@@ -207,6 +207,8 @@ static class CoreTests
         s.Fps = 10;
         s.Quality = 1;
         s.SplitMinutes = 0;
+        // The argument tests below use fixed fps unless they set "changes" themselves.
+        s.FrameRateMode = "fixed";
         return s;
     }
 
@@ -248,7 +250,7 @@ static class CoreTests
         Expect(d.CaptureBackend == "ddagrab", "default backend");
         Expect(d.Encoder == "auto", "default encoder");
         Expect(d.ChromaFormat == "yuv420", "default chroma");
-        Expect(d.FrameRateMode == "fixed", "default mode");
+        Expect(d.FrameRateMode == "changes", "default mode");
         Expect(d.NvencCq == 23, "default cq");
         Expect(RecorderCore.RegionOf(d).IsEmpty && RecorderCore.LastRegionOf(d).IsEmpty, "default no region");
 
@@ -257,7 +259,7 @@ static class CoreTests
         StoredSettings o = RecorderCore.ParseSettings(old, d);
         Expect(o.Folder == "C:\\Rec" && o.Fps == 4 && o.Quality == 0 && o.SplitMinutes == 10 && !o.RecordOnLaunch, "old file values");
         Expect(o.CaptureBackend == "ddagrab" && o.Encoder == "auto" && o.ChromaFormat == "yuv420"
-            && o.FrameRateMode == "fixed" && o.NvencCq == 23, "old file new defaults");
+            && o.FrameRateMode == "changes" && o.NvencCq == 23, "old file new defaults");
         Expect(RecorderCore.RegionOf(o).IsEmpty, "old file no region");
         Expect(o.ExtraLines.Count == 0, "old file no extras");
 
@@ -294,7 +296,7 @@ static class CoreTests
         string bad = "capture_backend=dxgi\r\nencoder=hevc\r\nchroma=yuv422\r\nframe_rate_mode=smart\r\nnvenc_cq=abc\r\nregion=1,2,3\r\nlast_region=a,b,c,d\r\n";
         StoredSettings b = RecorderCore.ParseSettings(bad, d);
         Expect(b.CaptureBackend == "ddagrab" && b.Encoder == "auto" && b.ChromaFormat == "yuv420"
-            && b.FrameRateMode == "fixed" && b.NvencCq == 23, "bad values keep defaults");
+            && b.FrameRateMode == "changes" && b.NvencCq == 23, "bad values keep defaults");
         Expect(RecorderCore.RegionOf(b).IsEmpty && RecorderCore.LastRegionOf(b).IsEmpty, "bad region empty");
         Expect(b.ExtraLines.Count == 0, "bad known keys not extras");
         Expect(RecorderCore.ParseSettings("nvenc_cq=0", d).NvencCq == 1, "cq low clamp");
