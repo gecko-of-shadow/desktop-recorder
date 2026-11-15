@@ -129,7 +129,9 @@ public struct RecordingStats
 
 static class RecorderCore
 {
-    public const double DefaultFps = 2;
+    // 10 fps: safe up to about 4400 page px/s of scroll in an 892 px area (HANDOFF 6.8 rule, 1.5 x margin).
+    // With "Changes only" a still screen still costs almost nothing. Bran decided on 2026-11-14.
+    public const double DefaultFps = 10;
     public const double MinFps = 0.2;
     public const double MaxFps = 60;
     public static readonly int[] Crf = { 32, 27, 21 };

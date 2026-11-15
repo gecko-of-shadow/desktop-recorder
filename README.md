@@ -11,7 +11,7 @@ Download a portable archive from the [Releases page](../../releases/latest). Unz
 - Windows: `desktop-recorder-<version>-windows-x64.zip`. Start `DesktopRecorder.exe`.
 - Ubuntu 24.04: `desktop-recorder-<version>-linux-x86_64.tar.gz`. Run `./desktop-recorder`. The README in the archive lists the apt packages it still needs (GTK, GStreamer, ffmpeg, and the Python GI bindings).
 
-The Releases page has version 1.0.0 only. Version 1.0.0 records the full desktop and has no region selector. To get the new Windows program now, build it yourself (see "Build it yourself").
+Version 2.0.0 and later have the region selector. Version 1.0.0 records the full desktop. The Ubuntu program did not change in version 2.0.0.
 
 Install ffmpeg, if you do not have it. It is not inside the archive. The GPU capture (`ddagrab`) needs a recent ffmpeg build. The test used the gyan.dev full build of 2026-04-30. In PowerShell:
 
@@ -72,7 +72,7 @@ The size label shows the size in physical pixels. The program makes the width an
 | Setting | Default | Notes |
 |---|---|---|
 | Save recordings to | `C:\Users\<you>\Recordings` | The program makes the folder. |
-| Frames per second | 2 | 0.2 to 60. See "Choose a frame rate". |
+| Frames per second | 10 | 0.2 to 60. See "Choose a frame rate". |
 | Quality | Balanced | Smallest files, Balanced, or Sharpest text. See "Capture and encoding". |
 | Start a new file every | 30 minutes | 0 means one file for each recording. |
 | Hotkey | Win+Shift+D | Win, Ctrl, Alt and Shift, plus a letter, a digit or F1 to F12. Shift alone works only with F1 to F12. The same hotkey opens the selector and stops the recording. |

@@ -155,6 +155,9 @@ Other rules:
 7. Save in Settings does not restart a running recording. New capture settings apply to the next recording (bug 4 in 6.7).
 8. Icons: Bran's 3D icon for the exe, and his tray icon set for the tray (6.7).
 9. Mouse pointer: shown by default (`show_pointer=1`). The "Hide the mouse pointer" check box in Settings is off by default (6.9). Bran decided on 2026-11-14.
+10. Default frame rate: 10 fps (was 2). Bran decided on 2026-11-14. Reason: the 6.8 rule needs 2.3 fps for 1000 CSS px/s at 125% in an 892 px area. 10 fps is safe up to about 4400 CSS px/s. Bran's settings file already had `fps=10`.
+11. Quality default: keep Balanced (CQ 23). More reads of B3, B9 and B11 are put off to a later date (Bran, 2026-11-14).
+12. Release: push `test-kit`, merge it into `main`, publish v2.0.0 (Bran, 2026-11-14). The version is 2.0.0 because the hotkey now opens the selector, not a full-desktop recording.
 
 ---
 
@@ -463,7 +466,26 @@ Not checked: the check box with a real click; the new build in Bran's tray (the 
 | GUI test of the new app on Bran's PC | Done (6.7). 5 bugs fixed. Start and stop made faster. Not checked: multi-monitor, `~`, Shift and Ctrl while dragging. |
 | Phase B test | Done (6.8). Gap rule holds. No run passes the 6.3 pass rule, because the reader fails emoji lines also on lossless frames. Decision about the default quality and "Changes only" is open for Bran. |
 | README update | Done (2026-11-14). `README.md` describes the new Windows app: selector flow and keys, all settings with the code defaults, capture and encoder fallbacks, quality table (CQ 28/23/17, CRF 32/27/21), "Changes only", the frame-rate rule from 6.8, a test summary, and the Windows unit-test commands. `packaging/windows/README.txt` has the new start and stop text. Checked: each default and label against `RecorderCore.cs`, `DesktopRecorder.cs` and `RegionSelector.cs`; the README unit-test commands ran as written on Bran's PC (tests: `ok`); the app build ran with the README options but a different `/out` path (the running app locks `DesktopRecorder.exe`); the Releases page has v1.0.0 only (`gh release list`). Not checked: the README on GitHub (not pushed). |
-| Pointer setting (6.9) | Done. Unit tests pass. Size test checked on Bran's PC. Settings dialog not checked with a real click. |
+| Pointer setting (6.9) | Done. Unit tests pass. Size test checked on Bran's PC. Settings dialog not checked with a real click. Bran sees no need for that check (2026-11-14). |
+| Save in Settings during a recording (bug 4) | Checked by Bran on 2026-11-14: the recording continues. |
+| libx264 fallback in the app | Bran: "seems ok" (2026-11-14). Not run. Still UNVERIFIED. |
+| Default fps 10 | Done (decision 10). Unit tests pass. |
+| Release v2.0.0 | See section 7.2. |
+
+### 7.1 Later and future work (Bran, 2026-11-14)
+
+- Later: more reads of B3, B9 and B11 to decide the quality default (decision 11).
+- Later: Phase A run A6.
+- Later: selector keys `~`, C, M, P, and Shift and Ctrl while dragging. Not checked yet.
+- Later: the tray icons in Bran's real tray. Not checked yet.
+- Not now: multi-monitor PCs and monitors with different scales.
+- Future: a PC without an NVIDIA GPU.
+- New session: idea to explore, an "Export frames" feature (unique frames as PNG) for AI tools that sample a video at 1 fps (for example Gemini).
+- New session: correct the stale comment in `RecorderCore.cs` that says no 4:4:4 encode ran (6.7 shows it ran).
+
+### 7.2 Release v2.0.0
+
+In progress. See the commit after this one.
 
 Mark an item "checked" only after a run on Bran's PC. Mark all other claims UNVERIFIED.
 

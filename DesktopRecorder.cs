@@ -40,7 +40,7 @@ static class Program
 class Settings
 {
     public string Folder;
-    public double Fps = 2;
+    public double Fps = RecorderCore.DefaultFps;
     public int Quality = 1;          // 0 = smallest, 1 = balanced, 2 = sharpest
     public int SplitMinutes = 30;    // 0 = one file per recording
     public bool RecordOnLaunch = true;

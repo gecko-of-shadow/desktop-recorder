@@ -60,9 +60,9 @@ static class CoreTests
 
     static void TestClamp()
     {
-        Expect(RecorderCore.ClampFps(double.NaN) == 2, "nan fps");
-        Expect(RecorderCore.ClampFps(double.PositiveInfinity) == 2, "inf fps");
-        Expect(RecorderCore.ClampFps(double.NegativeInfinity) == 2, "neg inf fps");
+        Expect(RecorderCore.ClampFps(double.NaN) == RecorderCore.DefaultFps, "nan fps");
+        Expect(RecorderCore.ClampFps(double.PositiveInfinity) == RecorderCore.DefaultFps, "inf fps");
+        Expect(RecorderCore.ClampFps(double.NegativeInfinity) == RecorderCore.DefaultFps, "neg inf fps");
         Expect(RecorderCore.ClampFps(-4) == 0.2, "negative fps");
         Expect(RecorderCore.ClampFps(0) == 0.2, "zero fps");
         Expect(RecorderCore.ClampFps(0.2) == 0.2, "min fps");
@@ -107,7 +107,7 @@ static class CoreTests
         defaults.Folder = @"C:\Users\me\Recordings";
         string text = "fps=NaN\r\nquality=9\r\nsplit_minutes=-5\r\nhotkey=Shift+A\r\nrecord_audio=1\r\nwayland_restore_token=abc\r\n";
         StoredSettings parsed = RecorderCore.ParseSettings(text, defaults);
-        Expect(parsed.Fps == 2, "nan in file becomes default");
+        Expect(parsed.Fps == RecorderCore.DefaultFps && RecorderCore.DefaultFps == 10, "nan in file becomes default");
         Expect(parsed.Quality == 2, "quality clamped on load");
         Expect(parsed.SplitMinutes == 0, "split clamped on load");
         Expect(parsed.HotkeyModifiers == (8 | 4) && parsed.HotkeyKey == (int)'D', "bad hotkey keeps default");
@@ -116,7 +116,7 @@ static class CoreTests
         string saved = RecorderCore.SerializeSettings(parsed);
         Expect(saved.Contains("record_audio=1"), "audio line saved");
         Expect(saved.Contains("wayland_restore_token=abc"), "token line saved");
-        Expect(saved.Contains("fps=2\r\n"), "fps serialized");
+        Expect(saved.Contains("fps=10\r\n"), "fps serialized");
         Expect(saved.Contains("hotkey=Win+Shift+D\r\n"), "hotkey serialized");
         StoredSettings again = RecorderCore.ParseSettings(saved, defaults);
         Expect(again.ExtraLines.Count == 2, "extras survive a second load");
@@ -166,7 +166,7 @@ static class CoreTests
         s.Fps = double.NaN;
         args = RecorderCore.BuildWindowsArguments(s, now);
         Expect(args[IndexOf(args, "-crf") + 1] == "32", "smallest crf");
-        Expect(args[IndexOf(args, "-framerate") + 1] == "2", "nan fps argument");
+        Expect(args[IndexOf(args, "-framerate") + 1] == "10", "nan fps argument");
         Expect(args[args.Length - 1] == @"C:\100%done\desktop_2026-11-13_01-02-03_127.mp4", "percent literal when not splitting");
         Expect(IndexOf(args, "-movflags") >= 0, "single file movflags");
         Expect(IndexOf(args, "-force_key_frames") < 0, "no forced keyframes without split");
