@@ -904,7 +904,12 @@ static class RecorderCore
             // which NVENC cannot read (checked with -v verbose on this FFmpeg build).
             // Convert once to the target chroma, then drop the frames that do not change.
             vf.Add("format=" + pixFmt);
-            vf.Add("mpdecimate");
+            // max = the longest run of dropped frames. Without it, a still screen at the end of a
+            // recording is lost: a 10 s recording of a still page gave a 0.1 s file (checked on
+            // Bran's PC). With max = ceil(fps) - 1, the file keeps one frame each second at least,
+            // so the length of the file is correct to 1 s.
+            int maxDrop = Math.Max(1, (int)Math.Ceiling(fps) - 1);
+            vf.Add("mpdecimate=max=" + maxDrop.ToString(CultureInfo.InvariantCulture));
         }
         if (vf.Count > 0)
         {
