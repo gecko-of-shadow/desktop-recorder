@@ -1,4 +1,4 @@
-Desktop Recorder 2.0.1 for Windows (portable)
+Desktop Recorder 2.0.2 for Windows (portable)
 
 Unzip this folder anywhere and double-click DesktopRecorder.exe.
 Nothing is written to Program Files. Settings stay in
