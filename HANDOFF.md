@@ -154,7 +154,7 @@ Other rules:
 6. Remove the "record last region" feature (hotkey, tray item, settings row). Bran does not use it.
 7. Save in Settings does not restart a running recording. New capture settings apply to the next recording (bug 4 in 6.7).
 8. Icons: Bran's 3D icon for the exe, and his tray icon set for the tray (6.7).
-9. Mouse pointer: shown by default (`show_pointer=1`). The user can hide it in Settings (6.9). Bran decided on 2026-11-14.
+9. Mouse pointer: shown by default (`show_pointer=1`). The "Hide the mouse pointer" check box in Settings is off by default (6.9). Bran decided on 2026-11-14.
 
 ---
 
@@ -430,7 +430,7 @@ Not checked: multi-monitor PCs, other AI readers, 2 or more reads for each run, 
 
 ### 6.9 Mouse pointer setting (run on Bran's PC on 2026-11-14)
 
-Bran asked for a setting to hide the mouse pointer. New key `show_pointer` (default 1 = the old behavior). Check box in Settings: "Show the mouse pointer in the video". Off sets `draw_mouse` to 0 for ddagrab and gdigrab.
+Bran asked for a setting to hide the mouse pointer. New key `show_pointer` (default 1 = the old behavior). Check box in Settings: "Hide the mouse pointer in the video" (not checked by default). Off sets `draw_mouse` to 0 for ddagrab and gdigrab.
 
 Test: 10 s, 10 fps, ddagrab + h264_nvenc CQ 23, region 1120x892, still screen. A script moved the pointer in a circle (radius 250 px, one turn each 2 s) inside the region.
 

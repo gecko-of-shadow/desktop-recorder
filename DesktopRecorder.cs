@@ -1103,9 +1103,9 @@ class SettingsForm : Form
         soundBox.SetBounds(15, 433, 440, 22);
         soundBox.Checked = current.PlaySounds;
 
-        pointerBox.Text = "Show the mouse pointer in the video";
+        pointerBox.Text = "Hide the mouse pointer in the video";
         pointerBox.SetBounds(15, 459, 440, 22);
-        pointerBox.Checked = current.ShowPointer;
+        pointerBox.Checked = !current.ShowPointer;
 
         AddLabel("Region selector:", 488, 110);
         crosshairBox.Text = "Crosshair";
@@ -1228,7 +1228,7 @@ class SettingsForm : Form
         Result.RecordOnLaunch = recordBox.Checked;
         Result.CopyToClipboard = copyBox.Checked;
         Result.PlaySounds = soundBox.Checked;
-        Result.ShowPointer = pointerBox.Checked;
+        Result.ShowPointer = !pointerBox.Checked;
         Result.HotkeyModifiers = mods;
         Result.HotkeyKey = hotkeyKey;
         Result.CaptureBackend = ChoiceValue(backendBox, BackendValues);
