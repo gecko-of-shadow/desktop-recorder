@@ -152,6 +152,8 @@ Other rules:
 4. Start flow (GUI test, 2026-11-14): Win+Shift+D, drag a box, release the mouse. The recording starts at once. No Enter.
 5. Stop: the same hotkey (Win+Shift+D) stops. No separate stop hotkey.
 6. Remove the "record last region" feature (hotkey, tray item, settings row). Bran does not use it.
+7. Save in Settings does not restart a running recording. New capture settings apply to the next recording (bug 4 in 6.7).
+8. Icons: Bran's 3D icon for the exe, and his tray icon set for the tray (6.7).
 
 ---
 
@@ -304,7 +306,9 @@ Start and stop time (Bran: "start and stop feel laggy"; measured with synthetic 
 | FFmpeg start to first frame | 0.45 s | same (ddagrab start-up) |
 
 Bran: "Feels better."
-Changes that Bran asked for during the test: release starts the recording (bb620d4), one hotkey starts and stops, no "record last region" (0ffacbf). See section 5.
+Changes that Bran asked for during the test: release starts the recording (bb620d4), one hotkey starts and stops, no "record last region" (0ffacbf). See section 5. Bran also gave an app icon and a tray icon set: `app.ico` (from `packaging/icon/app-icon-source.jpg`) is the exe icon and the Settings icon, and the tray icons (idle, recording) are drawn in code from the set (fa7b718). Not checked: the icons in Bran's real tray.
+
+Final build check (cc64aa4 and later): `dda420` on `counter.html` at 10 fps: 99 of 99 values, one file, PASS. Real capture rate at 4 and 6 fps (needed for 6.8): 40 of 40 and 59 of 59 values in 10 s, PASS. The mean counter step gives 3.9 and 5.9 fps; the difference to 4 and 6 is within the page timing (119 to 120.5 Hz).
 
 Selector (checked):
 
@@ -343,7 +347,7 @@ Recordings of `counter.html` (10 s, 10 fps, region 20,120,1880x860, quality Bala
 
 Status line (checked): Bran read "Last recording: Real frames: 83 of 83. Duplicates: 0. Dropped: 0. File size: 0.05 MB." The file had 83 frames and 0.048 MB.
 
-Settings (checked by Bran): Settings opened during a recording. After Save, the recording restarted with the border (new file, same region). With Settings open, Win+Shift+D opened the selector and a recording started. Bran's region in that test was the full screen, so this test did not check an offset error.
+Settings (checked by Bran): Settings opened during a recording. With Settings open, Win+Shift+D opened the selector and a recording started. Bran's region in that test was the full screen, so this test did not check an offset error. On that build, Save restarted the recording (new file, same region, border back). Bug 4 removed the restart: Save now keeps the running recording. The new behavior is not checked with a real click.
 
 Not checked:
 
@@ -360,7 +364,7 @@ Setup (checked):
 - Scroll distance: 7415 CSS px at font 100% (7.4 s at 1000 px/s). 1 CSS px = 1.25 physical px. One text line = 31 physical px.
 - Scripts: `test/phase_b.ps1` (recordings), `test/prep_frames.py` (scroll span, duplicates with threshold 0.1, crop without scaling for B14), `test/phase_b_table.py` (table). Output: `test/results/phase_b/` (Git ignores it), with the AI copies in `reads/`.
 - LL = lossless baseline: FFmpeg directly, ddagrab + `h264_nvenc -tune lossless`, 4:4:4. It shows the errors of the reader alone.
-- B10 = B3 (Balanced is CQ 23). B7s4 = extra run: 3000 px/s at 4 fps, to test the gap rule above the limit. B14 = old app v1.0.0 with Bran's old settings (10 fps, Sharpest = CRF 21, full desktop), cropped to the same region.
+- B10 = B3 (Balanced is CQ 23). B5 to B7, B8, B9, B11 and B13 ran at 10 fps. 6.3 asks for the best fps from B1 to B4; the recordings were made before the reads, so 10 fps (large margin) was used. B7s4 = extra run: 3000 px/s at 4 fps, to test the gap rule above the limit. B14 = old app v1.0.0 with Bran's old settings (10 fps, Sharpest = CRF 21, full desktop), cropped to the same region.
 - Every run passed the window-title check (the test page stayed in front from start to stop).
 - Reader: one fresh Claude Sonnet agent for each run, same prompt. It saw only a folder of PNG frames with a neutral name (R01 to R15, map in `blind_map.json`). It did not see the source. `score.py` scored each copy.
 
@@ -389,15 +393,18 @@ Column notes:
 - Frames given = unique frames in the scroll span (plus the END screen in some runs).
 - Err. lines (no Zalgo) = lines with any error, outside L290. Err. lines outside L221-L240 = the same without the accent and emoji lines.
 - CER and WER: outside Zalgo, a missed line counts as wrong.
+- Real fps: 4, 6, 10 and 15 fps had no duplicate in the scroll, and the counter runs in 6.7 measured the real rate at 4, 6 and 10 fps (PASS). 15 fps is not checked with the counter.
+- B5: the reader got 149 frames but saw only 49 (see test limits). Its read is partial.
+- B14 MB: size of the full-desktop file of the old app (1920x1080), not of the cropped region.
 - MB/min = file size / file length. The files hold about 2.5 s of still page before the scroll and some s after it, so this is not a value for a steady scroll.
 - CPU % = FFmpeg CPU time / wall time / 12 cores. GPU load not included.
 
 Results:
 
-1. **Lines caught.** Every run with the step under the limit caught 300 of 300 lines: 4, 6, 10 and 15 fps at 1000 px/s, and 10 fps at 500, 2000 and 3000 px/s. B7s4 (step 937 px, limit 830 px) caught 255 of 300. It missed 9 groups of 3 to 6 lines, one group for each frame step (L001-L004, L034-L038, ...). **The gap rule holds.**
-2. **Lowest safe fps** (from the rule, for this region): fps > scroll speed x scale / (region height - 2 lines). Example: 1000 CSS px/s at 125% in an 892 px region needs more than 1.5 fps. 3000 CSS px/s needs more than 4.5 fps. The app can show this value.
+1. **Lines caught.** Every run with the step under the limit caught 300 of 300 lines: 4, 6, 10 and 15 fps at 1000 px/s, and 10 fps at 500, 2000 and 3000 px/s. B7s4 (step 937 px from the settings, limit 830 px) caught 255 of 300. It missed 10 groups of 3 to 6 lines: L001-L004, L034-L038, L067-L071, L101-L105, L134-L139, L169-L171, L200-L202, L232-L236, L265-L269, L297-L300. One group for each frame step, plus the start and the end. **The gap rule holds in direction: lines are lost only above the limit.** Not exact: the groups are about 33 lines apart (about 1015 px), but speed and fps give about 937 to 960 px (the page measured 2995.6 px/s; the capture ran at 4 fps, see 6.7). The cause of this difference of about 6% is not known. Use a safety margin.
+2. **Lowest safe fps** (from the rule, for this region): fps > scroll speed x scale / (region height - 2 lines). Example: 1000 CSS px/s at 125% in an 892 px region needs more than 1.5 fps. 3000 CSS px/s needs more than 4.5 fps. Because of the 6% difference in result 1, add a margin (for example 1.5 x). The app can show this value.
 3. **Reader noise.** Two reads of the same lossless frames gave 6 and 4 error lines (2 and 0 outside L221-L240). The reader always fails some emoji lines: flags show as letter pairs (6.4), and ZWJ families and professions often become `[?]` or a similar emoji. So the pass rule "0 errors outside Zalgo" cannot pass with this reader, even on lossless frames.
-4. **Errors outside L221-L240** (Base64 and look-alike lines): 0 to 2 for LL, B1, B4, B6, B11, B12, B13. 3 to 6 for B2, B3, B5, B7, B8, B9, B14. The difference to the baseline is near the reader noise (2 lines between two reads). Weak signal: CQ 17 (B11, 1 line) is better than CQ 23 (B3, 5 lines) and CQ 28 (B9, 4 lines). Not proven with one read for each run.
+4. **Errors outside L221-L240** (Base64 and look-alike lines): 0 to 2 for LL (two reads), B1, B4, B6, B11, B12, B13. 3 to 6 for B2, B3, B5, B7, B8, B9, B14. The runs at CQ 23 alone spread from 0 to 6 lines. That spread is larger than the gap between CQ 17 (B11, 1 line), CQ 23 (B3, 5 lines) and CQ 28 (B9, 4 lines). **With one read for each run, the data does not show a quality effect.** Compression damage, if any, is below the reader noise for this test.
 5. **4:4:4 (B8)** gave no gain: the colored lines (L241-L270) had 0 errors in all runs, also with 4:2:0. Files are about 20% larger.
 6. **"Changes only" (B12)** read as well as fixed 15 fps (B4) and gave the same file size during a scroll. Its gain is on a still screen (6.7: 12 KB for 10 s). UNVERIFIED: that every AI frame tool handles variable frame rate.
 7. **Old app (B14)**: 300/300, 0 duplicates. Two Base64 lines lost long parts (L162, L168). The Grok result in 3.1 (copies of frames) did not occur on this PC with the old app either.
@@ -408,13 +415,13 @@ Pass rule in 6.3 (100% lines, 0 errors outside Zalgo at 1000 px/s): no run passe
 Recommendation (Bran decides, see section 5 point 3):
 
 - Keep fixed fps as the default, with ddagrab + NVENC, 4:2:0. 10 fps has a large margin (step 125 px against a limit of 830 px).
-- Consider quality Sharpest (CQ 17) as the default for text. Cost: about 1.5 x the size of CQ 23.
+- Quality: the data does not support a change. CQ 17 costs about 1.5 x the size of CQ 23. To decide, read B3, B9 and B11 two or more times each.
 - "Changes only": no read gain during a scroll. Offer it as an option for long recordings with still screens.
 
 Test limits (found in Phase B):
 
 - One reader agent cannot read more than about 110 images. The B5 reader (136 frames) got images for only 49 frames and still wrote 300 tags. Treat the B5 read as partial. Split big runs into chunks next time.
-- One read for each run. The run-to-run differences in the error columns are near the reader noise.
+- One read for each run. The differences in the error columns between runs are within the reader noise.
 - The reader model was Claude Sonnet. Other AI tools (Grok, Gemini) can read differently.
 
 Not checked: multi-monitor PCs, other AI readers, 2 or more reads for each run, CPU % for B14.
@@ -431,7 +438,7 @@ Not checked: multi-monitor PCs, other AI readers, 2 or more reads for each run, 
 | Recording frame | Checked on Bran's PC (6.7). Border and Stop button show and work. WDA_EXCLUDEFROMCAPTURE works with ddagrab and gdigrab. |
 | ddagrab + NVENC backend | Checked on Bran's PC (6.7): ddagrab and gdigrab with NVENC, 4:2:0 and 4:4:4, no lost frames. libx264 fallback, multi-monitor and multi-GPU: UNVERIFIED. |
 | "Changes only" mode | Checked on Bran's PC (6.7). Bug 2 fixed (still screen lost the file length). Phase B (B12) still decides the default. |
-| GUI test of the new app on Bran's PC | Done (6.7). 3 bugs fixed. Not checked: multi-monitor, `~`, Shift and Ctrl while dragging. |
+| GUI test of the new app on Bran's PC | Done (6.7). 4 bugs fixed. Start and stop made faster. Not checked: multi-monitor, `~`, Shift and Ctrl while dragging. |
 | Phase B test | Done (6.8). Gap rule holds. No run passes the 6.3 pass rule, because the reader fails emoji lines also on lossless frames. Decision about the default quality and "Changes only" is open for Bran. |
 | README update | Not done |
 
