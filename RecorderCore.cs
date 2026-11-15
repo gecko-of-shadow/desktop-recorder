@@ -909,7 +909,11 @@ static class RecorderCore
             // Bran's PC). With max = ceil(fps) - 1, the file keeps one frame each second at least,
             // so the length of the file is correct to 1 s.
             int maxDrop = Math.Max(1, (int)Math.Ceiling(fps) - 1);
-            vf.Add("mpdecimate=max=" + maxDrop.ToString(CultureInfo.InvariantCulture));
+            // hi=256, lo=128 (defaults 768, 320): the defaults dropped one-character look-alike changes
+            // (x.y to x,y, a:b to a;b, a'b to a`b) when the change stayed less than 1 s, and caught a longer
+            // change up to 0.7 s late. The lower values caught 15 of 15 changes at once, with the same frame
+            // count on a still page (test/lookalike.py, HANDOFF 6.10).
+            vf.Add("mpdecimate=hi=256:lo=128:frac=0.33:max=" + maxDrop.ToString(CultureInfo.InvariantCulture));
         }
         if (vf.Count > 0)
         {
