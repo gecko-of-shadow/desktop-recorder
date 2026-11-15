@@ -16,6 +16,9 @@ sealed class StoredSettings
     public bool RecordOnLaunch = true;
     public bool CopyToClipboard = true;
     public bool PlaySounds = true;
+    // Draw the mouse pointer in the video. Off = no pointer: a mouse move on a still screen
+    // changes no pixel in the video, and the pointer cannot cover text.
+    public bool ShowPointer = true;
     public int HotkeyModifiers = 4 | 8;   // 1 = Alt, 2 = Ctrl, 4 = Shift, 8 = Win
     public int HotkeyKey = (int)'D';
     // Capture and encoding (HANDOFF 4.3). Strings, so the settings file stays readable.
@@ -380,6 +383,7 @@ static class RecorderCore
         if (key == "record_on_launch") { s.RecordOnLaunch = val == "1"; return true; }
         if (key == "copy_to_clipboard") { s.CopyToClipboard = val == "1"; return true; }
         if (key == "play_sounds") { s.PlaySounds = val == "1"; return true; }
+        if (key == "show_pointer") { s.ShowPointer = val == "1"; return true; }
         // A bad value keeps the value from before (the default for an old file).
         if (key == "capture_backend")
         {
@@ -471,6 +475,7 @@ static class RecorderCore
         Append(sb, "record_on_launch", s.RecordOnLaunch ? "1" : "0");
         Append(sb, "copy_to_clipboard", s.CopyToClipboard ? "1" : "0");
         Append(sb, "play_sounds", s.PlaySounds ? "1" : "0");
+        Append(sb, "show_pointer", s.ShowPointer ? "1" : "0");
         Append(sb, "hotkey", HotkeyText(s.HotkeyModifiers, s.HotkeyKey));
         Append(sb, "capture_backend", NormalizeBackend(s.CaptureBackend));
         Append(sb, "encoder", NormalizeEncoder(s.Encoder));
@@ -515,6 +520,7 @@ static class RecorderCore
         s.RecordOnLaunch = defaults.RecordOnLaunch;
         s.CopyToClipboard = defaults.CopyToClipboard;
         s.PlaySounds = defaults.PlaySounds;
+        s.ShowPointer = defaults.ShowPointer;
         s.HotkeyModifiers = defaults.HotkeyModifiers;
         s.HotkeyKey = defaults.HotkeyKey;
         s.CaptureBackend = defaults.CaptureBackend;
@@ -837,6 +843,7 @@ static class RecorderCore
         int threads = Math.Max(1, Math.Min(16, (int)Math.Ceiling(fps)));
         string stamp = now.ToString("yyyy-MM-dd_HH-mm-ss_fff", CultureInfo.InvariantCulture);
         string folder = s.Folder ?? "";
+        string mouse = s.ShowPointer ? "1" : "0";
         List<string> a = new List<string>();
         a.Add("-hide_banner");
         a.Add("-loglevel");
@@ -856,7 +863,7 @@ static class RecorderCore
             a.Add("-i");
             a.Add("ddagrab=output_idx=" + plan.OutputIndex.ToString(CultureInfo.InvariantCulture)
                 + ":framerate=" + fpsText
-                + ":draw_mouse=1"
+                + ":draw_mouse=" + mouse
                 + ":offset_x=" + plan.OffsetX.ToString(CultureInfo.InvariantCulture)
                 + ":offset_y=" + plan.OffsetY.ToString(CultureInfo.InvariantCulture)
                 + ":video_size=" + plan.Width.ToString(CultureInfo.InvariantCulture)
@@ -873,7 +880,7 @@ static class RecorderCore
             a.Add("-framerate");
             a.Add(fpsText);
             a.Add("-draw_mouse");
-            a.Add("1");
+            a.Add(mouse);
             if (!plan.WholeDesktop)
             {
                 a.Add("-offset_x");

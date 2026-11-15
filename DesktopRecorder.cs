@@ -46,6 +46,7 @@ class Settings
     public bool RecordOnLaunch = true;
     public bool CopyToClipboard = true;
     public bool PlaySounds = true;
+    public bool ShowPointer = true;
     public int HotkeyModifiers = 4 | 8;   // 1 = Alt, 2 = Ctrl, 4 = Shift, 8 = Win
     public Keys HotkeyKey = Keys.D;
     // Capture and encoding (HANDOFF 4.3).
@@ -101,6 +102,7 @@ class Settings
         stored.RecordOnLaunch = RecordOnLaunch;
         stored.CopyToClipboard = CopyToClipboard;
         stored.PlaySounds = PlaySounds;
+        stored.ShowPointer = ShowPointer;
         stored.HotkeyModifiers = HotkeyModifiers;
         stored.HotkeyKey = (int)HotkeyKey;
         stored.CaptureBackend = CaptureBackend;
@@ -132,6 +134,7 @@ class Settings
         RecordOnLaunch = stored.RecordOnLaunch;
         CopyToClipboard = stored.CopyToClipboard;
         PlaySounds = stored.PlaySounds;
+        ShowPointer = stored.ShowPointer;
         HotkeyModifiers = stored.HotkeyModifiers;
         HotkeyKey = (Keys)stored.HotkeyKey;
         CaptureBackend = RecorderCore.NormalizeBackend(stored.CaptureBackend);
@@ -992,6 +995,7 @@ class SettingsForm : Form
     readonly CheckBox recordBox = new CheckBox();
     readonly CheckBox copyBox = new CheckBox();
     readonly CheckBox soundBox = new CheckBox();
+    readonly CheckBox pointerBox = new CheckBox();
     readonly CheckBox winBox = new CheckBox();
     readonly CheckBox ctrlBox = new CheckBox();
     readonly CheckBox altBox = new CheckBox();
@@ -1025,7 +1029,7 @@ class SettingsForm : Form
         MinimizeBox = false;
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(470, 543);
+        ClientSize = new Size(470, 569);
         Font = SystemFonts.MessageBoxFont;
 
         AddLabel("Save recordings to:", 15);
@@ -1099,31 +1103,35 @@ class SettingsForm : Form
         soundBox.SetBounds(15, 433, 440, 22);
         soundBox.Checked = current.PlaySounds;
 
-        AddLabel("Region selector:", 462, 110);
+        pointerBox.Text = "Show the mouse pointer in the video";
+        pointerBox.SetBounds(15, 459, 440, 22);
+        pointerBox.Checked = current.ShowPointer;
+
+        AddLabel("Region selector:", 488, 110);
         crosshairBox.Text = "Crosshair";
-        crosshairBox.SetBounds(130, 459, 95, 22);
+        crosshairBox.SetBounds(130, 485, 95, 22);
         crosshairBox.Checked = current.SelectorCrosshair;
         magnifierBox.Text = "Magnifier";
-        magnifierBox.SetBounds(230, 459, 95, 22);
+        magnifierBox.SetBounds(230, 485, 95, 22);
         magnifierBox.Checked = current.SelectorMagnifier;
         positionBox.Text = "Position";
-        positionBox.SetBounds(330, 459, 95, 22);
+        positionBox.SetBounds(330, 485, 95, 22);
         positionBox.Checked = current.SelectorPosition;
 
         Button save = new Button();
         save.Text = "Save";
-        save.SetBounds(290, 503, 80, 27);
+        save.SetBounds(290, 529, 80, 27);
         save.Click += delegate { OnSave(); };
         Button cancel = new Button();
         cancel.Text = "Cancel";
-        cancel.SetBounds(375, 503, 80, 27);
+        cancel.SetBounds(375, 529, 80, 27);
         cancel.DialogResult = DialogResult.Cancel;
 
         Controls.AddRange(new Control[]
         {
             folderBox, browse, fpsBox, qualityBox, splitBox, winBox, ctrlBox, altBox, shiftBox, keyBox,
             backendBox, encoderBox, chromaBox, modeBox,
-            startupBox, recordBox, copyBox, soundBox, crosshairBox, magnifierBox, positionBox, save, cancel
+            startupBox, recordBox, copyBox, soundBox, pointerBox, crosshairBox, magnifierBox, positionBox, save, cancel
         });
         // The first control in Controls is on top. AddLabel adds the labels first, so they covered
         // the input fields (the fps value, the start of each list, the Win check box) at 125% on
@@ -1220,6 +1228,7 @@ class SettingsForm : Form
         Result.RecordOnLaunch = recordBox.Checked;
         Result.CopyToClipboard = copyBox.Checked;
         Result.PlaySounds = soundBox.Checked;
+        Result.ShowPointer = pointerBox.Checked;
         Result.HotkeyModifiers = mods;
         Result.HotkeyKey = hotkeyKey;
         Result.CaptureBackend = ChoiceValue(backendBox, BackendValues);

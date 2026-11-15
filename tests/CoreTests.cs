@@ -125,6 +125,11 @@ static class CoreTests
         StoredSettings off = RecorderCore.ParseSettings("record_on_launch=0\r\ncopy_to_clipboard=0\r\nplay_sounds=0\r\nfps=2.5\r\n", defaults);
         Expect(!off.RecordOnLaunch && !off.CopyToClipboard && !off.PlaySounds, "explicit off");
         Expect(off.Fps == 2.5, "fractional fps");
+        Expect(again.ShowPointer, "pointer shown by default");
+        Expect(saved.Contains("show_pointer=1\r\n"), "pointer serialized");
+        StoredSettings hidden = RecorderCore.ParseSettings("show_pointer=0\r\n", defaults);
+        Expect(!hidden.ShowPointer, "pointer hidden");
+        Expect(RecorderCore.SerializeSettings(hidden).Contains("show_pointer=0\r\n"), "hidden pointer serialized");
     }
 
     static void TestArguments()
@@ -566,6 +571,17 @@ static class CoreTests
         Expect(j.Contains(" -f gdigrab -framerate 10 -draw_mouse 1 -offset_x -500 -offset_y 20 -video_size 300x200 -i desktop "), "gdigrab region: " + j);
         Expect(IndexOf(a, "-vf") < 0, "gdigrab region no crop");
         Expect(IndexOf(a, "h264_nvenc") >= 0, "gdigrab nvenc");
+
+        // Pointer off: both backends get draw_mouse 0.
+        s.ShowPointer = false;
+        j = Joined(RecorderCore.BuildCaptureArguments(s, new CaptureRegion(-500, 20, 301, 201), OneMonitor(), now, true));
+        Expect(j.Contains(" -draw_mouse 0 "), "gdigrab pointer off: " + j);
+        s = Base();
+        s.ShowPointer = false;
+        j = Joined(RecorderCore.BuildCaptureArguments(s, region, OneMonitor(), now, true));
+        Expect(j.Contains(":draw_mouse=0:"), "dda pointer off: " + j);
+        s = Base();
+        s.CaptureBackend = "gdigrab";
 
         // gdigrab whole desktop keeps the even crop.
         a = RecorderCore.BuildCaptureArguments(s, new CaptureRegion(), OneMonitor(), now, true);

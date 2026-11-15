@@ -427,6 +427,26 @@ Test limits (found in Phase B):
 
 Not checked: multi-monitor PCs, other AI readers, 2 or more reads for each run, CPU % for B14.
 
+### 6.9 Mouse pointer setting (run on Bran's PC on 2026-11-14)
+
+Bran asked for a setting to hide the mouse pointer. New key `show_pointer` (default 1 = the old behavior). Check box in Settings: "Show the mouse pointer in the video". Off sets `draw_mouse` to 0 for ddagrab and gdigrab.
+
+Test: 10 s, 10 fps, ddagrab + h264_nvenc CQ 23, region 1120x892, still screen. A script moved the pointer in a circle (radius 250 px, one turn each 2 s) inside the region.
+
+| Mode | Pointer | Frames | KB |
+|---|---|---|---|
+| Changes only | shown | 97 | 215.5 |
+| Changes only | hidden | 10 | 12.0 |
+| Fixed | shown | 100 | 208.5 |
+| Fixed | hidden | 100 | 136.3 |
+
+- Changes only: a hidden pointer makes the file 18 x smaller. A mouse move changes no pixel, so `mpdecimate` drops the frames.
+- Fixed: 35% smaller. The frame count stays the same.
+- A decoded frame showed the pointer in the "shown" file and no pointer in the "hidden" file.
+- Limit: Chrome did not come to the front, so the region held a still Claude window, not `scroll.html`. Hover effects in other apps (button colors, tooltips) still change pixels when the pointer is hidden.
+
+Not checked: the check box with a real click; the new build in Bran's tray (the running app locked `DesktopRecorder.exe`).
+
 ## 7. Tracker
 
 | Item | Status |
@@ -442,6 +462,7 @@ Not checked: multi-monitor PCs, other AI readers, 2 or more reads for each run, 
 | GUI test of the new app on Bran's PC | Done (6.7). 5 bugs fixed. Start and stop made faster. Not checked: multi-monitor, `~`, Shift and Ctrl while dragging. |
 | Phase B test | Done (6.8). Gap rule holds. No run passes the 6.3 pass rule, because the reader fails emoji lines also on lossless frames. Decision about the default quality and "Changes only" is open for Bran. |
 | README update | Not done |
+| Pointer setting (6.9) | Done. Unit tests pass. Size test checked on Bran's PC. Settings dialog not checked with a real click. |
 
 Mark an item "checked" only after a run on Bran's PC. Mark all other claims UNVERIFIED.
 
