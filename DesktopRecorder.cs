@@ -442,6 +442,7 @@ class TrayApp : ApplicationContext
     SettingsForm openForm;
     RecordingFrame frame;
     Rectangle recordingRegion = Rectangle.Empty;   // empty = whole desktop
+    double recordingFps;
     // Automatic fallback after a failed start (HANDOFF 6.5 order): the plan and the time of the last start,
     // and the fallbacks that the current recording uses already.
     CapturePlan recordingPlan;
@@ -638,6 +639,7 @@ class TrayApp : ApplicationContext
         if (error == null)
         {
             recordingRegion = region;
+            recordingFps = settings.Fps;
             recordingPlan = plan;
             recordingStartTicks = Environment.TickCount;
             forcedGdigrab = forceGdigrab;
@@ -826,16 +828,10 @@ class TrayApp : ApplicationContext
             string warning = HotkeyWarning();
             if (warning != null)
                 MessageBox.Show(warning + " Pick a different hotkey in Settings.", "Desktop Recorder");
+            // Do not restart a running recording. A restart cut the recording into two files, and the clipboard
+            // got only the second file (Bran's test, 2026-11-14). The new capture settings apply to the next
+            // recording. The new hotkey applies now (RegisterHotkeys above).
             Refresh();
-            if (recorder.IsRecording)
-            {
-                // Restart so the new folder, fps, quality and capture settings apply now. Keep the same region.
-                Rectangle region = recordingRegion;
-                recorder.Stop();
-                DisposeFrame();
-                // New settings: the fallbacks of the old recording do not apply.
-                StartRecording(region, false, false, null);
-            }
         }
     }
 
@@ -857,7 +853,8 @@ class TrayApp : ApplicationContext
     void Refresh()
     {
         bool on = recorder.IsRecording;
-        string fpsText = settings.Fps.ToString("0.###", CultureInfo.InvariantCulture);
+        // During a recording, show the fps of that recording: a settings change applies to the next one.
+        string fpsText = (on ? recordingFps : settings.Fps).ToString("0.###", CultureInfo.InvariantCulture);
         string where = recordingRegion.IsEmpty ? "whole desktop"
             : recordingRegion.Width.ToString(CultureInfo.InvariantCulture) + "x"
               + recordingRegion.Height.ToString(CultureInfo.InvariantCulture) + " region";
