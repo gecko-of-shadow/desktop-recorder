@@ -481,7 +481,7 @@ Not checked: the check box with a real click; the new build in Bran's tray (the 
 - Not now: multi-monitor PCs and monitors with different scales.
 - Future: a PC without an NVIDIA GPU.
 - New session: idea to explore, an "Export frames" feature (unique frames as PNG) for AI tools that sample a video at 1 fps (for example Gemini).
-- New session: correct the stale comment in `RecorderCore.cs` that says no 4:4:4 encode ran (6.7 shows it ran).
+- Done (2026-11-14): correct the stale comment in `RecorderCore.cs` that says no 4:4:4 encode ran (6.7 shows it ran). Also corrected: the comments on `NvencCqForQuality` (Phase B result), `RecordingFrame.cs` (WDA_EXCLUDEFROMCAPTURE checked) and the Settings dialog in `DesktopRecorder.cs` (125% checked). Comments only, no code change.
 
 ### 7.2 Release v2.0.0
 

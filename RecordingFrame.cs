@@ -2,7 +2,8 @@
 // Four thin click-through windows make a colored border OUTSIDE the region, so that the border is not in the video.
 // A small Stop button shows below the region.
 // All windows ask Windows to keep them out of screen captures (WDA_EXCLUDEFROMCAPTURE).
-// UNVERIFIED: that gdigrab and ddagrab respect WDA_EXCLUDEFROMCAPTURE.
+// Checked on Bran's PC (HANDOFF 6.7): gdigrab and ddagrab respect WDA_EXCLUDEFROMCAPTURE. With the border and the
+// Stop button inside a full-screen region, the videos had 0 border-colored pixels.
 //
 // All coordinates are physical pixels in virtual-screen coordinates. The process must be per-monitor DPI aware.
 // Make, show and dispose the frame on the UI thread.

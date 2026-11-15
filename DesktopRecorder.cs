@@ -1017,7 +1017,8 @@ class SettingsForm : Form
         this.current = current;
         // TrayApp makes this dialog system DPI aware (see ShowSettings). The layout below is in 96 DPI units,
         // Windows Forms scales it to the system DPI, and Windows scales the window on other monitors.
-        // UNVERIFIED: the look at 125% and on a second monitor with a different DPI (no GUI run yet).
+        // Checked at 125% on Bran's PC with a screenshot, after the fix for bug 3 (HANDOFF 6.7).
+        // UNVERIFIED: the look on a second monitor with a different DPI.
         SuspendLayout();
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
