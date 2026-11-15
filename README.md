@@ -31,7 +31,7 @@ Windows SmartScreen can show a warning, because the program is not signed. Click
 2. Select the area to record:
    - Drag a rectangle, then release the mouse button. The recording starts at once.
    - Or move the cursor over a window. A border shows around the window. Click to record that window area.
-   - Or press **Space** to record the full screen.
+   - Or press **Space** to record all monitors.
 3. A thin red frame shows around the recorded area. A small **Stop** button shows below it. Both are outside the area, and Windows keeps them out of the video.
 4. To stop, press **Win+Shift+D** again, or click **Stop**.
 
@@ -58,7 +58,7 @@ Other controls:
 | Ctrl while you drag | Moves the rectangle that you draw. |
 | Arrow keys | Move the cursor 1 px. Shift + arrow keys move it 10 px. |
 | Enter | Records the current selection. |
-| Space | Records the full screen. |
+| Space | Records all monitors. |
 | `~` | Records the monitor under the cursor. |
 | C | Shows or hides a crosshair across the screen. |
 | M | Shows or hides the magnifier near the cursor. |
@@ -104,7 +104,7 @@ The program is a tray front end for [ffmpeg](https://ffmpeg.org).
 **Encoder.**
 
 - Auto (default) uses `h264_nvenc` on an NVIDIA GPU. When NVENC is not available or fails at the start, it uses `libx264` with preset `veryfast`.
-- NVENC cannot encode an area smaller than 146x50 px or larger than 4096x4096 px. For these sizes, the program uses `libx264`.
+- NVENC cannot encode an area smaller than about 146x50 px (the limit changes with the GPU) or larger than 4096x4096 px. For these sizes, the program uses `libx264`.
 
 **Quality.**
 
@@ -114,7 +114,7 @@ The program is a tray front end for [ffmpeg](https://ffmpeg.org).
 | Balanced | 23 | 27 |
 | Sharpest text | 17 | 21 |
 
-A lower number gives a sharper picture and a larger file. In the Phase B read test, the AI read all three NVENC levels equally well. Sharpest text gave files about 1.5 times larger than Balanced.
+A lower number gives a sharper picture and a larger file. The Phase B read test read each NVENC level one time. The differences between the levels were not larger than the differences between two reads of the same frames. Sharpest text gave files about 1.5 times larger than Balanced.
 
 **Chroma.** 4:2:0 plays in all players and browsers. 4:4:4 keeps full color detail, for colored text. In the read test, 4:4:4 gave no read gain, and the files were about 20% larger. Some browsers and players cannot play 4:4:4. ffmpeg can read it.
 
@@ -153,14 +153,14 @@ The rebuild was tested on one PC: one 1920x1080 monitor at 125% scale, RTX 4060,
 - **File size.** A 10 s recording of a still area in "Changes only" mode gave 11 frames and 12 KB.
 - **Pointer.** In "Changes only" mode, a moving mouse pointer on a still screen made the file 18 times larger. With the pointer hidden, the program dropped those frames.
 
-Not tested: PCs with two or more monitors, monitors with different scales, the `libx264` fallback in the program, PCs without an NVIDIA GPU, and AI tools other than Claude.
+Not tested: PCs with two or more monitors (also `gdigrab` with an area across two monitors), monitors with different scales, the `libx264` fallback in the program, PCs without an NVIDIA GPU, and AI tools other than Claude. In the selector, these keys are not tested: `~`, Shift and Ctrl while you drag, C, M and P.
 
 The test kit is in `test/`: a source text, an auto-scroll page, a frame-counter page, and scripts that count frames and score an AI copy.
 
 ## Good to know
 
 - On Windows, no audio is recorded. On Ubuntu, system audio (what you hear) is recorded unless you turn it off in Settings.
-- The MP4 stays playable if the PC loses power during a recording. You lose about the last 2 seconds.
+- The MP4 stays playable if the PC loses power during a recording. You lose about the last 5 seconds at the default settings, and more at a very low frame rate.
 - If the program stops without a normal stop (for example, a crash), ffmpeg stops with it. A file shorter than 2 seconds can then be unreadable.
 - Hide the mouse pointer when the screen is mostly still and you move the mouse. In "Changes only" mode, each pointer move otherwise adds a frame. Hover effects in other programs (button colors, tooltips) still add frames.
 - On Ubuntu with X11, the whole X display is recorded. On Wayland, Ubuntu asks which screen to share, and the recorder keeps the first screen that you select. The Ubuntu program has no region selector.
@@ -171,7 +171,7 @@ The test kit is in `test/`: a source text, an auto-scroll page, a frame-counter 
 This occurs only when the area touches the screen edge and Windows cannot exclude the frame. The program shows a warning. Windows 10 version 2004 or later is necessary to keep the frame out of the video.
 
 **The recording uses x264, not NVENC.**
-The tray balloon at the start of the recording gives the reason. Windows does not show the balloon when notifications are off. Update the NVIDIA driver, or select an area of 146x50 px or larger.
+The tray balloon at the start of the recording gives the reason. Windows does not show the balloon when notifications are off. Update the NVIDIA driver, or select a larger area.
 
 **"Protected folder access blocked" from Windows Security.**
 Controlled folder access protects Videos, Documents, Pictures, Desktop and Music. The default folder, `C:\Users\<you>\Recordings`, is outside those. If you selected a protected folder, open Settings from the tray icon and select a different folder. Or allow both `DesktopRecorder.exe` and `ffmpeg.exe` in Windows Security.
