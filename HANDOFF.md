@@ -154,6 +154,7 @@ Other rules:
 6. Remove the "record last region" feature (hotkey, tray item, settings row). Bran does not use it.
 7. Save in Settings does not restart a running recording. New capture settings apply to the next recording (bug 4 in 6.7).
 8. Icons: Bran's 3D icon for the exe, and his tray icon set for the tray (6.7).
+9. Mouse pointer: shown by default (`show_pointer=1`). The user can hide it in Settings (6.9). Bran decided on 2026-11-14.
 
 ---
 
