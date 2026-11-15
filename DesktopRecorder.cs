@@ -48,12 +48,6 @@ class Settings
     public bool PlaySounds = true;
     public int HotkeyModifiers = 4 | 8;   // 1 = Alt, 2 = Ctrl, 4 = Shift, 8 = Win
     public Keys HotkeyKey = Keys.D;
-    // Second hotkey: record the last region again, without the selector.
-    public int LastRegionHotkeyModifiers = 1 | 2 | 4;
-    public Keys LastRegionHotkeyKey = Keys.R;
-    // Third hotkey: stop the recording.
-    public int StopHotkeyModifiers = 1 | 2 | 4;
-    public Keys StopHotkeyKey = Keys.S;
     // Capture and encoding (HANDOFF 4.3).
     public string CaptureBackend = RecorderCore.BackendDdagrab;
     public string Encoder = RecorderCore.EncoderAuto;
@@ -109,10 +103,6 @@ class Settings
         stored.PlaySounds = PlaySounds;
         stored.HotkeyModifiers = HotkeyModifiers;
         stored.HotkeyKey = (int)HotkeyKey;
-        stored.LastRegionHotkeyModifiers = LastRegionHotkeyModifiers;
-        stored.LastRegionHotkeyKey = (int)LastRegionHotkeyKey;
-        stored.StopHotkeyModifiers = StopHotkeyModifiers;
-        stored.StopHotkeyKey = (int)StopHotkeyKey;
         stored.CaptureBackend = CaptureBackend;
         stored.Encoder = Encoder;
         stored.ChromaFormat = ChromaFormat;
@@ -144,10 +134,6 @@ class Settings
         PlaySounds = stored.PlaySounds;
         HotkeyModifiers = stored.HotkeyModifiers;
         HotkeyKey = (Keys)stored.HotkeyKey;
-        LastRegionHotkeyModifiers = stored.LastRegionHotkeyModifiers;
-        LastRegionHotkeyKey = (Keys)stored.LastRegionHotkeyKey;
-        StopHotkeyModifiers = stored.StopHotkeyModifiers;
-        StopHotkeyKey = (Keys)stored.StopHotkeyKey;
         CaptureBackend = RecorderCore.NormalizeBackend(stored.CaptureBackend);
         Encoder = RecorderCore.NormalizeEncoder(stored.Encoder);
         ChromaFormat = RecorderCore.NormalizeChroma(stored.ChromaFormat);
@@ -197,16 +183,6 @@ class Settings
     public string HotkeyText
     {
         get { return RecorderCore.HotkeyText(HotkeyModifiers, (int)HotkeyKey); }
-    }
-
-    public string LastRegionHotkeyText
-    {
-        get { return RecorderCore.HotkeyText(LastRegionHotkeyModifiers, (int)LastRegionHotkeyKey); }
-    }
-
-    public string StopHotkeyText
-    {
-        get { return RecorderCore.HotkeyText(StopHotkeyModifiers, (int)StopHotkeyKey); }
     }
 
     // Reads text such as "Win+Shift+D". Keeps the current hotkey if the text is not valid.
@@ -451,8 +427,6 @@ class HotkeyWindow : NativeWindow
 class TrayApp : ApplicationContext
 {
     const int SelectHotkeyId = 1;
-    const int LastRegionHotkeyId = 2;
-    const int StopHotkeyId = 3;
 
     readonly HotkeyWindow hotkey = new HotkeyWindow();
     [DllImport("user32.dll")]
@@ -464,7 +438,6 @@ class TrayApp : ApplicationContext
     readonly MenuItem statusItem = new MenuItem("Not recording");
     readonly MenuItem statsItem = new MenuItem("");
     readonly MenuItem toggleItem = new MenuItem("Select region and record");
-    readonly MenuItem lastRegionItem = new MenuItem("Record last region");
     Settings settings = Settings.Load();
     SettingsForm openForm;
     RecordingFrame frame;
@@ -488,7 +461,6 @@ class TrayApp : ApplicationContext
         statsItem.Enabled = false;
         statsItem.Visible = false;
         toggleItem.Click += delegate { Toggle(); };
-        lastRegionItem.Click += delegate { RecordLastRegion(); };
         MenuItem folderItem = new MenuItem("Open recordings folder");
         folderItem.Click += delegate { OpenFolder(); };
         MenuItem settingsItem = new MenuItem("Settings...");
@@ -497,7 +469,7 @@ class TrayApp : ApplicationContext
         exitItem.Click += delegate { Quit(); };
         tray.ContextMenu = new ContextMenu(new MenuItem[]
         {
-            statusItem, statsItem, new MenuItem("-"), toggleItem, lastRegionItem, folderItem, settingsItem,
+            statusItem, statsItem, new MenuItem("-"), toggleItem, folderItem, settingsItem,
             new MenuItem("-"), exitItem
         });
         tray.DoubleClick += delegate { ShowSettings(); };
@@ -525,22 +497,11 @@ class TrayApp : ApplicationContext
 
         hotkey.Pressed += delegate(int id)
         {
-            if (id == StopHotkeyId)
-            {
-                // The stop hotkey only stops. It never opens the selector.
-                if (recorder.IsRecording)
-                {
-                    StopRecording();
-                    Refresh();
-                }
-                return;
-            }
             if (recorder.IsRecording)
             {
                 StopRecording();
                 Refresh();
             }
-            else if (id == LastRegionHotkeyId) RecordLastRegion();
             else SelectAndRecord();
         };
 
@@ -579,8 +540,6 @@ class TrayApp : ApplicationContext
     void RegisterHotkeys()
     {
         hotkey.Register(SelectHotkeyId, settings.HotkeyModifiers, settings.HotkeyKey);
-        hotkey.Register(LastRegionHotkeyId, settings.LastRegionHotkeyModifiers, settings.LastRegionHotkeyKey);
-        hotkey.Register(StopHotkeyId, settings.StopHotkeyModifiers, settings.StopHotkeyKey);
     }
 
     // Null when both hotkeys work.
@@ -588,8 +547,6 @@ class TrayApp : ApplicationContext
     {
         List<string> used = new List<string>();
         if (!hotkey.IsRegistered(SelectHotkeyId)) used.Add(settings.HotkeyText);
-        if (!hotkey.IsRegistered(LastRegionHotkeyId)) used.Add(settings.LastRegionHotkeyText);
-        if (!hotkey.IsRegistered(StopHotkeyId)) used.Add(settings.StopHotkeyText);
         if (used.Count == 0) return null;
         return string.Join(" and ", used.ToArray()) + (used.Count == 1 ? " is" : " are")
             + " used by another program, so that hotkey is off.";
@@ -665,32 +622,6 @@ class TrayApp : ApplicationContext
         settings.SelectorMagnifier = RegionSelector.ShowMagnifier;
         settings.SelectorPosition = RegionSelector.ShowPosition;
         SaveSettingsQuietly();
-    }
-
-    // The second hotkey and the second tray item: record the last region again, without the selector.
-    void RecordLastRegion()
-    {
-        if (selecting || recorder.IsRecording) return;
-        if (settings.LastRegion.IsEmpty)
-        {
-            tray.ShowBalloonTip(5000, "Desktop Recorder",
-                "No last region yet. Press " + settings.HotkeyText + " to select a region.", ToolTipIcon.Info);
-            return;
-        }
-        Rectangle? region = RegionSelector.NormalizeRegion(settings.LastRegion);
-        if (!region.HasValue)
-        {
-            tray.ShowBalloonTip(5000, "Desktop Recorder",
-                "The last region is not on the screen now. Press " + settings.HotkeyText + " to select a region.",
-                ToolTipIcon.Warning);
-            return;
-        }
-        if (settings.Region != region.Value)
-        {
-            settings.Region = region.Value;
-            SaveSettingsQuietly();
-        }
-        StartRecording(region.Value, true, true, null);
     }
 
     // region: physical px, virtual-screen coordinates. Empty = whole desktop (no frame).
@@ -931,15 +862,9 @@ class TrayApp : ApplicationContext
             : recordingRegion.Width.ToString(CultureInfo.InvariantCulture) + "x"
               + recordingRegion.Height.ToString(CultureInfo.InvariantCulture) + " region";
         statusItem.Text = on ? "Recording at " + fpsText + " fps, " + where : "Not recording";
-        string toggleKey = on
-            ? (hotkey.IsRegistered(StopHotkeyId) ? settings.StopHotkeyText
-               : hotkey.IsRegistered(SelectHotkeyId) ? settings.HotkeyText : null)
-            : (hotkey.IsRegistered(SelectHotkeyId) ? settings.HotkeyText : null);
+        // One hotkey starts and stops (Bran, 2026-11-14).
         toggleItem.Text = (on ? "Stop recording" : "Select region and record")
-            + (toggleKey != null ? "\t" + toggleKey : "");
-        lastRegionItem.Text = "Record last region"
-            + (hotkey.IsRegistered(LastRegionHotkeyId) ? "\t" + settings.LastRegionHotkeyText : "");
-        lastRegionItem.Enabled = !on;
+            + (hotkey.IsRegistered(SelectHotkeyId) ? "\t" + settings.HotkeyText : "");
         tray.Text = on ? "Desktop Recorder: recording" : "Desktop Recorder: stopped";
 
         using (Bitmap bmp = new Bitmap(32, 32))
@@ -996,16 +921,6 @@ class SettingsForm : Form
     readonly CheckBox altBox = new CheckBox();
     readonly CheckBox shiftBox = new CheckBox();
     readonly ComboBox keyBox = new ComboBox();
-    readonly CheckBox lastWinBox = new CheckBox();
-    readonly CheckBox lastCtrlBox = new CheckBox();
-    readonly CheckBox lastAltBox = new CheckBox();
-    readonly CheckBox lastShiftBox = new CheckBox();
-    readonly ComboBox lastKeyBox = new ComboBox();
-    readonly CheckBox stopWinBox = new CheckBox();
-    readonly CheckBox stopCtrlBox = new CheckBox();
-    readonly CheckBox stopAltBox = new CheckBox();
-    readonly CheckBox stopShiftBox = new CheckBox();
-    readonly ComboBox stopKeyBox = new ComboBox();
     readonly ComboBox backendBox = new ComboBox();
     readonly ComboBox encoderBox = new ComboBox();
     readonly ComboBox chromaBox = new ComboBox();
@@ -1032,7 +947,7 @@ class SettingsForm : Form
         MinimizeBox = false;
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(470, 613);
+        ClientSize = new Size(470, 543);
         Font = SystemFonts.MessageBoxFont;
 
         AddLabel("Save recordings to:", 15);
@@ -1081,73 +996,63 @@ class SettingsForm : Form
         SetUpModifier(shiftBox, "Shift", 264, 178, 4, current.HotkeyModifiers);
         SetUpKeyBox(keyBox, 177, current.HotkeyKey);
 
-        AddLabel("Last region:", 215, 75);
-        SetUpModifier(lastWinBox, "Win", 90, 213, 8, current.LastRegionHotkeyModifiers);
-        SetUpModifier(lastCtrlBox, "Ctrl", 148, 213, 2, current.LastRegionHotkeyModifiers);
-        SetUpModifier(lastAltBox, "Alt", 206, 213, 1, current.LastRegionHotkeyModifiers);
-        SetUpModifier(lastShiftBox, "Shift", 264, 213, 4, current.LastRegionHotkeyModifiers);
-        SetUpKeyBox(lastKeyBox, 212, current.LastRegionHotkeyKey);
-
-        AddLabel("Stop:", 250, 75);
-        SetUpModifier(stopWinBox, "Win", 90, 248, 8, current.StopHotkeyModifiers);
-        SetUpModifier(stopCtrlBox, "Ctrl", 148, 248, 2, current.StopHotkeyModifiers);
-        SetUpModifier(stopAltBox, "Alt", 206, 248, 1, current.StopHotkeyModifiers);
-        SetUpModifier(stopShiftBox, "Shift", 264, 248, 4, current.StopHotkeyModifiers);
-        SetUpKeyBox(stopKeyBox, 247, current.StopHotkeyKey);
-
-        AddLabel("Capture:", 285, 180);
-        SetUpChoice(backendBox, 282, BackendNames, BackendValues, current.CaptureBackend);
-        AddLabel("Encoder:", 320, 180);
-        SetUpChoice(encoderBox, 317, EncoderNames, EncoderValues, current.Encoder);
-        AddLabel("Color detail (chroma):", 355, 180);
-        SetUpChoice(chromaBox, 352, ChromaNames, ChromaValues, current.ChromaFormat);
-        AddLabel("Frame-rate mode:", 390, 180);
-        SetUpChoice(modeBox, 387, ModeNames, ModeValues, current.FrameRateMode);
+        AddLabel("Capture:", 215, 180);
+        SetUpChoice(backendBox, 212, BackendNames, BackendValues, current.CaptureBackend);
+        AddLabel("Encoder:", 250, 180);
+        SetUpChoice(encoderBox, 247, EncoderNames, EncoderValues, current.Encoder);
+        AddLabel("Color detail (chroma):", 285, 180);
+        SetUpChoice(chromaBox, 282, ChromaNames, ChromaValues, current.ChromaFormat);
+        AddLabel("Frame-rate mode:", 320, 180);
+        SetUpChoice(modeBox, 317, ModeNames, ModeValues, current.FrameRateMode);
 
         startupBox.Text = "Start Desktop Recorder when Windows starts";
-        startupBox.SetBounds(15, 425, 440, 22);
+        startupBox.SetBounds(15, 355, 440, 22);
         try { startupBox.Checked = Settings.StartsWithWindows; } catch (Exception) { }
 
         recordBox.Text = "Start recording (saved region) when Desktop Recorder starts";
-        recordBox.SetBounds(15, 451, 440, 22);
+        recordBox.SetBounds(15, 381, 440, 22);
         recordBox.Checked = current.RecordOnLaunch;
 
         copyBox.Text = "Copy the video to the clipboard when recording stops";
-        copyBox.SetBounds(15, 477, 440, 22);
+        copyBox.SetBounds(15, 407, 440, 22);
         copyBox.Checked = current.CopyToClipboard;
 
         soundBox.Text = "Play a sound when recording starts and stops";
-        soundBox.SetBounds(15, 503, 440, 22);
+        soundBox.SetBounds(15, 433, 440, 22);
         soundBox.Checked = current.PlaySounds;
 
-        AddLabel("Region selector:", 532, 110);
+        AddLabel("Region selector:", 462, 110);
         crosshairBox.Text = "Crosshair";
-        crosshairBox.SetBounds(130, 529, 95, 22);
+        crosshairBox.SetBounds(130, 459, 95, 22);
         crosshairBox.Checked = current.SelectorCrosshair;
         magnifierBox.Text = "Magnifier";
-        magnifierBox.SetBounds(230, 529, 95, 22);
+        magnifierBox.SetBounds(230, 459, 95, 22);
         magnifierBox.Checked = current.SelectorMagnifier;
         positionBox.Text = "Position";
-        positionBox.SetBounds(330, 529, 95, 22);
+        positionBox.SetBounds(330, 459, 95, 22);
         positionBox.Checked = current.SelectorPosition;
 
         Button save = new Button();
         save.Text = "Save";
-        save.SetBounds(290, 573, 80, 27);
+        save.SetBounds(290, 503, 80, 27);
         save.Click += delegate { OnSave(); };
         Button cancel = new Button();
         cancel.Text = "Cancel";
-        cancel.SetBounds(375, 573, 80, 27);
+        cancel.SetBounds(375, 503, 80, 27);
         cancel.DialogResult = DialogResult.Cancel;
 
         Controls.AddRange(new Control[]
         {
             folderBox, browse, fpsBox, qualityBox, splitBox, winBox, ctrlBox, altBox, shiftBox, keyBox,
-            lastWinBox, lastCtrlBox, lastAltBox, lastShiftBox, lastKeyBox,
-            stopWinBox, stopCtrlBox, stopAltBox, stopShiftBox, stopKeyBox,
             backendBox, encoderBox, chromaBox, modeBox,
             startupBox, recordBox, copyBox, soundBox, crosshairBox, magnifierBox, positionBox, save, cancel
         });
+        // The first control in Controls is on top. AddLabel adds the labels first, so they covered
+        // the input fields (the fps value, the start of each list, the Win check box) at 125% on
+        // Bran's PC. Put the labels behind all other controls.
+        List<Control> labels = new List<Control>();
+        foreach (Control c in Controls) if (c is Label) labels.Add(c);
+        foreach (Control c in labels) c.SendToBack();
         AcceptButton = save;
         CancelButton = cancel;
         ResumeLayout(false);
@@ -1212,19 +1117,9 @@ class SettingsForm : Form
 
     void OnSave()
     {
-        int mods, lastMods, stopMods;
-        Keys hotkeyKey, lastKey, stopKey;
+        int mods;
+        Keys hotkeyKey;
         if (!ReadHotkey("hotkey", winBox, ctrlBox, altBox, shiftBox, keyBox, out mods, out hotkeyKey)) return;
-        if (!ReadHotkey("last region hotkey", lastWinBox, lastCtrlBox, lastAltBox, lastShiftBox, lastKeyBox,
-            out lastMods, out lastKey)) return;
-        if (!ReadHotkey("stop hotkey", stopWinBox, stopCtrlBox, stopAltBox, stopShiftBox, stopKeyBox,
-            out stopMods, out stopKey)) return;
-        if ((mods == lastMods && hotkeyKey == lastKey) || (mods == stopMods && hotkeyKey == stopKey)
-            || (lastMods == stopMods && lastKey == stopKey))
-        {
-            MessageBox.Show(this, "The three hotkeys must be different.", Text);
-            return;
-        }
         string folder = folderBox.Text.Trim().Trim('"');
         if (folder.Length == 0 || !Path.IsPathRooted(folder))
         {
@@ -1249,10 +1144,6 @@ class SettingsForm : Form
         Result.PlaySounds = soundBox.Checked;
         Result.HotkeyModifiers = mods;
         Result.HotkeyKey = hotkeyKey;
-        Result.LastRegionHotkeyModifiers = lastMods;
-        Result.LastRegionHotkeyKey = lastKey;
-        Result.StopHotkeyModifiers = stopMods;
-        Result.StopHotkeyKey = stopKey;
         Result.CaptureBackend = ChoiceValue(backendBox, BackendValues);
         Result.Encoder = ChoiceValue(encoderBox, EncoderValues);
         Result.ChromaFormat = ChoiceValue(chromaBox, ChromaValues);

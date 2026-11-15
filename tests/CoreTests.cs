@@ -233,37 +233,15 @@ static class CoreTests
 
     static void TestLastRegionHotkey()
     {
+        // The last region hotkey and the stop hotkey were removed (2026-11-14). Old files that have
+        // them still load, and the keys are dropped when the file is saved again.
         StoredSettings d = new StoredSettings();
-        Expect(d.LastRegionHotkeyModifiers == (1 | 2 | 4) && d.LastRegionHotkeyKey == (int)'R', "default last region hotkey");
-
-        // An old file without the key keeps the default.
-        StoredSettings o = RecorderCore.ParseSettings("hotkey=Win+Shift+D\r\n", d);
-        Expect(o.LastRegionHotkeyModifiers == (1 | 2 | 4) && o.LastRegionHotkeyKey == (int)'R', "old file last region hotkey default");
-        Expect(o.ExtraLines.Count == 0, "last region hotkey no extras");
-        Expect(RecorderCore.SerializeSettings(o).Contains("last_region_hotkey=Ctrl+Alt+Shift+R\r\n"), "last region hotkey serialized");
-
-        // Round trip of a changed value.
-        StoredSettings c = RecorderCore.ParseSettings("last_region_hotkey=Win+F9\r\n", d);
-        Expect(c.LastRegionHotkeyModifiers == 8 && c.LastRegionHotkeyKey == 0x78, "last region hotkey parsed");
-        StoredSettings again = RecorderCore.ParseSettings(RecorderCore.SerializeSettings(c), d);
-        Expect(again.LastRegionHotkeyModifiers == 8 && again.LastRegionHotkeyKey == 0x78, "last region hotkey round trip");
-        Expect(again.HotkeyModifiers == (8 | 4) && again.HotkeyKey == (int)'D', "first hotkey unchanged");
-
-        // A bad value keeps the value from before.
-        StoredSettings bad = RecorderCore.ParseSettings("last_region_hotkey=Shift+A\r\n", d);
-        Expect(bad.LastRegionHotkeyModifiers == (1 | 2 | 4) && bad.LastRegionHotkeyKey == (int)'R', "bad last region hotkey keeps default");
-
-        // Stop hotkey: default Ctrl+Alt+Shift+S, parsed, saved, and a bad value keeps the default.
-        Expect(d.StopHotkeyModifiers == (1 | 2 | 4) && d.StopHotkeyKey == (int)'S', "default stop hotkey");
-        Expect(RecorderCore.SerializeSettings(d).Contains("stop_hotkey=Ctrl+Alt+Shift+S\r\n"), "stop hotkey serialized");
-        StoredSettings st = RecorderCore.ParseSettings("stop_hotkey=Win+F10\r\n", d);
-        Expect(st.StopHotkeyModifiers == 8 && st.StopHotkeyKey == 0x79, "stop hotkey parsed");
-        StoredSettings stAgain = RecorderCore.ParseSettings(RecorderCore.SerializeSettings(st), d);
-        Expect(stAgain.StopHotkeyModifiers == 8 && stAgain.StopHotkeyKey == 0x79, "stop hotkey round trip");
-        StoredSettings stBad = RecorderCore.ParseSettings("stop_hotkey=Shift+A\r\n", d);
-        Expect(stBad.StopHotkeyModifiers == (1 | 2 | 4) && stBad.StopHotkeyKey == (int)'S', "bad stop hotkey keeps default");
+        StoredSettings o = RecorderCore.ParseSettings(
+            "hotkey=Win+Shift+D\r\nlast_region_hotkey=Ctrl+Alt+Shift+R\r\nstop_hotkey=Ctrl+Alt+Shift+S\r\n", d);
+        Expect(o.HotkeyModifiers == (4 | 8) && o.HotkeyKey == (int)'D', "old file keeps the hotkey");
+        string saved = RecorderCore.SerializeSettings(o);
+        Expect(!saved.Contains("last_region_hotkey") && !saved.Contains("stop_hotkey"), "old hotkey keys dropped: " + saved);
     }
-
     static void TestBackendSettings()
     {
         StoredSettings d = new StoredSettings();

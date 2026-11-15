@@ -18,12 +18,6 @@ sealed class StoredSettings
     public bool PlaySounds = true;
     public int HotkeyModifiers = 4 | 8;   // 1 = Alt, 2 = Ctrl, 4 = Shift, 8 = Win
     public int HotkeyKey = (int)'D';
-    // Second hotkey: record the last region again, without the selector. Default Ctrl+Alt+Shift+R.
-    public int LastRegionHotkeyModifiers = 1 | 2 | 4;
-    public int LastRegionHotkeyKey = (int)'R';
-    // Third hotkey: stop the recording. Default Ctrl+Alt+Shift+S. Bran asked for a separate stop key (2026-11-14).
-    public int StopHotkeyModifiers = 1 | 2 | 4;
-    public int StopHotkeyKey = (int)'S';
     // Capture and encoding (HANDOFF 4.3). Strings, so the settings file stays readable.
     public string CaptureBackend = RecorderCore.BackendDdagrab;   // ddagrab | gdigrab
     public string Encoder = RecorderCore.EncoderAuto;             // auto | h264_nvenc | libx264
@@ -434,28 +428,9 @@ static class RecorderCore
             }
             return true;
         }
-        if (key == "last_region_hotkey")
-        {
-            int mods = s.LastRegionHotkeyModifiers;
-            int hotkey = s.LastRegionHotkeyKey;
-            if (TrySetHotkey(val, ref mods, ref hotkey))
-            {
-                s.LastRegionHotkeyModifiers = mods;
-                s.LastRegionHotkeyKey = hotkey;
-            }
-            return true;
-        }
-        if (key == "stop_hotkey")
-        {
-            int mods = s.StopHotkeyModifiers;
-            int hotkey = s.StopHotkeyKey;
-            if (TrySetHotkey(val, ref mods, ref hotkey))
-            {
-                s.StopHotkeyModifiers = mods;
-                s.StopHotkeyKey = hotkey;
-            }
-            return true;
-        }
+        // Removed on 2026-11-14 (Bran): the "record last region" hotkey and the separate stop hotkey.
+        // The one hotkey starts and stops. Read and drop the old keys, so they do not stay in the file.
+        if (key == "last_region_hotkey" || key == "stop_hotkey") return true;
         return false;
     }
 
@@ -495,8 +470,6 @@ static class RecorderCore
         Append(sb, "copy_to_clipboard", s.CopyToClipboard ? "1" : "0");
         Append(sb, "play_sounds", s.PlaySounds ? "1" : "0");
         Append(sb, "hotkey", HotkeyText(s.HotkeyModifiers, s.HotkeyKey));
-        Append(sb, "last_region_hotkey", HotkeyText(s.LastRegionHotkeyModifiers, s.LastRegionHotkeyKey));
-        Append(sb, "stop_hotkey", HotkeyText(s.StopHotkeyModifiers, s.StopHotkeyKey));
         Append(sb, "capture_backend", NormalizeBackend(s.CaptureBackend));
         Append(sb, "encoder", NormalizeEncoder(s.Encoder));
         Append(sb, "chroma", NormalizeChroma(s.ChromaFormat));
@@ -542,10 +515,6 @@ static class RecorderCore
         s.PlaySounds = defaults.PlaySounds;
         s.HotkeyModifiers = defaults.HotkeyModifiers;
         s.HotkeyKey = defaults.HotkeyKey;
-        s.LastRegionHotkeyModifiers = defaults.LastRegionHotkeyModifiers;
-        s.LastRegionHotkeyKey = defaults.LastRegionHotkeyKey;
-        s.StopHotkeyModifiers = defaults.StopHotkeyModifiers;
-        s.StopHotkeyKey = defaults.StopHotkeyKey;
         s.CaptureBackend = defaults.CaptureBackend;
         s.Encoder = defaults.Encoder;
         s.ChromaFormat = defaults.ChromaFormat;
