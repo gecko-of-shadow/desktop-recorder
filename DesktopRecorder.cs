@@ -933,9 +933,16 @@ class TrayApp : ApplicationContext
     }
 }
 
-// Draws the two tray icons (idle and recording) in code.
+// Draws the two tray icons (idle and recording) in code, after Bran's icon set
+// (packaging/icon/tray-icon-set-source.jpg). Drawn at the real tray size, so the lines stay sharp.
+// Each line gets a soft glow first: a wide, half-transparent copy of the line.
 static class TrayIcons
 {
+    static readonly Color IdleBlue = Color.FromArgb(175, 220, 235);
+    static readonly Color Pink = Color.FromArgb(235, 120, 255);
+    static readonly Color Blue = Color.FromArgb(70, 200, 255);
+    static readonly Color Red = Color.FromArgb(255, 35, 85);
+
     public static Bitmap Draw(int size, bool recording)
     {
         Bitmap bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
@@ -945,33 +952,112 @@ static class TrayIcons
             g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
             g.Clear(Color.Transparent);
             float k = size / 16f;
-            float stroke = Math.Max(1.25f, 1.3f * k);
-            float inset = 0.5f * stroke + 0.3f * k;
-            float len = 4.6f * k;
+            // Whole-pixel strokes and half-pixel positions keep the lines crisp at 16 to 24 px.
+            bool small = size < 24;
+            float stroke = Math.Max(1f, (float)Math.Round(1.2f * k));
+            float glow = stroke * (small ? 2.2f : 2.6f);
+            int glowAlpha = small ? 40 : 60;
+            float inset = stroke / 2f + 1f;
+            float len = 4.2f * k;
             float far = size - inset;
-            Color top = recording ? Color.FromArgb(225, 120, 255) : Color.FromArgb(175, 220, 235);
-            Color bottom = recording ? Color.FromArgb(80, 195, 255) : Color.FromArgb(175, 220, 235);
-            using (Pen topPen = new Pen(top, stroke))
-            using (Pen bottomPen = new Pen(bottom, stroke))
+            Color top = recording ? Pink : IdleBlue;
+            Color bottom = recording ? Blue : IdleBlue;
+
+            // Corner brackets: top pair pink, bottom pair blue (recording), all light blue (idle).
+            PointF[][] topBrackets =
             {
-                topPen.StartCap = topPen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                bottomPen.StartCap = bottomPen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                // Corner brackets.
-                g.DrawLines(topPen, new[] { new PointF(inset, inset + len), new PointF(inset, inset), new PointF(inset + len, inset) });
-                g.DrawLines(topPen, new[] { new PointF(far - len, inset), new PointF(far, inset), new PointF(far, inset + len) });
-                g.DrawLines(bottomPen, new[] { new PointF(inset, far - len), new PointF(inset, far), new PointF(inset + len, far) });
-                g.DrawLines(bottomPen, new[] { new PointF(far - len, far), new PointF(far, far), new PointF(far, far - len) });
+                new[] { new PointF(inset, inset + len), new PointF(inset, inset), new PointF(inset + len, inset) },
+                new[] { new PointF(far - len, inset), new PointF(far, inset), new PointF(far, inset + len) },
+            };
+            PointF[][] bottomBrackets =
+            {
+                new[] { new PointF(inset, far - len), new PointF(inset, far), new PointF(inset + len, far) },
+                new[] { new PointF(far - len, far), new PointF(far, far), new PointF(far, far - len) },
+            };
+            foreach (PointF[] p in topBrackets) GlowLines(g, p, top, stroke, glow, recording ? glowAlpha + 15 : glowAlpha);
+            foreach (PointF[] p in bottomBrackets) GlowLines(g, p, bottom, stroke, glow, recording ? glowAlpha + 15 : glowAlpha);
+
+            // The ring sits a little higher while recording, to make room for the sound wave.
+            float cx = size / 2f;
+            float cy = recording ? size / 2f - 0.5f * k : size / 2f;
+            float ring = (recording ? 4.0f : 4.3f) * k;
+            RectangleF ringRect = new RectangleF(cx - ring, cy - ring, 2 * ring, 2 * ring);
+            float ringStroke = Math.Max(1f, 1.05f * k);
+            if (recording)
+            {
+                // Glow, then a ring that goes from pink (top left) to blue (bottom right).
+                using (Pen glowPen = new Pen(Color.FromArgb(glowAlpha + 15, Pink), ringStroke * 2.4f))
+                    g.DrawEllipse(glowPen, ringRect);
+                RectangleF gradRect = RectangleF.Inflate(ringRect, 1f, 1f);
+                using (var grad = new System.Drawing.Drawing2D.LinearGradientBrush(gradRect, Pink, Blue, 45f))
+                using (Pen ringPen = new Pen(grad, ringStroke))
+                    g.DrawEllipse(ringPen, ringRect);
+                // Dark inner ring between the outer ring and the red dot.
+                float inner = ring - 1.35f * k;
+                if (!small)
+                    using (Pen innerPen = new Pen(Color.FromArgb(150, 90, 80, 140), Math.Max(0.8f, 0.6f * k)))
+                        g.DrawEllipse(innerPen, cx - inner, cy - inner, 2 * inner, 2 * inner);
+                // Red dot with a glow.
+                float dot = 2.2f * k;
+                if (!small)
+                    using (Brush halo = new SolidBrush(Color.FromArgb(90, Red)))
+                        g.FillEllipse(halo, cx - dot - 0.9f * k, cy - dot - 0.9f * k, 2 * dot + 1.8f * k, 2 * dot + 1.8f * k);
+                using (Brush dotBrush = new SolidBrush(Red))
+                    g.FillEllipse(dotBrush, cx - dot, cy - dot, 2 * dot, 2 * dot);
+                // Small highlight on the red dot.
+                float hl = 0.7f * k;
+                using (Brush hlBrush = new SolidBrush(Color.FromArgb(150, 255, 170, 190)))
+                    g.FillEllipse(hlBrush, cx - 0.9f * k - hl, cy - 0.9f * k - hl, 2 * hl, 2 * hl);
+                // Small red dot at the right side, in the gap between the right brackets.
+                float side = Math.Max(0.8f, 0.65f * k);
+                float sx = far - 0.2f * k;
+                using (Brush sideBrush = new SolidBrush(Red))
+                    g.FillEllipse(sideBrush, sx - side, cy - side, 2 * side, 2 * side);
+                // Sound wave: short red bars below the ring, between the bottom brackets.
+                // Bars are whole pixels wide and start on whole pixels, so they do not blur.
+                float[] heights = small ? new[] { 0.5f, 1f, 0.5f } : new[] { 0.35f, 0.65f, 1f, 0.65f, 0.35f };
+                int barW = Math.Max(1, (int)Math.Round(0.5f * k));
+                int gap = barW * 2;
+                float waveY = (cy + ring + far) / 2f + 0.4f * k;
+                float maxH = Math.Max(2f, 2.2f * k);
+                int x0 = (int)Math.Round(cx - barW / 2f - gap * (heights.Length - 1) / 2f);
+                var oldSmoothing = g.SmoothingMode;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.None;
+                using (Brush barBrush = new SolidBrush(Red))
+                    for (int i = 0; i < heights.Length; i++)
+                    {
+                        int h = Math.Max(1, (int)Math.Round(heights[i] * maxH));
+                        g.FillRectangle(barBrush, x0 + i * gap, (int)Math.Round(waveY - h / 2f), barW, h);
+                    }
+                g.SmoothingMode = oldSmoothing;
             }
-            float c = size / 2f;
-            float ring = 4.3f * k;
-            Color ringColor = recording ? Color.FromArgb(205, 175, 255) : Color.FromArgb(175, 220, 235);
-            using (Pen ringPen = new Pen(ringColor, Math.Max(1f, 1.1f * k)))
-                g.DrawEllipse(ringPen, c - ring, c - ring, 2 * ring, 2 * ring);
-            float dot = recording ? 2.9f * k : 1.5f * k;
-            using (Brush dotBrush = new SolidBrush(recording ? Color.FromArgb(255, 40, 90) : Color.FromArgb(175, 220, 235)))
-                g.FillEllipse(dotBrush, c - dot, c - dot, 2 * dot, 2 * dot);
+            else
+            {
+                using (Pen glowPen = new Pen(Color.FromArgb(glowAlpha, IdleBlue), ringStroke * 2.4f))
+                    g.DrawEllipse(glowPen, ringRect);
+                using (Pen ringPen = new Pen(IdleBlue, ringStroke))
+                    g.DrawEllipse(ringPen, ringRect);
+                float dot = 1.5f * k;
+                using (Brush dotBrush = new SolidBrush(IdleBlue))
+                    g.FillEllipse(dotBrush, cx - dot, cy - dot, 2 * dot, 2 * dot);
+            }
         }
         return bmp;
+    }
+
+    // Draws a wide, half-transparent copy of the line (the glow), then the line itself.
+    static void GlowLines(Graphics g, PointF[] points, Color color, float stroke, float glow, int glowAlpha)
+    {
+        using (Pen glowPen = new Pen(Color.FromArgb(glowAlpha, color), glow))
+        using (Pen pen = new Pen(color, stroke))
+        {
+            glowPen.StartCap = glowPen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+            glowPen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+            pen.StartCap = pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+            pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+            g.DrawLines(glowPen, points);
+            g.DrawLines(pen, points);
+        }
     }
 }
 
