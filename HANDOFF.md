@@ -493,7 +493,8 @@ Not checked: look-alike changes in a real screen capture (the states were drawn 
 | libx264 fallback in the app | Bran: "seems ok" (2026-11-14). Not run. Still UNVERIFIED. |
 | Default fps 10 | Done (decision 10). Unit tests pass. |
 | Release v2.0.0 | Done (7.2). |
-| Look-alike changes in "Changes only" (6.10) | Done. Lower `mpdecimate` thresholds. Offline test 15/15. App runs PASS. Not in a release yet. |
+| Look-alike changes in "Changes only" (6.10) | Done. Lower `mpdecimate` thresholds. Offline test 15/15. App runs PASS. Released in v2.0.1. |
+| Release v2.0.1 | Done (7.3). |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -516,6 +517,15 @@ Done on 2026-11-14. https://github.com/gecko-of-shadow/desktop-recorder/releases
 - The Windows zip of v2.0.0 was built on Bran's PC from the tagged source (`csc.exe`, same options as the workflow) with the fixed script. The Linux archive is the artifact of the release run. Both are attached. The downloaded zip has the same SHA-256 as the local zip.
 - `git tag -F` removed the `##` heading lines from the tag message. The release notes come from a file (`gh release create --notes-file`).
 - Not checked: the v2.0.0 zip on a second PC.
+
+### 7.3 Release v2.0.1
+
+Done on 2026-11-14. https://github.com/gecko-of-shadow/desktop-recorder/releases/tag/v2.0.1
+
+- Tag v2.0.1 = a7c8144 (6.10 filter fix, merged side-session commits, version 2.0.1). Build workflow on `main` passed.
+- The Release workflow passed in full (windows, linux, publish). The fixed `make-windows-zip.sh` works on the GitHub runner.
+- Both archives downloaded and checked: each has the 2.0.1 README.
+- Workflow limit: the release body was the commit message, not the tag message. `actions/checkout` does not fetch the annotated tag object, so `git tag -l --format=%(contents)` gives the commit text. The notes were set after with `gh release edit --notes-file`. Do the same for the next release, or fix `release.yml` (for example `fetch-tags: true` or `git fetch --force origin "refs/tags/$tag:refs/tags/$tag"`). Not changed.
 
 Mark an item "checked" only after a run on Bran's PC. Mark all other claims UNVERIFIED.
 
