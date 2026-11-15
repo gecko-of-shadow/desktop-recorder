@@ -1,4 +1,4 @@
-// Desktop Recorder: a tray program that records a screen region to MP4 with ffmpeg.
+﻿// Desktop Recorder: a tray program that records a screen region to MP4 with ffmpeg.
 // Builds with the C# compiler that ships with Windows (C# 5, .NET Framework 4.x). See build.cmd.
 
 using System;
@@ -281,6 +281,22 @@ class Recorder
         return usable;
     }
 
+    // Runs the NVENC test once in the background at app start. Without it, the first recording waited
+    // about 0.4 s more for the test (measured on Bran's PC).
+    public static void WarmUp(Settings s)
+    {
+        if (RecorderCore.NormalizeEncoder(s.Encoder) != RecorderCore.EncoderAuto) return;
+        System.Threading.ThreadPool.QueueUserWorkItem(delegate
+        {
+            try
+            {
+                string ffmpeg = FindFfmpeg();
+                if (ffmpeg != null) IsNvencUsable(ffmpeg);
+            }
+            catch (Exception) { }
+        });
+    }
+
     // After an NVENC failure during a recording: "auto" uses libx264 until the app restarts.
     public static void MarkNvencUnusable()
     {
@@ -450,6 +466,7 @@ class TrayApp : ApplicationContext
     bool forcedGdigrab, forcedX264;
     const int FallbackWindowMs = 10000;
     bool selecting;
+    bool stopping;   // FFmpeg is finishing the file on a background thread
     Icon currentIcon;
     IntPtr currentIconHandle = IntPtr.Zero;
 
@@ -507,6 +524,7 @@ class TrayApp : ApplicationContext
         };
 
         Refresh();
+        if (!settings.RecordOnLaunch) Recorder.WarmUp(settings);
         if (settings.RecordOnLaunch) StartSavedRegion(true, false);
         string warning = HotkeyWarning();
         if (warning != null) tray.ShowBalloonTip(6000, "Desktop Recorder", warning, ToolTipIcon.Warning);
@@ -580,7 +598,7 @@ class TrayApp : ApplicationContext
     // The record hotkey and the first tray item: show the selector, then record the selection.
     void SelectAndRecord()
     {
-        if (selecting || recorder.IsRecording) return;
+        if (selecting || stopping || recorder.IsRecording) return;
         selecting = true;
         Rectangle? picked;
         RegionSelector.ShowCrosshair = settings.SelectorCrosshair;
@@ -734,17 +752,47 @@ class TrayApp : ApplicationContext
     }
 
     // Stops, shows the status line and, if the setting is on, puts the finished video file(s) on the clipboard.
-    void StopRecording(bool sound = true)
+    // The border goes away and the sound plays at once. FFmpeg finishes the file on a background thread
+    // (0.4 s with NVENC, more with x264), then FinishStop runs on the UI thread. wait = true stops
+    // synchronously (used by Quit).
+    void StopRecording(bool sound = true, bool wait = false)
     {
+        if (stopping) return;
         if (!recorder.IsRecording)
         {
             DisposeFrame();
             return;
         }
-        // Play before the stop: the stop can wait some seconds for ffmpeg to finish the file.
         if (sound && settings.PlaySounds) Sounds.PlayStop();
-        recorder.Stop();
         DisposeFrame();
+        if (wait)
+        {
+            recorder.Stop();
+            FinishStop();
+            return;
+        }
+        stopping = true;
+        Refresh();
+        System.Threading.ThreadPool.QueueUserWorkItem(delegate
+        {
+            try { recorder.Stop(); }
+            catch (Exception) { }
+            try
+            {
+                ui.BeginInvoke((MethodInvoker)delegate
+                {
+                    stopping = false;
+                    FinishStop();
+                    Refresh();
+                });
+            }
+            catch (InvalidOperationException) { stopping = false; }
+        });
+    }
+
+    // After FFmpeg ended: the status line and the clipboard.
+    void FinishStop()
+    {
         string stats = UpdateStats();
         if (!settings.CopyToClipboard)
         {
@@ -837,7 +885,7 @@ class TrayApp : ApplicationContext
 
     void Quit()
     {
-        StopRecording(false); // no sound: the program ends before the sound can play
+        StopRecording(false, true); // no sound: the program ends before the sound can play. Wait for the file.
         DisposeFrame();
         hotkey.Close();
         tray.Visible = false;
@@ -852,7 +900,8 @@ class TrayApp : ApplicationContext
 
     void Refresh()
     {
-        bool on = recorder.IsRecording;
+        // While FFmpeg finishes the file, show the stopped state: the user already pressed Stop.
+        bool on = recorder.IsRecording && !stopping;
         // During a recording, show the fps of that recording: a settings change applies to the next one.
         string fpsText = (on ? recordingFps : settings.Fps).ToString("0.###", CultureInfo.InvariantCulture);
         string where = recordingRegion.IsEmpty ? "whole desktop"
