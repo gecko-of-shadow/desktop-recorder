@@ -93,7 +93,7 @@ ShareX features to copy (source: getsharex.com docs and changelog):
 
 Behavior of the new selector:
 
-1. The hotkey opens the selector. A second hotkey ("record last region") skips the selector.
+1. The hotkey opens the selector. The same hotkey stops a recording. (Changed by Bran on 2026-11-14, see section 5. The "record last region" hotkey and the separate stop hotkey are removed.)
 2. The selector is one borderless, topmost form that covers `SystemInformation.VirtualScreen` (all monitors).
 3. The selector freezes a screenshot of the desktop and shows it dimmed. The selected area shows at full brightness.
 4. On hover, the selector draws a border around the window under the cursor.
@@ -102,7 +102,7 @@ Behavior of the new selector:
    - Skip windows that are not visible, minimized, cloaked (`DWMWA_CLOAKED`), tool windows, and the selector itself.
    - Optional: detect child controls with `ChildWindowFromPointEx`.
 5. Click = select the highlighted window. Drag = select a rectangle.
-6. After the selection, the user can move and resize it with handles and arrow keys. Enter or double-click starts the recording. Esc cancels.
+6. The release of the mouse after a drag starts the recording. A click on a highlighted window also starts it. Enter, Space and `~` start it from the keyboard. Esc cancels. (Changed by Bran on 2026-11-14. Before this change, the user moved and resized the selection with handles and arrow keys, then pressed Enter. The GUI test checked the arrow keys, Shift + arrow keys, Esc and Enter on that build.)
 7. Show the size in px next to the selection. Make the width and the height even numbers, because H.264 needs even sizes.
 8. Show the magnifier (for example 10x10 px enlarged 8 times) next to the cursor.
 9. Save the last region in the settings file.
@@ -149,6 +149,9 @@ Other rules:
 1. Platform: stay on .NET Framework 4 with `csc.exe` and `build.cmd`. No NuGet. No .NET 8.
 2. Window selection: version 1 records the fixed rectangle only. The recording does not follow a window that moves.
 3. Default frame-rate mode: "Fixed" stays the default. Decide about "Changes only" after Phase B (run B12).
+4. Start flow (GUI test, 2026-11-14): Win+Shift+D, drag a box, release the mouse. The recording starts at once. No Enter.
+5. Stop: the same hotkey (Win+Shift+D) stops. No separate stop hotkey.
+6. Remove the "record last region" feature (hotkey, tray item, settings row). Bran does not use it.
 
 ---
 
@@ -277,6 +280,66 @@ New test kit limit (checked): `frames.py` exact mode (the default) counts still 
 
 Not checked: why the old app gave copies in the Grok test. Possible causes: the old full-desktop capture, a different monitor setup at the time of that test, a different scroll method, or the Grok frame count itself.
 
+### 6.7 GUI test of the new app (run on Bran's PC on 2026-11-14)
+
+Setup: same PC as 6.5. App built with `csc.exe` from branch `test-kit`. Synthetic input (`keybd_event`, `mouse_event`) and DPI-aware screenshots drove most steps. Bran did the steps that need eyes: the border, the Stop button, the tray status line, and the Settings dialog. `test/app_runs.ps1` made the recordings with the app itself. Output: `test/results/app_runs/` (Git ignores it).
+
+Bugs found and fixed:
+
+| # | Bug | Fix (commit) |
+|---|---|---|
+| 1 | The selector did not open. `CopyFromScreen(SourceCopy \| CaptureBlt)` throws `InvalidEnumArgumentException` on .NET Framework. The app showed the error only in a tray balloon, and Windows did not show the balloon. | Use `SourceCopy` only (06767e2). |
+| 2 | "Changes only": a 10 s recording of a still page gave a file of 0.1 s (1 frame). The file lost its real length. | `mpdecimate=max=ceil(fps)-1`: at least one frame each second. Checked: 11 frames, 10.1 s, 12 KB (00056cc). |
+| 3 | Settings dialog at 125%: the labels covered the input fields (fps value, split value, the start of each list, the Win check box). Cause: the first control in `Controls` is on top, and the labels were added first. | Put the labels behind the other controls (0ffacbf). Checked with a screenshot. |
+
+Changes that Bran asked for during the test: release starts the recording (bb620d4), one hotkey starts and stops, no "record last region" (0ffacbf). See section 5.
+
+Selector (checked):
+
+- Win+Shift+D opens the selector. Dimming outside the selection works (screen pixel 31 → 16).
+- Hover draws a border around the window under the cursor, with the size label. The magnifier shows near the cursor.
+- Click on a window selects it. Drag selects a rectangle. Drag 440,172 to 1421,601 gave 982x430 (even sizes, inclusive pixels).
+- Before the change in 4.1 point 6: Right, Right, Shift+Down moved the selection by 2 px and 10 px. Esc cancelled and saved nothing.
+- After the change: release after a drag starts ddagrab at the dragged offsets. A window click starts at once.
+- Space selected 0,0,1920x1080 (physical pixels). The video size equals the selection in every run. DPI scale is correct on this PC.
+- Not checked: `~` (on one monitor it gives the same result as Space), Shift (square) and Ctrl (move) while dragging, crosshair key C.
+
+Recording frame (checked):
+
+- Bran saw the red border and the Stop button. A click on Stop ended the recording.
+- Windows accepted `WDA_EXCLUDEFROMCAPTURE` on all border and Stop windows (`GetWindowDisplayAffinity` = 0x11).
+- Region away from the screen edges: 0 border-colored pixels on the outer rows and columns of each video.
+- Full-screen region (border and Stop button forced inside the region): 0 border-colored pixels in the 2 px edge and in the Stop button area, with ddagrab and with gdigrab. Both backends respect the flag.
+
+Recordings of `counter.html` (10 s, 10 fps, region 20,120,1880x860, quality Balanced = NVENC CQ 23):
+
+| Run | Backend | Chroma | Mode | Encoder (from the FFmpeg command) | Profile / pix_fmt | Unique values | Expected | Result | MB | CPU % |
+|---|---|---|---|---|---|---|---|---|---|---|
+| dda420 | ddagrab | 4:2:0 | Fixed | h264_nvenc | Main / yuv420p | 104 | 104 | PASS | 0.459 | 0.03 |
+| gdi420 | gdigrab | 4:2:0 | Fixed | h264_nvenc | Main / yuv420p | 104 | 104 | PASS | 0.460 | 0.5 |
+| dda444 | ddagrab | 4:4:4 | Fixed | h264_nvenc, `-rgb_mode yuv444` | High 4:4:4 / yuv444p | 99 | 99 | PASS | 0.535 | 0.1 |
+| gdi444 | gdigrab | 4:4:4 | Fixed | h264_nvenc, `-rgb_mode yuv444` | High 4:4:4 / yuv444p | 104 | 104 | PASS | 0.563 | 0.59 |
+| ddachg | ddagrab | 4:2:0 | Changes only | h264_nvenc | Main / yuv420p | 104 | 104 | PASS | 0.472 | 0.93 |
+| gdichg | gdigrab | 4:2:0 | Changes only | h264_nvenc | Main / yuv420p | 103 | 103 | PASS | 0.442 | 0.91 |
+| split | ddagrab | 4:2:0 | Fixed, split 1 min | h264_nvenc | Main / yuv420p | 600 + 123 | 600 + 123 | PASS | 2.566 + 0.527 | 0.04 |
+
+- No run used a fallback. All runs had 0 failed frames.
+- Split: the counter continues across the cut (67283 in file 1, 67295 in file 2: one normal step of about 12 values at 119 Hz).
+- "Changes only" on a still area (1880x140): before fix 2, 1 frame and 0.1 s. After fix 2, 11 frames and 10.1 s.
+- CPU % = FFmpeg CPU time ÷ wall time ÷ 12 cores, measured from second 2 to the stop.
+- The first split run is invalid: the Claude window came to the front during the run. `app_runs.ps1` now maximizes the test page and brings it to the front before each run.
+
+Status line (checked): Bran read "Last recording: Real frames: 83 of 83. Duplicates: 0. Dropped: 0. File size: 0.05 MB." The file had 83 frames and 0.048 MB.
+
+Settings (checked by Bran): Settings opened during a recording. After Save, the recording restarted with the border (new file, same region). With Settings open, Win+Shift+D opened the selector and a recording started. Bran's region in that test was the full screen, so this test did not check an offset error.
+
+Not checked:
+
+- Multi-monitor PCs and monitors with different DPI.
+- libx264 fallback in the app (NVENC worked in every run).
+- `~`, Shift and Ctrl while dragging, the crosshair key.
+- The tray balloons: Windows did not show them on this PC. The tray menu shows the status line.
+
 ## 7. Tracker
 
 | Item | Status |
@@ -285,11 +348,11 @@ Not checked: why the old app gave copies in the Grok test. Possible causes: the 
 | Read current code | Done |
 | Test kit (6.1) | Done. Self-tests pass on Bran's PC (score 28/28, frames 70/70). `frames.py --counter` read real recordings in Phase A (0 failed frames). `scroll.html` and `score.py`: no real recording yet. |
 | Phase A test | A1 to A5 checked on Bran's PC (all PASS, see 6.5). A6 not done. Scroll stress run checked (6.6): no lost frames with A1 or A4 settings. |
-| Region selector | Code done (merge 13afef8). Build and unit tests pass. GUI not run: UNVERIFIED. |
-| Recording frame | Code done (merge 13afef8). GUI not run. Exclusion from capture: UNVERIFIED. |
-| ddagrab + NVENC backend | Code done (merge 13afef8). Fallbacks to gdigrab and libx264. Unit tests pass. No recording with the app yet. Multi-monitor and multi-GPU: UNVERIFIED. |
-| "Changes only" mode | Code done (merge 13afef8). Unit tests for the arguments pass. No recording yet. |
-| GUI test of the new app on Bran's PC | Not done. Open the settings window during a recording. Press the selector hotkey while the settings window is open. Record with ddagrab, gdigrab, 4:4:4, "Changes only" and split. Check that the border and the Stop button are not in the video. |
+| Region selector | Checked on Bran's PC (6.7). Bug 1 fixed. Flow changed by Bran: release starts, one hotkey starts and stops, no "record last region". |
+| Recording frame | Checked on Bran's PC (6.7). Border and Stop button show and work. WDA_EXCLUDEFROMCAPTURE works with ddagrab and gdigrab. |
+| ddagrab + NVENC backend | Checked on Bran's PC (6.7): ddagrab and gdigrab with NVENC, 4:2:0 and 4:4:4, no lost frames. libx264 fallback, multi-monitor and multi-GPU: UNVERIFIED. |
+| "Changes only" mode | Checked on Bran's PC (6.7). Bug 2 fixed (still screen lost the file length). Phase B (B12) still decides the default. |
+| GUI test of the new app on Bran's PC | Done (6.7). 3 bugs fixed. Not checked: multi-monitor, `~`, Shift and Ctrl while dragging. |
 | Phase B test | Not done |
 | README update | Not done |
 
