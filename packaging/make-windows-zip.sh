@@ -15,15 +15,16 @@ cp "$root/packaging/windows/README.txt" "$dest/README.txt"
 if command -v zip >/dev/null 2>&1; then
   (cd "$stage" && zip -r -q "$out_dir/$name.zip" "$name")
 else
-  python3 - << PY
-import os, zipfile
-src = "$dest"
-out = "$out_dir/$name.zip"
+  # Give the paths as arguments, not inside the Python source. A Windows path such as
+  # D:\a\_temp in the source becomes an escape sequence (\a = bell), and the zip cannot open.
+  python3 - "$dest" "$out_dir/$name.zip" "$stage" << 'PY'
+import os, sys, zipfile
+src, out, stage = sys.argv[1], sys.argv[2], sys.argv[3]
 with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
     for dirpath, _, names in os.walk(src):
         for name in names:
             full = os.path.join(dirpath, name)
-            zf.write(full, os.path.relpath(full, "$stage"))
+            zf.write(full, os.path.relpath(full, stage))
 PY
 fi
 rm -rf "$stage"

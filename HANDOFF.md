@@ -470,7 +470,7 @@ Not checked: the check box with a real click; the new build in Bran's tray (the 
 | Save in Settings during a recording (bug 4) | Checked by Bran on 2026-11-14: the recording continues. |
 | libx264 fallback in the app | Bran: "seems ok" (2026-11-14). Not run. Still UNVERIFIED. |
 | Default fps 10 | Done (decision 10). Unit tests pass. |
-| Release v2.0.0 | See section 7.2. |
+| Release v2.0.0 | Done (7.2). |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -485,7 +485,14 @@ Not checked: the check box with a real click; the new build in Bran's tray (the 
 
 ### 7.2 Release v2.0.0
 
-In progress. See the commit after this one.
+Done on 2026-11-14. https://github.com/gecko-of-shadow/desktop-recorder/releases/tag/v2.0.0
+
+- `test-kit` pushed. `main` fast-forwarded to d96cbc3 (no merge commit). The Build workflow on `main` passed (Windows build, Mono core tests, Linux tests).
+- Tag v2.0.0 = d96cbc3. The Release workflow failed in the Windows zip step: `packaging/make-windows-zip.sh` put the path `D:\_temp` inside the Python source, and `` became a control character. The Linux job passed.
+- Fix: the script gives the paths to Python as arguments (commit after d96cbc3). Not checked on a GitHub runner yet. It runs on the next tag.
+- The Windows zip of v2.0.0 was built on Bran's PC from the tagged source (`csc.exe`, same options as the workflow) with the fixed script. The Linux archive is the artifact of the release run. Both are attached. The downloaded zip has the same SHA-256 as the local zip.
+- `git tag -F` removed the `##` heading lines from the tag message. The release notes come from a file (`gh release create --notes-file`).
+- Not checked: the v2.0.0 zip on a second PC.
 
 Mark an item "checked" only after a run on Bran's PC. Mark all other claims UNVERIFIED.
 
