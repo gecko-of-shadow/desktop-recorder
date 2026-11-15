@@ -495,6 +495,7 @@ Not checked: look-alike changes in a real screen capture (the states were drawn 
 | Release v2.0.0 | Done (7.2). |
 | Look-alike changes in "Changes only" (6.10) | Done. Lower `mpdecimate` thresholds. Offline test 15/15. App runs PASS. Released in v2.0.1. |
 | Release v2.0.1 | Done (7.3). |
+| Release v2.0.2 | Done (7.4). Tray icons not checked in Bran's real tray. |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -525,11 +526,23 @@ Done on 2026-11-14. https://github.com/gecko-of-shadow/desktop-recorder/releases
 - Tag v2.0.1 = a7c8144 (6.10 filter fix, merged side-session commits, version 2.0.1). Build workflow on `main` passed.
 - The Release workflow passed in full (windows, linux, publish). The fixed `make-windows-zip.sh` works on the GitHub runner.
 - Both archives downloaded and checked: each has the 2.0.1 README.
-- Workflow limit: the release body was the commit message, not the tag message. `actions/checkout` does not fetch the annotated tag object, so `git tag -l --format=%(contents)` gives the commit text. The notes were set after with `gh release edit --notes-file`. Do the same for the next release, or fix `release.yml` (for example `fetch-tags: true` or `git fetch --force origin "refs/tags/$tag:refs/tags/$tag"`). Not changed.
+- Workflow limit: the release body was the commit message, not the tag message. `actions/checkout` does not fetch the annotated tag object, so `git tag -l --format=%(contents)` gives the commit text. The notes were set after with `gh release edit --notes-file`. Do the same for the next release, or fix `release.yml` (for example `fetch-tags: true` or `git fetch --force origin "refs/tags/$tag:refs/tags/$tag"`). Fixed in v2.0.2 with the `git fetch` line (7.4).
 
 Mark an item "checked" only after a run on Bran's PC. Mark all other claims UNVERIFIED.
 
 ---
+
+### 7.4 Release v2.0.2
+
+Done on 2026-11-15. https://github.com/gecko-of-shadow/desktop-recorder/releases/tag/v2.0.2
+
+- Content: the new tray icons (2fe9d86) and the `release.yml` fix for the release notes. Version 2.0.2 in the manifest and in the two archive README files.
+- Before the tag: the app build and the unit tests passed on Bran's PC (tests: `ok`). The Build workflow on `main` passed.
+- Tag v2.0.2 = 89c03d9 (annotated). The Release workflow passed in full (windows, linux, publish).
+- Checked: the release body equals the tag message, so the `release.yml` fix works. The release is Latest and not a draft.
+- Checked: both archives downloaded. The zip has `DesktopRecorder.exe` and a README that shows 2.0.2. The Linux README shows 2.0.2.
+- The subject of commit 89c03d9 starts with a BOM character (`Set-Content -Encoding utf8` in PowerShell 5.1 writes a BOM). Not corrected: a correction needs a force push of `main`. Write message files with `[IO.File]::WriteAllText` and `UTF8Encoding($false)`.
+- Not checked: the tray icons in Bran's real tray; the v2.0.2 zip on a second PC.
 
 ## 8. Rules for the agent
 
