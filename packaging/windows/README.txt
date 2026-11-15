@@ -16,6 +16,12 @@ that build is GPL. Install it instead of copying a binary into this zip:
 
 Or put ffmpeg.exe in this folder, next to DesktopRecorder.exe.
 
-Win+Shift+D starts and stops recording from anywhere. The tray icon is a
-monitor: red while recording, grey while stopped. This Windows build does
-not record audio. Recordings go to C:\Users\<you>\Recordings.
+Win+Shift+D opens the region selector. Drag a rectangle and release the
+mouse button, or click a window. The recording starts at once. A red frame
+and a Stop button show around the recorded area. They are not in the
+video. Press Win+Shift+D again, or click Stop, to stop. The video file
+then goes on the clipboard.
+
+An NVIDIA GPU encodes the video when the PC has one. Without it, the
+program encodes on the CPU. This Windows build does not record audio.
+Recordings go to C:\Users\<you>\Recordings.

@@ -462,7 +462,7 @@ Not checked: the check box with a real click; the new build in Bran's tray (the 
 | "Changes only" mode | Checked on Bran's PC (6.7, 6.8). Bug 2 fixed. Default since 2026-11-14 (section 5). UNVERIFIED: that every AI frame tool handles variable frame rate. |
 | GUI test of the new app on Bran's PC | Done (6.7). 5 bugs fixed. Start and stop made faster. Not checked: multi-monitor, `~`, Shift and Ctrl while dragging. |
 | Phase B test | Done (6.8). Gap rule holds. No run passes the 6.3 pass rule, because the reader fails emoji lines also on lossless frames. Decision about the default quality and "Changes only" is open for Bran. |
-| README update | Not done |
+| README update | Done (2026-11-14). `README.md` describes the new Windows app: selector flow and keys, all settings with the code defaults, capture and encoder fallbacks, quality table (CQ 28/23/17, CRF 32/27/21), "Changes only", the frame-rate rule from 6.8, a test summary, and the Windows unit-test commands. `packaging/windows/README.txt` has the new start and stop text. Checked: each default and label against `RecorderCore.cs`, `DesktopRecorder.cs` and `RegionSelector.cs`; the build and unit-test commands ran on Bran's PC (tests: `ok`); the Releases page has v1.0.0 only (`gh release list`). Not checked: the README on GitHub (not pushed). |
 | Pointer setting (6.9) | Done. Unit tests pass. Size test checked on Bran's PC. Settings dialog not checked with a real click. |
 
 Mark an item "checked" only after a run on Bran's PC. Mark all other claims UNVERIFIED.
