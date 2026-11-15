@@ -867,24 +867,12 @@ class TrayApp : ApplicationContext
             + (hotkey.IsRegistered(SelectHotkeyId) ? "\t" + settings.HotkeyText : "");
         tray.Text = on ? "Desktop Recorder: recording" : "Desktop Recorder: stopped";
 
-        using (Bitmap bmp = new Bitmap(32, 32))
+        // Tray icon from Bran's icon set (packaging/icon/tray-icon-set-source.jpg): corner brackets, a ring
+        // and a dot. Idle: light blue lines and a small dot. Recording: pink-to-blue brackets and a red dot.
+        // Drawn at the real tray size, so the thin lines stay sharp (20 px at 125 %).
+        int px = Math.Max(16, SystemInformation.SmallIconSize.Width);
+        using (Bitmap bmp = TrayIcons.Draw(px, on))
         {
-            using (Graphics g = Graphics.FromImage(bmp))
-            {
-                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                g.Clear(Color.Transparent);
-                // A monitor: white frame and stand, red screen with a white dot while recording, grey when stopped.
-                using (Brush frameBrush = new SolidBrush(Color.White))
-                {
-                    g.FillRectangle(frameBrush, 1, 3, 30, 21);
-                    g.FillRectangle(frameBrush, 13, 24, 6, 3);
-                    g.FillRectangle(frameBrush, 8, 27, 16, 3);
-                }
-                using (Brush screen = new SolidBrush(on ? Color.FromArgb(220, 30, 30) : Color.FromArgb(110, 110, 110)))
-                    g.FillRectangle(screen, 4, 6, 24, 15);
-                if (on)
-                    using (Brush dot = new SolidBrush(Color.White)) g.FillEllipse(dot, 12, 9.5f, 8, 8);
-            }
             IntPtr handle = bmp.GetHicon();
             Icon icon = Icon.FromHandle(handle);
             tray.Icon = icon;
@@ -893,6 +881,48 @@ class TrayApp : ApplicationContext
             currentIcon = icon;
             currentIconHandle = handle;
         }
+    }
+}
+
+// Draws the two tray icons (idle and recording) in code.
+static class TrayIcons
+{
+    public static Bitmap Draw(int size, bool recording)
+    {
+        Bitmap bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.Clear(Color.Transparent);
+            float k = size / 16f;
+            float stroke = Math.Max(1.25f, 1.3f * k);
+            float inset = 0.5f * stroke + 0.3f * k;
+            float len = 4.6f * k;
+            float far = size - inset;
+            Color top = recording ? Color.FromArgb(225, 120, 255) : Color.FromArgb(175, 220, 235);
+            Color bottom = recording ? Color.FromArgb(80, 195, 255) : Color.FromArgb(175, 220, 235);
+            using (Pen topPen = new Pen(top, stroke))
+            using (Pen bottomPen = new Pen(bottom, stroke))
+            {
+                topPen.StartCap = topPen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                bottomPen.StartCap = bottomPen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                // Corner brackets.
+                g.DrawLines(topPen, new[] { new PointF(inset, inset + len), new PointF(inset, inset), new PointF(inset + len, inset) });
+                g.DrawLines(topPen, new[] { new PointF(far - len, inset), new PointF(far, inset), new PointF(far, inset + len) });
+                g.DrawLines(bottomPen, new[] { new PointF(inset, far - len), new PointF(inset, far), new PointF(inset + len, far) });
+                g.DrawLines(bottomPen, new[] { new PointF(far - len, far), new PointF(far, far), new PointF(far, far - len) });
+            }
+            float c = size / 2f;
+            float ring = 4.3f * k;
+            Color ringColor = recording ? Color.FromArgb(205, 175, 255) : Color.FromArgb(175, 220, 235);
+            using (Pen ringPen = new Pen(ringColor, Math.Max(1f, 1.1f * k)))
+                g.DrawEllipse(ringPen, c - ring, c - ring, 2 * ring, 2 * ring);
+            float dot = recording ? 2.9f * k : 1.5f * k;
+            using (Brush dotBrush = new SolidBrush(recording ? Color.FromArgb(255, 40, 90) : Color.FromArgb(175, 220, 235)))
+                g.FillEllipse(dotBrush, c - dot, c - dot, 2 * dot, 2 * dot);
+        }
+        return bmp;
     }
 }
 
@@ -942,6 +972,8 @@ class SettingsForm : Form
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
         Text = "Desktop Recorder settings";
+        // The app icon (app.ico, built into the exe with /win32icon).
+        try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch (Exception) { }
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
