@@ -76,8 +76,11 @@ public static class RegionSelector
         {
             try
             {
+                // SourceCopy only. .NET Framework rejects SourceCopy | CaptureBlt with an
+                // InvalidEnumArgumentException (checked on Bran's PC), and the selector did not open.
+                // DWM composes layered windows, so the picture has them without CaptureBlt.
                 g.CopyFromScreen(virtualScreen.X, virtualScreen.Y, 0, 0, virtualScreen.Size,
-                    CopyPixelOperation.SourceCopy | CopyPixelOperation.CaptureBlt);
+                    CopyPixelOperation.SourceCopy);
             }
             catch (Win32Exception)
             {
