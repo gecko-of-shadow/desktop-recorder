@@ -8,7 +8,7 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ### Changed
 
-- README: new structure (summary, features, install, use, build, troubleshooting) and the current version. No program change.
+- README: shorter, in a fixed order (description, status and latest release, download, usage, build, layout, license). It links to the latest release and says that the repository has no license file. No program change.
 
 ## [2.0.2] - 2026-11-15
 
