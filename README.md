@@ -2,7 +2,7 @@
 
 A small tray program that records a part of your screen, so that an AI model can read the text on it. On Windows, one recording gives one folder: the settled frames as PNG files, an `index.md` that describes each frame, and `clip.mp4` for people.
 
-Current version: **2.0.2** (2026-11-15). See [CHANGELOG.md](CHANGELOG.md) for the version history.
+Current version: **3.0.0** (2026-11-20). See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 You select the area with the text. The program records that area at full resolution, so each character stays sharp. A still screen costs almost no space, so the files stay small.
 
@@ -19,8 +19,8 @@ Windows:
 - **GPU capture and encode.** `ddagrab` capture and `h264_nvenc` encode by default. The program uses `gdigrab` and `libx264` when the GPU path is not available.
 - **"Changes only" mode** (default). Frames that do not change are dropped. A still screen costs almost nothing.
 - **Status line** after each recording: real frames, duplicates, dropped frames, file size.
-- **Folder for an AI** (default, not released yet). Each recording gives a folder with `frames\001.png` and so on, `index.md` and `clip.mp4`. See [Recording folder](#recording-folder-windows). "MP4 only" gives one MP4 file, as in version 2.0.2.
-- **System audio and transcript** (optional, off by default, not released yet). The sound of the PC goes into the video. When a local Whisper program is present, `index.md` gets a transcript. See [Audio and transcript](#audio-and-transcript-windows).
+- **Folder for an AI** (default, new in 3.0.0). Each recording gives a folder with `frames\001.png` and so on, `index.md` and `clip.mp4`. See [Recording folder](#recording-folder-windows). "MP4 only" gives one MP4 file, as in version 2.0.2.
+- **System audio and transcript** (optional, off by default, new in 3.0.0). The sound of the PC goes into the video. When a local Whisper program is present, `index.md` gets a transcript. See [Audio and transcript](#audio-and-transcript-windows).
 - The finished recording (`index.md` and the frames, or the video) goes on the **clipboard**. Press Ctrl+V to paste it into a chat or a folder.
 - **Per-monitor DPI aware.** All positions and sizes are physical pixels.
 - FFmpeg stops when the program stops, also after a crash.

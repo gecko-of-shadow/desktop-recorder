@@ -6,19 +6,30 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ## [Unreleased]
 
-### Added
-
-- Branch `ai-capture`: the "Folder for AI" output (settled frames as PNG, `index.md`, `clip.mp4`). See HANDOFF.md 7.5 and 7.6.
-- Branch `ai-capture`: optional system audio (off by default) in `clip.mp4` and in the MP4 files, and a transcript in `index.md` when a local Whisper program is present. Not tested on Windows yet. See [docs/audio-transcript.md](docs/audio-transcript.md).
-- Branch `ai-capture`: `index.md` says when the picture did not settle for most of the recording (for example a video), so the AI knows that the frames are samples.
-
-### Fixed
-
-- Branch `ai-capture`: moving video no longer gives false "scroll" rows. A shift must now match 80% of the edge pixels.
+## [3.0.0] - 2026-11-20
 
 ### Changed
 
-- README: new structure (summary, features, install, use, build, troubleshooting) and the current version. No program change.
+- Windows: the default output is a folder for an AI, not one MP4 file. Each recording gives `frames\001.png` and so on (settled frames at full resolution), `index.md` (start time, note, one row for each frame with the time, the window title and what changed) and `clip.mp4` (keyframes at the frame times). Settings has "MP4 only" for the old output.
+- Windows: in folder mode, the clipboard holds `index.md` and the PNG frames as files, plus a text message for the AI with the folder path. A chat app attaches the files. A terminal gets the text.
+- README: new structure (summary, features, install, use, build, troubleshooting).
+
+### Added
+
+- Windows: `index.md` starts with an instruction for the AI: the files are one screen recording and they are context for the message.
+- Windows: a note box after Stop. The note goes into `index.md`.
+- Windows: tray items "Open last recording folder" and "Copy ZIP of last recording".
+- Windows: optional system audio (off by default) in `clip.mp4` and in the MP4 files. When a local Whisper program is present (whisper.cpp, faster-whisper-xxl, whisper-ctranslate2 or whisper), `index.md` gets a transcript and the folder gets `transcript.srt`. See [docs/audio-transcript.md](docs/audio-transcript.md).
+- Windows: `index.md` says when the picture did not settle for most of the recording (for example a video), so the AI knows that the frames are samples.
+
+### Fixed
+
+- Windows: moving video no longer gives false "scroll" rows. A shift must now match 80% of the edge pixels.
+
+### Notes
+
+- Tested on one PC (Windows 11, one monitor, RTX 4060): folder output, paste into the Claude desktop chat, audio capture, and a transcript with whisper.cpp. Not tested: the sync of audio and video, long recordings with a transcript, and a PC without an NVIDIA GPU.
+- Ubuntu: no change.
 
 ## [2.0.2] - 2026-11-15
 
@@ -121,7 +132,8 @@ First release, with portable archives for Windows and Ubuntu 24.04. FFmpeg is no
 
 - Not tested: a GNOME Wayland session, real audio samples, and the Windows program on a Windows desktop (the exe was built by GitHub Actions).
 
-[Unreleased]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.2...HEAD
+[Unreleased]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.2...v3.0.0
 [2.0.2]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v1.0.0...v2.0.0
