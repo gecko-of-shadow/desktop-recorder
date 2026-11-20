@@ -1080,9 +1080,14 @@ class TrayApp : ApplicationContext
         {
             try
             {
+                // Two formats: a text paste (AI chat, terminal) gets the message with the path,
+                // and a paste in Explorer still gets the folder.
                 System.Collections.Specialized.StringCollection list = new System.Collections.Specialized.StringCollection();
                 list.Add(job.Input.Folder);
-                Clipboard.SetFileDropList(list);
+                DataObject data = new DataObject();
+                data.SetFileDropList(list);
+                data.SetText(RecordingIndex.AiMessage(job.Input.Folder, r.Ok), TextDataFormat.UnicodeText);
+                Clipboard.SetDataObject(data, true);
                 copied = true;
             }
             catch (Exception e) { balloonText += "\nCould not copy the folder to the clipboard: " + e.Message; }
@@ -1095,7 +1100,7 @@ class TrayApp : ApplicationContext
         openLastItem.Enabled = Directory.Exists(job.Input.Folder);
         zipItem.Enabled = openLastItem.Enabled;
         tray.ShowBalloonTip(5000, "Desktop Recorder",
-            Shorten((copied ? "Folder copied. Press Ctrl+V to paste it.\n" : "Recording stopped.\n") + balloonText + ready),
+            Shorten((copied ? "AI message and folder copied. Press Ctrl+V to paste.\n" : "Recording stopped.\n") + balloonText + ready),
             r.Ok ? ToolTipIcon.Info : ToolTipIcon.Warning);
         if (quitRequested && passesRunning == 0 && !stopping) ExitNow();
     }

@@ -751,6 +751,22 @@ static class RecordingIndex
 {
     public const int FrameWarningLimit = 20;
 
+    // Text for the clipboard: a message for the AI and the folder path (Bran, 2026-11-19).
+    public static string AiMessage(string folder, bool passOk)
+    {
+        string nl = "\r\n";
+        string head = "Read my screen recording in this folder:" + nl + folder + nl + nl;
+        if (passOk)
+            return head
+                + "1. Read index.md first. It gives the start time, my note, and one row for each frame: the time, the window title and what changed." + nl
+                + "2. Look at the PNG files in the frames folder. Each file is one settled frame at full resolution. The file names match the rows in index.md." + nl
+                + "3. Use clip.mp4 only for the motion between the frames. Its keyframes are at the times in index.md." + nl;
+        return head
+            + "The frame pass failed, so the folder has no frames and no index.md." + nl
+            + "1. Watch clip.mp4." + nl
+            + "2. If note.txt is in the folder, read it. It has my note." + nl;
+    }
+
     public static string Describe(SettledFrame f, string title, string previousTitle)
     {
         string kind = f.Kind;

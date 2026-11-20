@@ -31,7 +31,19 @@ static class AiCaptureTests
         TestCounterStops();
         TestPendingThenScroll();
         TestScrollTurnsBack();
+        TestAiMessage();
         return failures;
+    }
+
+    static void TestAiMessage()
+    {
+        string folder = @"C:\rec\desktop_2026-11-19_20-10-00";
+        string ok = RecordingIndex.AiMessage(folder, true);
+        Expect(ok.IndexOf(folder + "\r\n", StringComparison.Ordinal) >= 0, "message has the folder on its own line");
+        Expect(ok.IndexOf("index.md", StringComparison.Ordinal) >= 0 && ok.IndexOf("clip.mp4", StringComparison.Ordinal) >= 0, "message names the files");
+        string bad = RecordingIndex.AiMessage(folder, false);
+        Expect(bad.IndexOf(folder, StringComparison.Ordinal) >= 0, "failed message has the folder");
+        Expect(bad.IndexOf("failed", StringComparison.Ordinal) >= 0 && bad.IndexOf("note.txt", StringComparison.Ordinal) >= 0, "failed message");
     }
 
     static void TestSettingsKeys()
