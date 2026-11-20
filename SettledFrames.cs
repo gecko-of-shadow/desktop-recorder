@@ -846,6 +846,13 @@ static class RecordingIndex
 {
     public const int FrameWarningLimit = 20;
 
+    // The instruction at the top of index.md, for an AI that gets the files without a text message.
+    public const string AiNote =
+        "For the AI that reads this file: this file and the PNG images that come with it are one screen recording that Bran made. "
+        + "They are context for Bran's message. Read this file first. Then look at each image: image 001.png is frame 001 in the table, and so on. "
+        + "Read the text on the screen in each image. Then do what Bran's message asks. "
+        + "If Bran's message has no question, tell him in a few lines what the recording shows, and ask what he wants.\n";
+
     // Files for the clipboard (Bran, 2026-11-20): index.md and the PNG frames, not the folder.
     // A chat app cannot take a folder: the Claude desktop app made a file of 0 bytes from it.
     // clip.mp4 is not in the list, because Claude chat refuses video.
@@ -971,6 +978,9 @@ static class RecordingIndex
         StringBuilder sb = new StringBuilder();
         sb.Append("# Recording ").Append(start.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture))
           .Append(" (").Append(UtcOffsetText(utcOffset)).Append(")\n");
+        // A chat app takes the files from the clipboard and not the text message (Bran, 2026-11-20).
+        // Thus the instruction for the AI must be in this file.
+        sb.Append(AiNote).Append('\n');
         sb.Append("The time above is the start of the recording.\n");
         if (note != null && note.Trim().Length > 0) sb.Append("Note from Bran: ").Append(Cell(note.Trim())).Append('\n');
         sb.Append("Length: ").Append(lengthSeconds.ToString("0.0", CultureInfo.InvariantCulture)).Append(" s\n");

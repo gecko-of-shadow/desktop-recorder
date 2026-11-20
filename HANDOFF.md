@@ -751,6 +751,17 @@ This section replaces the "State of Bran's PC" list in 7.7.
 - Code: `RecordingIndex.ClipboardFiles` in `SettledFrames.cs`. When the folder has no `index.md` and no frames (failed pass), the clipboard holds the folder as before. Unit test `TestClipboardFiles`. Tests: `ok`.
 - Checked on Bran's PC with the installed build (SHA-256 starts with 0EFE3BDD): after a test recording, the file drop list had `index.md`, `001.png` and `002.png`, and the text had the folder path.
 - Not checked: a real Ctrl+V in the Claude chat app, claude.ai, Gemini and Explorer. Claude chat takes 20 files in one message; a recording with more than 19 frames is over that limit.
+- Committed in 8e6fa73.
+- Checked by Bran at 00:32 (screenshot): Ctrl+V in the Claude desktop chat attached `index.md` and 4 frames, and the chat read them.
+- Checked at 00:32: Bran set `record_audio=1`. The recording `desktop_2026-11-20_00-31-39` has an AAC audio stream of 12.48 s in `clip.mp4` (video 12.40 s). This is the first WASAPI capture on Windows. `index.md` says "No transcript: no Whisper program was found". Not checked: that the audio is audible and in step with the video; a transcript with a real Whisper program.
+
+### 7.10 Whisper on Bran's PC and the instruction in index.md (2026-11-20, 00:41)
+
+- Installed (Bran approved the downloads): whisper.cpp build b5454, `whisper-bin-win-cuda-12.4.0-x64.zip` from GitHub `ggml-org/whisper.cpp`, and the model `ggml-large-v3-turbo-q5_0.bin` from Hugging Face `ggerganov/whisper.cpp`. Both SHA-256 values were equal to the values that the sites give. Place: `%LOCALAPPDATA%\Programs\DesktopRecorder\whisper` (program) and `whisper\models` (model). The app finds them without a setting.
+- Checked by hand: `whisper-cli.exe` made a correct transcript of 25 s of YouTube audio in 2.7 s on the RTX 4060.
+- Checked in the app: a recording of a spoken test sentence (Windows speech) gave `transcript.srt` and the section "Audio and transcript" in `index.md` with all words correct. The whole sentence is one row (0.0 s to 10.8 s).
+- New: `index.md` has an instruction for the AI in line 2 (`RecordingIndex.AiNote`). Reason: a chat app takes the files from the clipboard and not the text message, so the AI got no instruction. Unit test updated. Tests: `ok`.
+- Not checked: the time from Stop to "ready" with a transcript on a long recording; the sync of audio and video; the effect of the instruction on Claude chat, Gemini and Grok.
 - Not committed.
 
 ## 8. Rules for the agent

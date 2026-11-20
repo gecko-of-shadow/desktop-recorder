@@ -566,6 +566,8 @@ static class AiCaptureTests
         string md = RecordingIndex.Build(new DateTime(2026, 11, 19, 13, 1, 41), TimeSpan.FromHours(-3), "look at usage by bot",
             119.5, 1302, 960, frames, t, 1568, null);
         Expect(md.StartsWith("# Recording 2026-11-19 13:01:41 (UTC-03:00)\n", StringComparison.Ordinal), "header");
+        Expect(md.IndexOf("\nFor the AI that reads this file:", StringComparison.Ordinal) > 0
+            && md.IndexOf("For the AI that reads this file:", StringComparison.Ordinal) < md.IndexOf("Length:", StringComparison.Ordinal), "instruction for the AI near the top");
         Expect(md.IndexOf("Note from Bran: look at usage by bot\n", StringComparison.Ordinal) >= 0, "note");
         Expect(md.IndexOf("Length: 119.5 s\n", StringComparison.Ordinal) >= 0 && md.IndexOf("Region: 1302 x 960\n", StringComparison.Ordinal) >= 0, "length and region");
         Expect(md.IndexOf("Frames: 21\n", StringComparison.Ordinal) >= 0, "frame count");
