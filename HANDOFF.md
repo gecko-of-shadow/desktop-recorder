@@ -822,6 +822,13 @@ Done on 2026-11-20. https://github.com/gecko-of-shadow/desktop-recorder/releases
 - Checked: the release is Latest and not a draft. The release body equals the tag message. Both archives downloaded. The zip has `DesktopRecorder.exe` (manifest version 3.0.1.0, SHA-256 starts with cd5202653090b3aa, has the new warning texts) and a README that shows 3.0.1. The Linux README shows 3.0.1.
 - Not checked: the exe from the zip on a PC. Bran's PC still runs the local build of 05de6bf (3.0.0) in `%LOCALAPPDATA%\Programs\DesktopRecorder`.
 
+Install on Bran's PC (2026-11-20, 05:41, Bran: "Yes, install it"):
+
+- The app did not run before the install. The old exe and README are kept as `DesktopRecorder-3.0.0-backup.exe` and `README-3.0.0-backup.txt` in the same folder.
+- Installed the exe and README from the release zip into `%LOCALAPPDATA%\Programs\DesktopRecorder`. SHA-256 starts with CD5202653090B3AA (same as the release zip).
+- Checked: the app starts from that path and responds. No FFmpeg process started (no recording at start). The Run entry points at that exe. The settings file keeps `record_on_launch=0`, `show_pointer=0`, `output_mode=folder` and `size_limit=1568` (read as 2576).
+- Not checked: a recording with the 3.0.1 exe, the new warnings in a real `index.md`, the Settings window.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.
