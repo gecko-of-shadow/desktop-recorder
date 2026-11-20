@@ -723,6 +723,14 @@ Not checked:
 
 Next steps for Bran: build with the commands in note section 9, run the unit tests, then tests 1 to 7 of note section 9, the paste test of note section 10.3, and the pass with `test\process_clip.cs` on the `clip.mp4` of the Twitch recording (the work file is deleted after a good pass; the clip is lossy, so expect extra frames from encoder noise, see 7.5).
 
+**State of Bran's PC at the end of the cloud session (2026-11-20, checked from Bran's PowerShell screenshots):**
+
+- The running recorder is the old 2.1.0 app (`C:\Users\Bran\Desktop\tools\screen-vibe-recorder-2.1.0-windows-x64\DesktopRecorder.exe`). It has no "Folder for AI" output, so Bran's recordings were MP4 only, although the settings file has `output_mode=folder`.
+- The "start with Windows" entry (`HKCU\...\Run`, name `DesktopRecorder`) points at the 2.1.0 app again, not at `DesktopRecorder-ai.exe` (7.6). Cause not checked; probably a Save in the Settings of the 2.1.0 app with "start with Windows" on.
+- Not found yet: the path of the repository folder and of `DesktopRecorder-ai.exe` on Bran's PC.
+- Next steps: find the folder (`Get-ChildItem -Path $env:USERPROFILE -Filter DesktopRecorder-ai.exe -Recurse -ErrorAction SilentlyContinue`), exit the 2.1.0 app from the tray, `git fetch origin ai-capture`, `git checkout ai-capture`, `git pull origin ai-capture`, build `DesktopRecorder-ai.exe` (command in `docs/audio-transcript.md` section 9), start it, then Save in its Settings with "start with Windows" on. Then do the tests of 7.7.
+- The draft pull request https://github.com/gecko-of-shadow/desktop-recorder/pull/4 (ai-capture into main, do not merge) exists for the Windows CI build. CI passed on a27b22f.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.
