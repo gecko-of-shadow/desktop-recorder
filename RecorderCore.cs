@@ -1013,6 +1013,10 @@ static class RecorderCore
             a.Add("lossless");
             a.Add("-profile:v");
             a.Add("high444p");
+            // No B-frames. With B-frames, the fragmented MP4 starts at (B-frame delay x frame time): 3.0 s on a
+            // still screen in "changes" mode (real recording, 2026-11-19). That moved all times in index.md.
+            a.Add("-bf");
+            a.Add("0");
             // RGB input (gdigrab, or ddagrab frames on the GPU): keep 4:4:4. In "changes" mode the input is yuv444p.
             if (!changes)
             {
@@ -1168,6 +1172,11 @@ static class RecorderCore
         a.Add("0:v:0");
         a.Add("-fps_mode");
         a.Add("passthrough");
+        // A fine encoder time base. Without it, the encoder used the frame rate of the work file as its clock.
+        // A still screen in "changes" mode has 1 frame each second, so each time became a full second and a
+        // keyframe was up to 1 s after its time in index.md (real recording, 2026-11-19).
+        a.Add("-enc_time_base");
+        a.Add("1:90000");
         a.Add("-c:v");
         a.Add(encoder);
         if (nvenc)

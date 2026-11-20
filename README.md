@@ -1,6 +1,6 @@
 # Desktop Recorder
 
-A small tray program that records a part of your screen to MP4, so that an AI model can read the text in the video.
+A small tray program that records a part of your screen, so that an AI model can read the text on it. On Windows, one recording gives one folder: the settled frames as PNG files, an `index.md` that describes each frame, and `clip.mp4` for people.
 
 Current version: **2.0.2** (2026-11-15). See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
@@ -19,7 +19,8 @@ Windows:
 - **GPU capture and encode.** `ddagrab` capture and `h264_nvenc` encode by default. The program uses `gdigrab` and `libx264` when the GPU path is not available.
 - **"Changes only" mode** (default). Frames that do not change are dropped. A still screen costs almost nothing.
 - **Status line** after each recording: real frames, duplicates, dropped frames, file size.
-- The finished video goes on the **clipboard**. Press Ctrl+V to paste it into a chat or a folder.
+- **Folder for an AI** (default, not released yet). Each recording gives a folder with `frames\001.png` and so on, `index.md` and `clip.mp4`. See [Recording folder](#recording-folder-windows). "MP4 only" gives one MP4 file, as in version 2.0.2.
+- The finished recording (the folder, or the video) goes on the **clipboard**. Press Ctrl+V to paste it into a chat or a folder.
 - **Per-monitor DPI aware.** All positions and sizes are physical pixels.
 - FFmpeg stops when the program stops, also after a crash.
 - Start and stop sounds, an option to hide the mouse pointer, start with Windows, split long recordings into parts.
@@ -67,7 +68,9 @@ Windows SmartScreen can show a warning, because the program is not signed. Click
 
 When the recording stops:
 
-- The video file goes on the clipboard (you can turn this off in Settings).
+- A small note box opens. Type one line for the AI and press Enter, or press Esc. The note goes into `index.md` as "Note from Bran:". The program does not wait for the note.
+- The program makes the frames, `index.md` and `clip.mp4` in the background. When this work is done, the status line in the tray menu ends with "Ready ... s after Stop."
+- The recording folder goes on the clipboard (you can turn this off in Settings). In "MP4 only" mode, the video file goes on the clipboard.
 - The tray menu shows a status line, for example: "Last recording: Real frames: 83 of 83. Duplicates: 0. Dropped: 0. File size: 0.05 MB."
 
 The recording area is a fixed rectangle. If a window moves during the recording, the area does not move with it.
@@ -75,7 +78,7 @@ The recording area is a fixed rectangle. If a window moves during the recording,
 Other controls:
 
 - A short sound plays when the recording starts and when it stops.
-- Right-click the tray icon for: Select region and record (or Stop recording), Open recordings folder, Settings, Exit.
+- Right-click the tray icon for: Select region and record (or Stop recording), Open recordings folder, Open last recording folder, Copy ZIP of last recording, Settings, Exit.
 - Double-click the tray icon to open Settings.
 
 ### Region selector keys
@@ -110,9 +113,10 @@ The size label shows the size in physical pixels. The program makes the width an
 | Encoder | Auto | Auto (NVENC, else x264), NVENC only, or x264 only. |
 | Color detail (chroma) | 4:2:0 | 4:2:0 or 4:4:4. |
 | Frame-rate mode | Changes only | Fixed frame rate, or Changes only. |
+| Output | Folder for AI | Folder for AI (frames, `index.md`, `clip.mp4`), or MP4 only. See [Recording folder](#recording-folder-windows). |
 | Start Desktop Recorder when Windows starts | Off | Adds one entry for your user account only. |
 | Start recording (saved region) when Desktop Recorder starts | On | Records the last selected area, without the selector. With no saved area, or an area that is not on the screen now, it records the full desktop. |
-| Copy the video to the clipboard when recording stops | On | |
+| Copy the recording (folder or video) to the clipboard when it stops | On | |
 | Play a sound when recording starts and stops | On | Two rising tones for start, two falling tones for stop. |
 | Hide the mouse pointer in the video | Off | On removes the pointer from the video. See [Good to know](#good-to-know). |
 | Region selector: Crosshair, Magnifier, Position | Off, On, On | The keys C, M and P in the selector change them too. |
@@ -161,7 +165,30 @@ A lower number gives a sharper picture and a larger file. The AI read test read 
 - Changes only (default): FFmpeg captures at the frame rate that you set and drops frames that do not change (`mpdecimate`, variable frame rate). Since version 2.0.1 the filter uses lower thresholds, so one-character changes (for example "x.y" to "x,y") are kept. The file keeps at least one frame each second, so the length of the file stays correct. A still screen costs almost nothing.
 - Fixed frame rate: every frame is kept.
 
-**Output.** Fragmented MP4. A recording is one file named `desktop_yyyy-mm-dd_hh-mm-ss_mmm.mp4`. When a recording is split, the parts are `desktop_yyyy-mm-dd_hh-mm-ss_mmm_000.mp4` and so on.
+**Output.** In "Folder for AI" mode, see [Recording folder](#recording-folder-windows). In "MP4 only" mode: fragmented MP4. A recording is one file named `desktop_yyyy-mm-dd_hh-mm-ss_mmm.mp4`. When a recording is split, the parts are `desktop_yyyy-mm-dd_hh-mm-ss_mmm_000.mp4` and so on.
+
+## Recording folder (Windows)
+
+This is the default output. It is on the branch `ai-capture` and is not in a release yet.
+
+```
+desktop_2026-11-19_13-01-41\
+    clip.mp4
+    index.md
+    frames\
+        001.png
+        002.png
+```
+
+- **`frames\`** has the settled frames only, as PNG files with no loss. A settled frame is the first frame after the screen stops changing for 400 ms. A blinking text cursor makes no new frame. A small change that stays makes a new frame.
+- During a long scroll, the program writes a frame each time the content moved 60% of the scrolled area, so no text is lost between two frames. When the screen changes without a stop, it writes a frame every 5 seconds.
+- **`index.md`** has the start time with the UTC offset of the PC, your note, the length, the region size, the frame count, and one row for each frame: the time, the window title and what changed. It warns when there are more than 20 frames, and when the long side is above 1568 px.
+- **`clip.mp4`** is the video for people. Each frame in `frames\` is a keyframe of `clip.mp4`, at the time that `index.md` gives. The clip has no other keyframes.
+- **Copy ZIP of last recording** (tray menu) makes one ZIP file of the folder and puts it on the clipboard.
+
+How it works: FFmpeg records a lossless 4:4:4 work file. After Stop, a background pass reads the work file, writes the frames, the index and the clip, and then deletes the work file. If the pass fails, the work file stays and the program writes a normal `clip.mp4`. A recording in this mode is not split into parts.
+
+These settings have no control in the Settings window. Change them in `settings.txt`: `settle_ms` (400), `still_interval_s` (5), `scroll_percent` (60), `size_limit` (1568).
 
 ## Choose a frame rate
 

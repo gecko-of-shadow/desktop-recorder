@@ -809,7 +809,7 @@ static class RecordingIndex
         sb.Append("# Recording ").Append(start.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture))
           .Append(" (").Append(UtcOffsetText(utcOffset)).Append(")\n");
         sb.Append("The time above is the start of the recording.\n");
-        if (note != null && note.Trim().Length > 0) sb.Append("Note: ").Append(Cell(note.Trim())).Append('\n');
+        if (note != null && note.Trim().Length > 0) sb.Append("Note from Bran: ").Append(Cell(note.Trim())).Append('\n');
         sb.Append("Length: ").Append(lengthSeconds.ToString("0.0", CultureInfo.InvariantCulture)).Append(" s\n");
         sb.Append("Region: ").Append(width.ToString(CultureInfo.InvariantCulture)).Append(" x ")
           .Append(height.ToString(CultureInfo.InvariantCulture)).Append('\n');

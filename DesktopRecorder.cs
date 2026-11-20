@@ -999,7 +999,9 @@ class TrayApp : ApplicationContext
         input.Options = RecorderCore.SettledOptionsOf(input.Settings);
         input.Fps = recordingFps;
         input.SizeLimit = s.SizeLimit;
-        input.DeleteWorkFile = true;
+        // Test switch: with DESKTOP_RECORDER_KEEP_WORK=1 in the environment, the lossless work file stays
+        // in the folder. The pass can then run again on the same capture (test\process_clip.cs).
+        input.DeleteWorkFile = Environment.GetEnvironmentVariable("DESKTOP_RECORDER_KEEP_WORK") != "1";
         input.Titles = BuildTitles();
         // The clip encode uses libx264 when the capture plan did (NVENC cannot encode this size, or it failed).
         input.ForceX264 = (recordingPlan != null && recordingPlan.Encoder == RecorderCore.EncoderX264) || forcedX264;
@@ -1512,6 +1514,14 @@ sealed class NoteForm : Form
         ResumeLayout(false);
         Rectangle work = Screen.PrimaryScreen.WorkingArea;
         Location = new Point(work.Right - Width - 16, work.Bottom - Height - 16);
+    }
+
+    // The note box opens while FFmpeg still captures the last frames. Keep it out of the video.
+    // Real recording on 2026-11-19: the box was in the last 2 frames and made 2 false "scroll" rows.
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        NativeMethods.ExcludeFromCapture(Handle);
     }
 
     void SaveNote()

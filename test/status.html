@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<!-- status.html - AI capture brief, section 8, Phase 1, test 1: one status line changes 5 times in 60 s.
+     The page looks like a chat. Only the status line changes: 15, 25, 35, 45 and 55 s after the page loads.
+     Use: load the page (or press F5), start the recording in less than 10 s, stop it after text 6 shows for 5 s.
+     Expected: 6 frames or a few more, and each status text in one frame. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Status Line Test</title>
+<style>
+  body { font: 15px "Segoe UI", sans-serif; margin: 24px; background: #fff; color: #111; max-width: 900px; }
+  .msg { border: 1px solid #ccc; border-radius: 8px; padding: 10px 14px; margin: 10px 0; }
+  .me { background: #eef4ff; margin-left: 120px; }
+  #status { font-size: 13px; color: #555; margin: 14px 4px; }
+</style>
+</head>
+<body>
+<h3>Bot chat (test page)</h3>
+<div class="msg me">Copy the folders O0Oo0 and Il1| to the backup drive, then tell the bots.</div>
+<div class="msg">I will do these steps: 1. Read the folder list. 2. Copy 1,284 files (3.07 GB). 3. Send a message to each bot.</div>
+<div class="msg me">Good. Use the name rn_m-2026 for the backup.</div>
+<div class="msg">Work in progress. The status line below shows the current step.</div>
+<div id="status">Status 1 of 6: Reading the folder list</div>
+<script>
+var texts = [
+  "Status 2 of 6: Copying the folders",
+  "Status 3 of 6: Checking 1,284 files",
+  "Status 4 of 6: Messaging the bots",
+  "Status 5 of 6: Waiting for 3 answers",
+  "Status 6 of 6: Done. Stop the recording now."
+];
+texts.forEach(function (t, i) {
+  setTimeout(function () { document.getElementById("status").textContent = t; }, 15000 + i * 10000);
+});
+</script>
+</body>
+</html>

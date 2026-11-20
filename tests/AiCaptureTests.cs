@@ -70,6 +70,7 @@ static class AiCaptureTests
         string j = string.Join(" ", a);
         Expect(a[a.Length - 1] == work, "work file output");
         Expect(j.IndexOf("-tune lossless", StringComparison.Ordinal) >= 0, "lossless tune");
+        Expect(j.IndexOf("-bf 0", StringComparison.Ordinal) >= 0, "no B-frames in the work file");
         Expect(j.IndexOf("high444p", StringComparison.Ordinal) >= 0, "444 profile");
         Expect(j.IndexOf("format=yuv444p,mpdecimate", StringComparison.Ordinal) >= 0, "444 before mpdecimate");
         Expect(j.IndexOf("segment", StringComparison.Ordinal) < 0, "no split in folder mode");
@@ -94,6 +95,7 @@ static class AiCaptureTests
         string[] a = RecorderCore.BuildClipArguments(s, "w.mp4", "c.mp4", t, 15, true);
         string j = string.Join(" ", a);
         Expect(j.IndexOf("-copyts", StringComparison.Ordinal) >= 0, "copyts");
+        Expect(j.IndexOf("-enc_time_base 1:90000", StringComparison.Ordinal) >= 0, "fine encoder time base");
         Expect(j.IndexOf("-g 999999", StringComparison.Ordinal) >= 0, "no periodic keyframes");
         Expect(j.IndexOf("-forced-idr 1", StringComparison.Ordinal) >= 0, "forced idr");
         Expect(j.IndexOf("-force_key_frames 0.000,0.590,2.523", StringComparison.Ordinal) >= 0, "keyframe list minus 0.01, sorted, unique: " + j);
@@ -362,7 +364,7 @@ static class AiCaptureTests
         string md = RecordingIndex.Build(new DateTime(2026, 11, 19, 13, 1, 41), TimeSpan.FromHours(-3), "look at usage by bot",
             119.5, 1302, 960, frames, t, 1568, null);
         Expect(md.StartsWith("# Recording 2026-11-19 13:01:41 (UTC-03:00)\n", StringComparison.Ordinal), "header");
-        Expect(md.IndexOf("Note: look at usage by bot\n", StringComparison.Ordinal) >= 0, "note");
+        Expect(md.IndexOf("Note from Bran: look at usage by bot\n", StringComparison.Ordinal) >= 0, "note");
         Expect(md.IndexOf("Length: 119.5 s\n", StringComparison.Ordinal) >= 0 && md.IndexOf("Region: 1302 x 960\n", StringComparison.Ordinal) >= 0, "length and region");
         Expect(md.IndexOf("Frames: 21\n", StringComparison.Ordinal) >= 0, "frame count");
         Expect(md.IndexOf("Warning: more than 20 frames", StringComparison.Ordinal) >= 0, "20 frame warning");
@@ -378,6 +380,6 @@ static class AiCaptureTests
             && shifted.IndexOf("| 004 | 4.6 s | Grok Bot |", StringComparison.Ordinal) >= 0, "title shift by the first frame time");
         string big = RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 2), t, 1568, null);
         Expect(big.IndexOf("more than 1568 px", StringComparison.Ordinal) >= 0, "size warning at 1920");
-        Expect(big.IndexOf("Note:", StringComparison.Ordinal) < 0, "no note line");
+        Expect(big.IndexOf("Note from Bran:", StringComparison.Ordinal) < 0, "no note line");
     }
 }

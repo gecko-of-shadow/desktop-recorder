@@ -40,6 +40,8 @@ public static IntPtr Find(string start) {
     return found;
 }
 '@
+# --hide-crash-restore-bubble: step 5 stops Chrome with force, so the next start showed "Restore pages?".
+# That bubble covered the right end of the bar code and frames.py read no value (run 3 on 2026-11-19).
 # Brings the counter page to the front. Returns $false when another window stays in front.
 # Reason: a run on 2026-11-19 recorded another window because Chrome did not come to the front.
 function Show-CounterPage {
@@ -51,7 +53,7 @@ function Show-CounterPage {
     Start-Sleep -Milliseconds 700
     return ([LC.U]::Title([LC.U]::GetForegroundWindow())).StartsWith('Frame Counter')
 }
-Start-Process chrome -ArgumentList @("--user-data-dir=$profileDir", '--no-first-run', '--new-window', '--start-maximized', $uri) | Out-Null
+Start-Process chrome -ArgumentList @("--user-data-dir=$profileDir", '--no-first-run', '--hide-crash-restore-bubble', '--new-window', '--start-maximized', $uri) | Out-Null
 Start-Sleep -Seconds 5
 $results = @()
 foreach ($mode in @('changes', 'fixed')) {
