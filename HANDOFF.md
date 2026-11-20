@@ -501,6 +501,8 @@ Not checked: look-alike changes in a real screen capture (the states were drawn 
 | Audio and transcript (7.7) | Off by default. Released in v3.0.0. WASAPI capture and a whisper.cpp transcript checked on Bran's PC (7.9, 7.10). Audio sync and other Whisper programs UNVERIFIED. |
 | Twitch recording faults (7.7) | Motion note and false-scroll fix done, tested on synthetic files. UNVERIFIED on the real recording. Clipboard fault fixed in 7.9. |
 | README and release notes for v3.0.0 | Done (7.12). |
+| New defaults and index.md warnings | Done (7.13, 7.14). |
+| Release v3.0.1 | Done (7.15). The exe from the zip is not run on a PC. |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -807,7 +809,18 @@ Done on 2026-11-20. https://github.com/gecko-of-shadow/desktop-recorder/releases
 - Size: `DefaultSizeLimit` 1568 -> 2576 px on the long side, plus a warning above 3.75 million pixels (`DefaultPixelLimit`). Source (checked in this session): the Claude API skill docs, `shared/model-migration.md`. Opus 4.7 and later, Sonnet 5 and later, and Fable read images up to 2576 px and 3.75 MP. Opus 4.6, Sonnet 4.6 and older scale above 1568 px. A 1920x1080 frame now gets no warning.
 - Every 3.0.0 settings file has `size_limit=1568` (7.6), so a load reads 1568 as 2576 (`OldDefaultSizeLimit`). A user who wants 1568 cannot set exactly that value; 1567 or 1569 works.
 - Tests: new checks for 19, 20 and 21 frames, 1920x1080, 3840x1080, 2560x1600 and 2560x1440, and for the 1568 load. Unit tests `ok` on Bran's PC. The app builds.
-- Not checked: the image limits of other chat apps (Gemini, ChatGPT, Grok); the 20-file limit of the Claude chat (7.9). Not released.
+- Not checked: the image limits of other chat apps (Gemini, ChatGPT, Grok); the 20-file limit of the Claude chat (7.9). Released in v3.0.1 (7.15).
+
+### 7.15 Release v3.0.1
+
+Done on 2026-11-20. https://github.com/gecko-of-shadow/desktop-recorder/releases/tag/v3.0.1
+
+- Bran: "release it as 3.0.1".
+- Content: 7.13 (no recording at start, pointer hidden) and 7.14 (the two index.md warnings). Version 3.0.1 in the manifest, the README and the two archive README files. CHANGELOG section 3.0.1.
+- Before the tag: unit tests `ok` and the app build on Bran's PC. The Build workflow passed on `main`.
+- Tag v3.0.1 = ffcb4fa (annotated, `--cleanup=verbatim`). The Release workflow passed in full (linux, windows, publish).
+- Checked: the release is Latest and not a draft. The release body equals the tag message. Both archives downloaded. The zip has `DesktopRecorder.exe` (manifest version 3.0.1.0, SHA-256 starts with cd5202653090b3aa, has the new warning texts) and a README that shows 3.0.1. The Linux README shows 3.0.1.
+- Not checked: the exe from the zip on a PC. Bran's PC still runs the local build of 05de6bf (3.0.0) in `%LOCALAPPDATA%\Programs\DesktopRecorder`.
 
 ## 8. Rules for the agent
 
