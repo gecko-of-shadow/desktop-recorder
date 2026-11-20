@@ -578,7 +578,7 @@ class TrayApp : ApplicationContext
                     titleTimer.Stop();
                     Refresh();
                     if (settings.PlaySounds) Sounds.PlayStop();
-                    if (recordingFolder != null)
+                    if (recordingFolder != null && WorkFileHasData(recordingFolder))
                     {
                         // Keep what was recorded: the pass makes the frames and clip.mp4 from the work file.
                         StartPass(null, "FFmpeg stopped: " + Shorten(message));
@@ -741,6 +741,20 @@ class TrayApp : ApplicationContext
         CapturePlan plan;
         string folder;
         bool restart = reuseFolder != null;
+        if (restart)
+        {
+            // Keep the file of the failed start: the new FFmpeg writes the same name with -y (review 2026-11-19).
+            try
+            {
+                string old = Path.Combine(reuseFolder, AfterRecording.WorkFileName);
+                if (File.Exists(old))
+                {
+                    string kept = Path.Combine(reuseFolder, "work_lossless_failed_" + DateTime.Now.ToString("HHmmss", CultureInfo.InvariantCulture) + ".mp4");
+                    File.Move(old, kept);
+                }
+            }
+            catch (Exception) { }
+        }
         string error = recorder.Start(settings, region, forceGdigrab, forceX264, reuseFolder, out plan, out folder);
         string frameWarning = null;
         if (error == null)
@@ -868,23 +882,18 @@ class TrayApp : ApplicationContext
         DisposeFrame();
         titleTimer.Stop();
         Stopwatch fromStop = Stopwatch.StartNew();
-        if (wait)
+        double stopClock = recorder.ClockSeconds;
+        if (wait && recordingFolder == null)
         {
             recorder.Stop();
-            if (recordingFolder != null)
-            {
-                // Quit: make the folder before the app ends, so the recording is not lost.
-                PassJob quitJob = CreateJob(null);
-                RunPass(quitJob);
-                OnPassDone(quitJob, fromStop);
-                return;
-            }
             FinishStop();
             return;
         }
+        // Folder mode always stops in the background. Quit waits for the pass (see Quit).
         PassJob job = recordingFolder != null ? CreateJob(null) : null;
+        if (job != null && wait) job.NoNoteBox = true;
         // The note box does not wait for the pass, and the pass does not wait for the note box (Bran, 2026-11-19).
-        if (job != null) ShowNoteBox(job);
+        if (job != null && !job.NoNoteBox) ShowNoteBox(job);
         stopping = true;
         if (job != null) passesRunning++;
         Refresh();
@@ -896,6 +905,8 @@ class TrayApp : ApplicationContext
             {
                 // The clock offset is final after the stop.
                 job.Input.Titles = BuildTitles();
+                double offset = recorder.ClockOffset;
+                if (!double.IsNaN(offset)) job.Input.EndTimeHint = stopClock - offset;
                 try
                 {
                     ui.BeginInvoke((MethodInvoker)delegate
@@ -925,6 +936,7 @@ class TrayApp : ApplicationContext
                     stopping = false;
                     FinishStop();
                     Refresh();
+                    if (quitRequested) ExitNow();
                 });
             }
             catch (InvalidOperationException) { stopping = false; }
@@ -934,6 +946,17 @@ class TrayApp : ApplicationContext
     // ------------------------------------------------------------ folder mode (AI capture brief, Phase 1)
 
     int passesRunning;
+    bool quitRequested;
+
+    static bool WorkFileHasData(string folder)
+    {
+        try
+        {
+            FileInfo f = new FileInfo(Path.Combine(folder, AfterRecording.WorkFileName));
+            return f.Exists && f.Length > 0;
+        }
+        catch (Exception) { return false; }
+    }
 
     // Window title at the center of the region, every 250 ms, with the clock of the recording.
     void SampleTitle()
@@ -978,6 +1001,8 @@ class TrayApp : ApplicationContext
         input.SizeLimit = s.SizeLimit;
         input.DeleteWorkFile = true;
         input.Titles = BuildTitles();
+        // The clip encode uses libx264 when the capture plan did (NVENC cannot encode this size, or it failed).
+        input.ForceX264 = (recordingPlan != null && recordingPlan.Encoder == RecorderCore.EncoderX264) || forcedX264;
         PassJob job = new PassJob();
         job.Input = input;
         job.Problem = problem;
@@ -1037,9 +1062,9 @@ class TrayApp : ApplicationContext
         job.Done = true;
         lastJob = job;
         AfterRecordingResult r = job.Result ?? new AfterRecordingResult();
-        if (job.Note != null && r.Ok)
+        if (job.Note != null)
         {
-            try { AfterRecording.WriteIndex(job.Input, r, job.Note); } catch (Exception) { }
+            try { AfterRecording.SaveNote(job.Input, r, job.Note); } catch (Exception) { }
         }
         string clip = (r.ClipBytes / (1024.0 * 1024.0)).ToString("0.00", CultureInfo.InvariantCulture) + " MB";
         string text = r.Ok
@@ -1070,6 +1095,7 @@ class TrayApp : ApplicationContext
         tray.ShowBalloonTip(5000, "Desktop Recorder",
             Shorten((copied ? "Folder copied. Press Ctrl+V to paste it.\n" : "Recording stopped.\n") + balloonText + ready),
             r.Ok ? ToolTipIcon.Info : ToolTipIcon.Warning);
+        if (quitRequested && passesRunning == 0 && !stopping) ExitNow();
     }
 
     void ShowNoteBox(PassJob job)
@@ -1081,9 +1107,14 @@ class TrayApp : ApplicationContext
             form.Saved += delegate(string note)
             {
                 job.Note = note;
-                if (job.Done && job.Result != null && job.Result.Ok)
+                if (job.Done && job.Result != null)
                 {
-                    try { AfterRecording.WriteIndex(job.Input, job.Result, note); }
+                    try
+                    {
+                        string where = AfterRecording.SaveNote(job.Input, job.Result, note);
+                        if (!job.Result.Ok)
+                            tray.ShowBalloonTip(4000, "Desktop Recorder", Shorten("The frame pass failed, so the note is in " + where), ToolTipIcon.Info);
+                    }
                     catch (Exception e) { tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("Cannot save the note: " + e.Message), ToolTipIcon.Warning); }
                 }
             };
@@ -1237,6 +1268,21 @@ class TrayApp : ApplicationContext
     }
 
     void Quit()
+    {
+        // Folder mode: the pass makes the folder from the work file. Wait for it, so the recording is not lost
+        // (review 2026-11-19). The tray shows that the app is finishing. ExitNow runs after the pass.
+        quitRequested = true;
+        if (recorder.IsRecording && recordingFolder != null && !stopping) StopRecording(false, true);
+        if (stopping || passesRunning > 0)
+        {
+            statusItem.Text = "Finishing the last recording, then the app closes...";
+            tray.Text = "Desktop Recorder: finishing";
+            return;
+        }
+        ExitNow();
+    }
+
+    void ExitNow()
     {
         StopRecording(false, true); // no sound: the program ends before the sound can play. Wait for the file.
         DisposeFrame();
@@ -1421,6 +1467,7 @@ sealed class PassJob
     public string Note;              // null = no note (yet)
     public string Problem;           // why the recording ended, when FFmpeg stopped by itself
     public double SecondsFromStop;   // Stop to "clipboard ready"
+    public bool NoNoteBox;           // Quit: no note box
 }
 
 // The note box after Stop (AI capture brief, Phase 1, item 3). One line. Enter saves, Esc closes.

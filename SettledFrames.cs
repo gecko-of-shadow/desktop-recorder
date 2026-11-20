@@ -105,6 +105,9 @@ sealed class SettledFrameFinder
     int[] blockCounts;
     long[] longA, longB;
     long totalScroll;
+    long lastWrittenOffset;   // ContentOffset of the last written frame
+    double prevTime;
+    bool masksExpired;        // a mask ended since the last check of the still state
     int lastShift;            // the scroll step of the last frame pair (0 = no scroll)
     const int SmallSearch = 96;
     int scrollArea;           // height of the moving area during the scroll since the last written frame
@@ -142,6 +145,7 @@ sealed class SettledFrameFinder
             stateStart = time;
             stateHandled = true;
             lastStillOrWrite = time;
+            prevTime = time;
             // The first frame is always written: it is the screen at the start. Without it, a recording that
             // starts during a scroll loses the first screens (checked on Bran's clip of 2026-11-19 14:02).
             Emit(MakeFrame(frame, time, FrameKind.First, new Change()));
@@ -149,6 +153,13 @@ sealed class SettledFrameFinder
         }
         ExpireMasks(time);
         CheckPending(time);
+        // A mask ended. The still state was compared with the mask, so compare it again without it.
+        // Reason: a value that changed 3 times and then stayed was hidden by the spinner mask (review 2026-11-19).
+        if (masksExpired && stateHandled && lastWritten != null)
+        {
+            masksExpired = false;
+            OnSettled(stateFrame, stateStart, time);
+        }
         TCompare.Start();
         Change d = Compare(prev, frame, time, true);
         TCompare.Stop();
@@ -164,7 +175,8 @@ sealed class SettledFrameFinder
         {
             int dy = 0;
             // A scroll changes many pixels in a tall area. Scattered encoder noise does not: no shift search.
-            bool tall = d.Height >= height / 4 && d.Pixels * 100L >= (long)d.Width * d.Height;
+            // Panes down to height / 8 (at least 40 px) are checked, so a scroll in a small pane is found.
+            bool tall = d.Height >= Math.Max(40, height / 8) && d.Pixels * 100L >= (long)d.Width * d.Height;
             if (!tall) lastShift = 0;
             if (tall)
             {
@@ -179,6 +191,19 @@ sealed class SettledFrameFinder
                 if (dy != 0) scrollArea = scrollArea == 0 ? d.Height : Math.Min(scrollArea, d.Height);
             }
             else prevProfile = null;
+            if (dy != 0 && lastWritten != null)
+            {
+                int area0 = scrollArea > 0 ? scrollArea : height;
+                double limit = o.ScrollFraction * area0;
+                bool reverses = scrollSinceWritten != 0 && Math.Sign(dy) != Math.Sign(scrollSinceWritten)
+                    && Math.Abs(scrollSinceWritten) > 0.1 * area0;
+                // Only when this step would leave a gap after the last written frame (more than 95% of the area).
+                bool crosses = Math.Abs(scrollSinceWritten + dy) > 0.95 * area0 && scrollSinceWritten != 0;
+                // Write the frame before this step when this step goes past the visible area, or when the scroll turns
+                // back: that frame shows the furthest content. Without it, a large step or a turn can leave a gap
+                // (review 2026-11-19). The written frame is the previous frame, at its own offset.
+                if (crosses || reverses) WriteFrame(prev, prevTime, FrameKind.ScrollPart, Compare(lastWritten, prev, prevTime, false));
+            }
             scrollSinceWritten += dy;
             totalScroll += dy;
             if (IsSmall(d)) RegisterSmall(d, time);
@@ -199,6 +224,7 @@ sealed class SettledFrameFinder
             }
         }
         Buffer.BlockCopy(frame, 0, prev, 0, width * height * 3);
+        prevTime = time;
     }
 
     // endTime: the end of the video (the time of the last frame plus its length).
@@ -207,6 +233,12 @@ sealed class SettledFrameFinder
         if (!started) return;
         if (endTime < lastTime) endTime = lastTime;
         CheckPending(endTime);
+        ExpireMasks(endTime);
+        if (masksExpired && stateHandled && lastWritten != null)
+        {
+            masksExpired = false;
+            OnSettled(stateFrame, stateStart, endTime);
+        }
         if (!stateHandled)
         {
             stateHandled = true;
@@ -240,7 +272,7 @@ sealed class SettledFrameFinder
                 AddMask(pending.BoxX, pending.BoxY, pending.BoxX + pending.BoxWidth - 1, pending.BoxY + pending.BoxHeight - 1, now);
                 pending = null;
             }
-            scrollSinceWritten = 0;
+            scrollSinceWritten = (int)(totalScroll - lastWrittenOffset);
             return;
         }
         if (pending != null)
@@ -303,9 +335,12 @@ sealed class SettledFrameFinder
 
     void Emit(SettledFrame f)
     {
-        f.ScrollPixels = scrollSinceWritten;
-        scrollSinceWritten = 0;
-        scrollArea = 0;
+        // Scroll since the last written frame, from the offsets. A pending frame from before a scroll keeps
+        // the scroll that came after it in the count (review 2026-11-19).
+        f.ScrollPixels = (int)(f.ContentOffset - lastWrittenOffset);
+        lastWrittenOffset = f.ContentOffset;
+        scrollSinceWritten = (int)(totalScroll - f.ContentOffset);
+        if (scrollSinceWritten == 0) scrollArea = 0;
         f.Number = written.Count + 1;
         if (lastWritten == null) lastWritten = Copy(f.Pixels);
         else Buffer.BlockCopy(f.Pixels, 0, lastWritten, 0, lastWritten.Length);
@@ -373,7 +408,7 @@ sealed class SettledFrameFinder
 
     void ExpireMasks(double time)
     {
-        masks.RemoveAll(delegate(Mask m) { return time - m.LastActive > o.MaskExpirySeconds; });
+        if (masks.RemoveAll(delegate(Mask m) { return time - m.LastActive > o.MaskExpirySeconds; }) > 0) masksExpired = true;
     }
 
     // Counts the pixels that differ (outside the masks) and the box around them.

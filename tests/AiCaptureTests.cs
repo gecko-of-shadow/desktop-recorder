@@ -28,6 +28,9 @@ static class AiCaptureTests
         TestStillChanging();
         TestScroll();
         TestIndex();
+        TestCounterStops();
+        TestPendingThenScroll();
+        TestScrollTurnsBack();
         return failures;
     }
 
@@ -248,6 +251,96 @@ static class AiCaptureTests
         }
         Expect(!gap, "scroll: no gap between written frames");
         Expect(parts >= (pos / H), "scroll parts written: " + parts);
+    }
+
+    // Review 2026-11-19, finding 1: a value that changes 3 times fast and then stays must be in a frame.
+    static void TestCounterStops()
+    {
+        SettledFrameFinder f = Finder();
+        byte[][] v = new byte[4][];
+        for (int k = 0; k < 4; k++) { v[k] = Page(4); Fill(v[k], 40, 50, 6, 8, 0); Fill(v[k], 41 + k, 51, 2, 6, 255); }
+        // 0 until 2 s, then 1, 2, 3 every 0.5 s, then 3 stays until 12 s.
+        for (int i = 0; i < 180; i++)
+        {
+            double t = i / 15.0;
+            int k = t < 2 ? 0 : t < 2.5 ? 1 : t < 3 ? 2 : 3;
+            f.Feed(v[k], t);
+        }
+        f.Finish(12);
+        SettledFrame last = f.Written[f.Written.Count - 1];
+        // The last written frame must show value 3.
+        bool shows3 = last.Pixels == null || (last.Pixels[((51 * W) + 44) * 3] == 255 && last.Pixels[((51 * W) + 41) * 3] == 0);
+        Expect(shows3, "final counter value written, frames " + f.Written.Count);
+    }
+
+    static byte[] TallContent(int tall)
+    {
+        byte[] content = new byte[W * tall * 3];
+        for (int i = 0; i < content.Length; i++) content[i] = 255;
+        for (int y = 2; y < tall - 2; y += 5)
+        {
+            int len = 10 + (y * 37 % 70);
+            for (int x = 4; x < 4 + len && x < W - 2; x++)
+                if (((x + y * 3) % 7) < 5) { int i = (y * W + x) * 3; content[i] = 0; content[i + 1] = 0; content[i + 2] = 0; }
+        }
+        return content;
+    }
+
+    static byte[] View(byte[] content, int pos)
+    {
+        byte[] view = new byte[W * H * 3];
+        Buffer.BlockCopy(content, pos * W * 3, view, 0, view.Length);
+        return view;
+    }
+
+    static bool NoGap(SettledFrameFinder f, long from, long to)
+    {
+        List<long> offs = new List<long>();
+        foreach (SettledFrame w in f.Written) offs.Add(w.ContentOffset);
+        offs.Sort();
+        long covered = from;
+        foreach (long o in offs) { if (o > covered) return false; covered = Math.Max(covered, o + H); }
+        return covered >= to;
+    }
+
+    // Finding 2: a pending small change that is written during a scroll must not reset the scroll count.
+    static void TestPendingThenScroll()
+    {
+        byte[] content = TallContent(H * 8);
+        byte[] first = View(content, 0);
+        byte[] changed = View(content, 0);
+        Fill(changed, 80, 10, 5, 7, 0);
+        SettledFrameFinder f = Finder();
+        int pos = 0;
+        int i = 0;
+        for (; i < 15; i++) f.Feed(first, i / 15.0);           // 1 s still
+        for (; i < 22; i++) f.Feed(changed, i / 15.0);         // small change settles, becomes pending
+        // Scroll 6 px a frame from now on: the pending deadline comes during the scroll.
+        int frames = 0;
+        while (pos + 6 <= H * 7)
+        {
+            pos += 6;
+            byte[] v = View(content, pos);
+            Fill(v, 80, 10, 5, 7, 0);
+            f.Feed(v, i / 15.0);
+            i++;
+            frames++;
+        }
+        f.Finish(i / 15.0 + 1);
+        Expect(NoGap(f, 0, pos + H), "pending then scroll: no gap");
+    }
+
+    // Finding 6: a scroll that turns back without a pause keeps the furthest view.
+    static void TestScrollTurnsBack()
+    {
+        byte[] content = TallContent(H * 4);
+        SettledFrameFinder f = Finder();
+        int i = 0, pos = 0;
+        f.Feed(View(content, 0), 0);
+        for (int k = 0; k < 9; k++) { pos += 6; i++; f.Feed(View(content, pos), i / 15.0); }   // 54 px down (45%)
+        for (int k = 0; k < 9; k++) { pos -= 6; i++; f.Feed(View(content, pos), i / 15.0); }   // back up
+        f.Finish(i / 15.0 + 1);
+        Expect(NoGap(f, 0, 54 + H), "scroll turns back: furthest view written");
     }
 
     static void TestIndex()

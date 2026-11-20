@@ -28,6 +28,8 @@ sealed class AfterRecordingInput
     public StoredSettings Settings;          // encoder, quality and chroma for clip.mp4
     public bool NvencAvailable = true;
     public bool DeleteWorkFile;              // true in the app (Bran, 2026-11-19). The test tool keeps its input.
+    public bool ForceX264;                   // the capture plan used libx264 (NVENC cannot encode this size)
+    public double EndTimeHint = -1;          // the stop time on the time line of the video, when known
 }
 
 sealed class AfterRecordingResult
@@ -64,7 +66,14 @@ static class AfterRecording
             r.AnalyzeSeconds = watch.Elapsed.TotalSeconds;
             watch.Reset();
             watch.Start();
-            string error = EncodeClip(input, r, true);
+            string error = EncodeClip(input, r, true, input.ForceX264);
+            if (error != null && !input.ForceX264)
+            {
+                // NVENC can fail (driver, other app): try libx264 once (review 2026-11-19).
+                string second = EncodeClip(input, r, true, true);
+                if (second == null) { r.Warnings.Add("NVENC failed for clip.mp4. libx264 encoded it."); error = null; }
+                else error += " libx264: " + second;
+            }
             r.EncodeSeconds = watch.Elapsed.TotalSeconds;
             if (error != null) throw new IOException("clip.mp4 with keyframes: " + error);
             r.ClipWritten = true;
@@ -80,7 +89,8 @@ static class AfterRecording
             // Condition D (Bran, 2026-11-19): still give a normal clip.mp4.
             try
             {
-                string error = EncodeClip(input, r, false);
+                string error = EncodeClip(input, r, false, input.ForceX264);
+                if (error != null && !input.ForceX264) error = EncodeClip(input, r, false, true);
                 if (error == null) r.ClipWritten = true;
                 else r.Error += " Normal clip.mp4 also failed: " + error;
             }
@@ -104,13 +114,40 @@ static class AfterRecording
         RecorderCore.AtomicWrite(r.IndexPath, text);
     }
 
+    // When the pass failed there is no index.md. The note goes into note.txt (review 2026-11-19).
+    public static string SaveNote(AfterRecordingInput input, AfterRecordingResult r, string note)
+    {
+        if (r != null && r.Ok)
+        {
+            WriteIndex(input, r, note);
+            return r.IndexPath;
+        }
+        string path = Path.Combine(input.Folder, "note.txt");
+        RecorderCore.AtomicWrite(path, (note ?? "") + "\r\n");
+        return path;
+    }
+
     // The ZIP of the folder, next to the folder. Made again on each call, so it has the newest index.md.
     public static string MakeZip(string folder)
     {
         string zip = folder.TrimEnd('\\', '/') + ".zip";
         string temp = zip + ".tmp";
         if (File.Exists(temp)) File.Delete(temp);
-        ZipFile.CreateFromDirectory(folder, temp, CompressionLevel.Optimal, true);
+        // Not the lossless work files: they are large, and the folder has clip.mp4 (review 2026-11-19).
+        string root = Path.GetFileName(folder.TrimEnd('\\', '/'));
+        using (FileStream fs = new FileStream(temp, FileMode.CreateNew))
+        using (ZipArchive archive = new ZipArchive(fs, ZipArchiveMode.Create))
+        {
+            string full = Path.GetFullPath(folder).TrimEnd('\\', '/');
+            foreach (string file in Directory.GetFiles(full, "*", SearchOption.AllDirectories))
+            {
+                string name = Path.GetFileName(file);
+                if (name.StartsWith("work_lossless", StringComparison.OrdinalIgnoreCase)) continue;
+                if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
+                string rel = file.Substring(full.Length).TrimStart('\\', '/').Replace('\\', '/');
+                archive.CreateEntryFromFile(file, root + "/" + rel, CompressionLevel.Optimal);
+            }
+        }
         if (File.Exists(zip)) File.Delete(zip);
         File.Move(temp, zip);
         return zip;
@@ -126,6 +163,8 @@ static class AfterRecording
         r.FirstTime = times[0];
         double frameLength = 1.0 / Math.Max(0.2, input.Fps);
         r.EndTime = times[times.Count - 1] + frameLength;
+        // In "Changes only" mode the last frame can be up to 1 s before Stop. The app knows the stop time.
+        if (input.EndTimeHint > r.EndTime && input.EndTimeHint < r.EndTime + 5) r.EndTime = input.EndTimeHint;
 
         string framesDir = Path.Combine(input.Folder, "frames");
         Directory.CreateDirectory(framesDir);
@@ -157,7 +196,7 @@ static class AfterRecording
         finder.FrameWritten += delegate(SettledFrame f)
         {
             r.Frames.Add(f);
-            pngQueue.Add(f);
+            if (!pngQueue.IsAddingCompleted) pngQueue.Add(f);
         };
 
         // mpdecimate with all limits 0 drops only frames that are exactly the same as the frame before
@@ -168,6 +207,7 @@ static class AfterRecording
         Process p = StartProcess(input.Ffmpeg, args);
         StringBuilder errors = new StringBuilder();
         Queue<double> frameTimes = new Queue<double>();
+        long tbNum = 0, tbDen = 0;
         bool errDone = false;
         object timeGate = new object();
         Thread errThread = new Thread(delegate()
@@ -178,7 +218,8 @@ static class AfterRecording
                 while ((line = p.StandardError.ReadLine()) != null)
                 {
                     double pt;
-                    if (TryShowinfoTime(line, out pt))
+                    TryShowinfoTimeBase(line, ref tbNum, ref tbDen);
+                    if (TryShowinfoTime(line, tbNum, tbDen, out pt))
                     {
                         lock (timeGate) { frameTimes.Enqueue(pt); Monitor.PulseAll(timeGate); }
                     }
@@ -198,6 +239,7 @@ static class AfterRecording
         Stream stdout = p.StandardOutput.BaseStream;
         int index = 0;
         long minOff = 0, maxOff = 0;
+        bool readOk = false;
         try
         {
             while (ReadExactly(stdout, frame, frameBytes))
@@ -214,20 +256,33 @@ static class AfterRecording
                 if (finder.TotalScroll > maxOff) maxOff = finder.TotalScroll;
                 index++;
             }
+            readOk = true;
         }
         finally
         {
-            try { p.WaitForExit(); } catch (Exception) { }
+            // On an error, end FFmpeg first: it can wait forever to write the next frame (review 2026-11-19).
+            if (!readOk) { try { if (!p.HasExited) p.Kill(); } catch (Exception) { } }
+            try { p.WaitForExit(60000); } catch (Exception) { }
             errThread.Join(5000);
+            pngQueue.CompleteAdding();
+            foreach (Thread w in pngWorkers) w.Join();
         }
-        int exit = p.ExitCode;
+        int exit = p.HasExited ? p.ExitCode : -1;
         p.Dispose();
         if (index == 0) throw new IOException("FFmpeg decoded no frames. " + errors.ToString().Trim());
-        if (exit != 0) r.Warnings.Add("The decoder ended with code " + exit.ToString(CultureInfo.InvariantCulture) + ".");
+        // A decoder error means that frames can be missing. Then the pass is not Ok, so the work file stays.
+        if (exit != 0) throw new IOException("The decoder ended with code " + exit.ToString(CultureInfo.InvariantCulture) + ". " + Trim(errors.ToString()));
 
+        // Finish can write more frames: start the PNG workers again for them.
+        System.Collections.Concurrent.BlockingCollection<SettledFrame> tail = new System.Collections.Concurrent.BlockingCollection<SettledFrame>();
+        finder.FrameWritten += delegate(SettledFrame f) { tail.Add(f); };
         finder.Finish(r.EndTime);
-        pngQueue.CompleteAdding();
-        foreach (Thread w in pngWorkers) w.Join();
+        foreach (SettledFrame f in tail)
+        {
+            try { SavePng(f.Pixels, width, height, Path.Combine(framesDir, RecordingIndex.FrameFileName(f.Number, f.Number) + ".png")); }
+            catch (Exception e) { pngError = e; }
+            f.Pixels = null;
+        }
         if (pngError != null) throw new IOException("Cannot write a PNG file: " + pngError.Message);
         r.DecodedFrames = index;
         r.MinOffset = minOff;
@@ -236,6 +291,51 @@ static class AfterRecording
     }
 
     // showinfo line: "[Parsed_showinfo_1 @ 0000...] n:   0 pts:   9000 pts_time:0.6     duration: ..."
+    // showinfo prints "config in time_base: 1/15360, frame_rate: 15/1" once.
+    internal static void TryShowinfoTimeBase(string line, ref long num, ref long den)
+    {
+        if (line == null || line.IndexOf("showinfo", StringComparison.Ordinal) < 0) return;
+        int k = line.IndexOf("time_base:", StringComparison.Ordinal);
+        if (k < 0) return;
+        string rest = line.Substring(k + 10).Trim();
+        int slash = rest.IndexOf('/');
+        if (slash < 0) return;
+        int e = slash + 1;
+        while (e < rest.Length && char.IsDigit(rest[e])) e++;
+        long n, d;
+        if (long.TryParse(rest.Substring(0, slash), NumberStyles.Integer, CultureInfo.InvariantCulture, out n)
+            && long.TryParse(rest.Substring(slash + 1, e - slash - 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out d) && n > 0 && d > 0)
+        {
+            num = n;
+            den = d;
+        }
+    }
+
+    // The exact time from "pts:" and the time base when known. pts_time has only 6 digits (review 2026-11-19).
+    internal static bool TryShowinfoTime(string line, long tbNum, long tbDen, out double time)
+    {
+        time = 0;
+        if (line == null || line.IndexOf("showinfo", StringComparison.Ordinal) < 0) return false;
+        if (tbNum > 0 && tbDen > 0)
+        {
+            int p = line.IndexOf(" pts:", StringComparison.Ordinal);
+            if (p >= 0 && line.IndexOf("pts_time:", StringComparison.Ordinal) >= 0)
+            {
+                int s = p + 5;
+                while (s < line.Length && line[s] == ' ') s++;
+                int e2 = s;
+                while (e2 < line.Length && (char.IsDigit(line[e2]) || line[e2] == '-')) e2++;
+                long pts;
+                if (long.TryParse(line.Substring(s, e2 - s), NumberStyles.Integer, CultureInfo.InvariantCulture, out pts))
+                {
+                    time = pts * (double)tbNum / tbDen;
+                    return true;
+                }
+            }
+        }
+        return TryShowinfoTime(line, out time);
+    }
+
     internal static bool TryShowinfoTime(string line, out double time)
     {
         time = 0;
@@ -263,6 +363,7 @@ static class AfterRecording
     static List<double> ReadFrameTimes(string ffmpeg, string file, out int width, out int height)
     {
         string probe = FfprobePath(ffmpeg);
+        if (probe == null) return ReadFrameTimesWithFfmpeg(ffmpeg, file, out width, out height);
         string q = RecorderCore.QuoteWindowsArgument(file);
         string text = RunToText(probe, "-v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 " + q);
         string[] parts = text.Trim().Split(',');
@@ -286,18 +387,69 @@ static class AfterRecording
         string dir = Path.GetDirectoryName(ffmpeg) ?? "";
         string name = Path.GetFileName(ffmpeg).ToLowerInvariant().EndsWith(".exe") ? "ffprobe.exe" : "ffprobe";
         string path = Path.Combine(dir, name);
-        if (!File.Exists(path)) throw new IOException("ffprobe was not found next to ffmpeg: " + path);
-        return path;
+        return File.Exists(path) ? path : null;
+    }
+
+    // Without ffprobe (only ffmpeg.exe next to the app): one quick pass that copies the packets, with showinfo
+    // on nothing... A copy cannot use filters, so decode at a small size instead: times and the size of the stream.
+    static List<double> ReadFrameTimesWithFfmpeg(string ffmpeg, string file, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+        string args = "-hide_banner -nostats -loglevel info -copyts -i " + RecorderCore.QuoteWindowsArgument(file)
+            + " -map 0:v:0 -vf scale=16:16,showinfo -fps_mode passthrough -f null -";
+        Process p = StartProcess(ffmpeg, args);
+        List<double> times = new List<double>();
+        long num = 0, den = 0;
+        string line;
+        System.Text.RegularExpressions.Regex size = new System.Text.RegularExpressions.Regex(@"Video: .*?, (\d{2,5})x(\d{2,5})");
+        while ((line = p.StandardError.ReadLine()) != null)
+        {
+            if (width == 0)
+            {
+                System.Text.RegularExpressions.Match m = size.Match(line);
+                if (m.Success)
+                {
+                    width = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+                    height = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+                }
+            }
+            TryShowinfoTimeBase(line, ref num, ref den);
+            double t;
+            if (TryShowinfoTime(line, num, den, out t)) times.Add(t);
+        }
+        p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        p.Dispose();
+        if (width <= 0 || height <= 0) throw new IOException("FFmpeg gave no frame size for the work file.");
+        times.Sort();
+        return times;
     }
 
     // keyframes = true: one keyframe at each settled frame and no other keyframe.
     // keyframes = false: a normal clip.mp4 (fallback after a failed pass).
-    static string EncodeClip(AfterRecordingInput input, AfterRecordingResult r, bool keyframes)
+    static string EncodeClip(AfterRecordingInput input, AfterRecordingResult r, bool keyframes, bool forceX264)
     {
         List<double> times = new List<double>();
         if (keyframes) foreach (SettledFrame f in r.Frames) times.Add(f.Time);
-        string[] a = RecorderCore.BuildClipArguments(input.Settings ?? new StoredSettings(), input.WorkFile, r.ClipPath,
-            keyframes ? times : null, input.Fps, input.NvencAvailable);
+        StoredSettings s = input.Settings ?? new StoredSettings();
+        if (forceX264)
+        {
+            StoredSettings copy = RecorderCore.ParseSettings(RecorderCore.SerializeSettings(s), new StoredSettings());
+            copy.Encoder = RecorderCore.EncoderX264;
+            s = copy;
+        }
+        // A Windows command line holds at most 32767 characters. Keep the keyframe list below that
+        // (about 3000 frames) and say so in index.md (review 2026-11-19).
+        if (keyframes && RecorderCore.KeyframeList(times).Length > 24000)
+        {
+            int keep = times.Count;
+            while (keep > 1 && RecorderCore.KeyframeList(times.GetRange(0, keep)).Length > 24000) keep = keep * 9 / 10;
+            r.Warnings.Add("Only the first " + keep.ToString(CultureInfo.InvariantCulture) + " frames are keyframes in clip.mp4 (command line limit).");
+            times = times.GetRange(0, keep);
+        }
+        string[] a = RecorderCore.BuildClipArguments(s, input.WorkFile, r.ClipPath,
+            keyframes ? times : null, input.Fps, input.NvencAvailable && !forceX264);
         string output;
         int exit;
         if (!RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(a), 30 * 60 * 1000, out output, out exit))
