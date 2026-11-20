@@ -186,7 +186,7 @@ desktop_2026-11-19_13-01-41\
 
 - **`frames\`** has the settled frames only, as PNG files with no loss. A settled frame is the first frame after the screen stops changing for 400 ms. A blinking text cursor makes no new frame. A small change that stays makes a new frame.
 - During a long scroll, the program writes a frame each time the content moved 60% of the scrolled area, so no text is lost between two frames. When the screen changes without a stop, it writes a frame every 5 seconds.
-- **`index.md`** starts with an instruction for the AI: the files are one screen recording, and they are context for your message. Then it has the start time with the UTC offset of the PC, your note, the length, the region size, the frame count, and one row for each frame: the time, the window title and what changed. It warns when there are more than 20 frames, and when the long side is above 1568 px.
+- **`index.md`** starts with an instruction for the AI: the files are one screen recording, and they are context for your message. Then it has the start time with the UTC offset of the PC, your note, the length, the region size, the frame count, and one row for each frame: the time, the window title and what changed. It warns when the frames and `index.md` together are more than 20 files (some chat apps take only 20 files in one message), when the long side is above 2576 px, and when a frame has more than 3.75 million pixels. Current Claude models read images up to these sizes without making them smaller. Older Claude models make images with a long side above 1568 px smaller.
 - **`clip.mp4`** is the video for people. Each frame in `frames\` is a keyframe of `clip.mp4`, at the time that `index.md` gives. The clip has no other keyframes.
 - **Copy ZIP of last recording** (tray menu) makes `<folder>.zip` next to the folder and puts it on the clipboard. It replaces an older ZIP with that name. The ZIP leaves out the work file and the WAV files.
 
@@ -194,7 +194,7 @@ How it works: FFmpeg records a lossless 4:4:4 work file. After Stop, a backgroun
 
 If the pass fails, the work file stays and the program writes a normal `clip.mp4`. Your note then goes into `note.txt`, because there is no `index.md`. The clipboard holds the files that exist (or the folder, when there are none) and a message for the AI that says the pass failed.
 
-These settings have no control in the Settings window. Change them in `settings.txt`: `settle_ms` (400), `still_interval_s` (5), `scroll_percent` (60), `size_limit` (1568).
+These settings have no control in the Settings window. Change them in `settings.txt`: `settle_ms` (400), `still_interval_s` (5), `scroll_percent` (60), `size_limit` (2576). A `size_limit=1568` from version 3.0.0 (the old default) is read as 2576.
 
 When the picture changes almost all the time (for example a video or a stream), it never settles. Then `index.md` has a warning line: the frames in that time are samples every 5 seconds, and the AI must use `clip.mp4` for the motion.
 

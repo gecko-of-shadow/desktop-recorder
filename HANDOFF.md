@@ -800,6 +800,15 @@ Done on 2026-11-20. https://github.com/gecko-of-shadow/desktop-recorder/releases
 - Checked on Bran's PC: unit tests `ok`. The app builds with `csc.exe` (CS0649 warnings only).
 - Not checked: the first start of the new build with no settings file, and its Settings window. Not released. The Linux port is not changed.
 
+### 7.14 The two warnings in index.md (2026-11-20)
+
+- Bran: "Yes, fix both" (the file-count warning and the size warning). This replaces the values of condition G (7.5).
+- File count: the clipboard holds `index.md` and every frame (7.9). The warning now fires when frames + 1 > 20 (`RecordingIndex.FileWarningLimit`). Before, it fired only above 20 frames, so a 20-frame recording (21 files, as in the 7.6 settings tour) got no warning.
+- Size: `DefaultSizeLimit` 1568 -> 2576 px on the long side, plus a warning above 3.75 million pixels (`DefaultPixelLimit`). Source (checked in this session): the Claude API skill docs, `shared/model-migration.md`. Opus 4.7 and later, Sonnet 5 and later, and Fable read images up to 2576 px and 3.75 MP. Opus 4.6, Sonnet 4.6 and older scale above 1568 px. A 1920x1080 frame now gets no warning.
+- Every 3.0.0 settings file has `size_limit=1568` (7.6), so a load reads 1568 as 2576 (`OldDefaultSizeLimit`). A user who wants 1568 cannot set exactly that value; 1567 or 1569 works.
+- Tests: new checks for 19, 20 and 21 frames, 1920x1080, 3840x1080, 2560x1600 and 2560x1440, and for the 1568 load. Unit tests `ok` on Bran's PC. The app builds.
+- Not checked: the image limits of other chat apps (Gemini, ChatGPT, Grok); the 20-file limit of the Claude chat (7.9). Not released.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.

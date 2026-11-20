@@ -79,7 +79,8 @@ static class AiCaptureTests
     {
         StoredSettings d = new StoredSettings();
         Expect(d.OutputMode == RecorderCore.OutputFolder, "default output folder");
-        Expect(d.SettleMs == 400 && d.StillIntervalSeconds == 5 && d.ScrollPercent == 60 && d.SizeLimit == 1568, "defaults");
+        Expect(d.SettleMs == 400 && d.StillIntervalSeconds == 5 && d.ScrollPercent == 60 && d.SizeLimit == 2576, "defaults");
+        Expect(RecorderCore.ParseSettings("size_limit=1568\r\n", d).SizeLimit == 2576, "old default 1568 reads as the new default");
         StoredSettings p = RecorderCore.ParseSettings("output_mode=mp4\r\nsettle_ms=300\r\nstill_interval_s=7\r\nscroll_percent=200\r\nsize_limit=2000\r\n", d);
         Expect(p.OutputMode == RecorderCore.OutputMp4, "output mp4");
         Expect(p.SettleMs == 300 && p.StillIntervalSeconds == 7 && p.SizeLimit == 2000, "ints");
@@ -571,8 +572,8 @@ static class AiCaptureTests
         Expect(md.IndexOf("Note from Bran: look at usage by bot\n", StringComparison.Ordinal) >= 0, "note");
         Expect(md.IndexOf("Length: 119.5 s\n", StringComparison.Ordinal) >= 0 && md.IndexOf("Region: 1302 x 960\n", StringComparison.Ordinal) >= 0, "length and region");
         Expect(md.IndexOf("Frames: 21\n", StringComparison.Ordinal) >= 0, "frame count");
-        Expect(md.IndexOf("Warning: more than 20 frames", StringComparison.Ordinal) >= 0, "20 frame warning");
-        Expect(md.IndexOf("more than 1568 px", StringComparison.Ordinal) < 0, "no size warning at 1302");
+        Expect(md.IndexOf("Warning: 21 frames and index.md are more than 20 files", StringComparison.Ordinal) >= 0, "file count warning at 21 frames");
+        Expect(md.IndexOf("more than 2576 px", StringComparison.Ordinal) < 0 && md.IndexOf("million pixels", StringComparison.Ordinal) < 0, "no size warning at 1302");
         Expect(md.IndexOf("| 001 | 1.6 s | Grok Bot | first frame |", StringComparison.Ordinal) >= 0, "first row");
         Expect(md.IndexOf("| 005 | 5.6 s | Grok Bot \\| Settings | new window content |", StringComparison.Ordinal) >= 0, "title change row and pipe escape");
         Expect(md.IndexOf("| 006 | 6.6 s | Grok Bot \\| Settings | small change at x 10, y 20 (30 x 12 px) |", StringComparison.Ordinal) >= 0, "small change row");
@@ -582,8 +583,13 @@ static class AiCaptureTests
             119.5, 1302, 960, frames, t, 1568, null, 0.6);
         Expect(shifted.IndexOf("| 005 | 5.6 s | Grok Bot \\| Settings |", StringComparison.Ordinal) >= 0
             && shifted.IndexOf("| 004 | 4.6 s | Grok Bot |", StringComparison.Ordinal) >= 0, "title shift by the first frame time");
-        string big = RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 2), t, 1568, null);
-        Expect(big.IndexOf("more than 1568 px", StringComparison.Ordinal) >= 0, "size warning at 1920");
+        string big = RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 2), t, 2576, null);
+        Expect(big.IndexOf("Warning:", StringComparison.Ordinal) < 0, "no warning at 1920 x 1080 and 2 frames");
+        Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 19), t, 2576, null).IndexOf("files in one message", StringComparison.Ordinal) < 0, "no file warning at 19 frames");
+        Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 20), t, 2576, null).IndexOf("Warning: 20 frames and index.md are more than 20 files", StringComparison.Ordinal) >= 0, "file warning at 20 frames");
+        Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 3840, 1080, frames.GetRange(0, 2), t, 2576, null).IndexOf("more than 2576 px", StringComparison.Ordinal) >= 0, "size warning at 3840");
+        Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 2560, 1600, frames.GetRange(0, 2), t, 2576, null).IndexOf("more than 3.75 million pixels", StringComparison.Ordinal) >= 0, "pixel warning at 2560 x 1600");
+        Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 2560, 1440, frames.GetRange(0, 2), t, 2576, null).IndexOf("Warning:", StringComparison.Ordinal) < 0, "no warning at 2560 x 1440");
         Expect(big.IndexOf("Note from Bran:", StringComparison.Ordinal) < 0, "no note line");
     }
 }

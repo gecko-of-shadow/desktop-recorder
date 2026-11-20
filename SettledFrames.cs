@@ -844,7 +844,7 @@ sealed class TitleTimeline
 // Text of index.md (brief section 6).
 static class RecordingIndex
 {
-    public const int FrameWarningLimit = 20;
+    public const int FileWarningLimit = 20;
 
     // The instruction at the top of index.md, for an AI that gets the files without a text message.
     public const string AiNote =
@@ -988,12 +988,17 @@ static class RecordingIndex
           .Append(height.ToString(CultureInfo.InvariantCulture)).Append('\n');
         sb.Append("Frames: ").Append(frames.Count.ToString(CultureInfo.InvariantCulture)).Append('\n');
         sb.Append("Times are seconds on the time line of clip.mp4. Each frame in the table is a keyframe of clip.mp4.\n");
-        if (frames.Count > FrameWarningLimit)
-            sb.Append("Warning: more than ").Append(FrameWarningLimit.ToString(CultureInfo.InvariantCulture))
-              .Append(" frames. Some AI chat apps accept only 20 images in one message.\n");
+        // The clipboard holds index.md and every frame (ClipboardFiles), so the file count is frames + 1.
+        if (frames.Count + 1 > FileWarningLimit)
+            sb.Append("Warning: ").Append(frames.Count.ToString(CultureInfo.InvariantCulture))
+              .Append(" frames and index.md are more than ").Append(FileWarningLimit.ToString(CultureInfo.InvariantCulture))
+              .Append(" files. Some AI chat apps accept only ").Append(FileWarningLimit.ToString(CultureInfo.InvariantCulture))
+              .Append(" files in one message.\n");
         if (sizeLimit > 0 && Math.Max(width, height) > sizeLimit)
             sb.Append("Warning: the long side of each frame is more than ").Append(sizeLimit.ToString(CultureInfo.InvariantCulture))
               .Append(" px. Some AI apps make such images smaller before they read them.\n");
+        else if ((long)width * height > RecorderCore.DefaultPixelLimit)
+            sb.Append("Warning: each frame has more than 3.75 million pixels. Some AI apps make such images smaller before they read them.\n");
         if (extraNotes != null) foreach (string n in extraNotes) sb.Append("Warning: ").Append(Cell(n)).Append('\n');
         sb.Append('\n');
         sb.Append("| Frame | Time | Window title | What changed |\n");

@@ -163,9 +163,14 @@ static class RecorderCore
     public const int DefaultNvencCq = 23;
     public const string OutputFolder = "folder";
     public const string OutputMp4 = "mp4";
-    // First size limit: Claude scales an image with a long side above 1568 px down (docs/export-frames.md 2.2,
-    // condition G, Bran 2026-11-19). Phase 1 only warns. Phase 4 cuts tiles.
-    public const int DefaultSizeLimit = 1568;
+    // Size limit for the index.md warning. Claude Opus 4.7 and later, Sonnet 5 and later, and Fable read images
+    // up to 2576 px on the long side and 3.75 MP without scaling them down (Claude API docs, model migration
+    // guide). Older models scale above 1568 px. Bran changed it from 1568 on 2026-11-20 (HANDOFF 7.14).
+    // The app only warns. It never scales a frame down.
+    public const int DefaultSizeLimit = 2576;
+    // The old default. Every 3.0.0 settings file has size_limit=1568, so a load reads that value as the new default.
+    public const int OldDefaultSizeLimit = 1568;
+    public const long DefaultPixelLimit = 3750000;
 
     public static string NormalizeOutputMode(string v)
     {
@@ -471,7 +476,7 @@ static class RecorderCore
                 if (key == "settle_ms") s.SettleMs = i;
                 else if (key == "still_interval_s") s.StillIntervalSeconds = i;
                 else if (key == "scroll_percent") s.ScrollPercent = i;
-                else s.SizeLimit = i;
+                else s.SizeLimit = i == OldDefaultSizeLimit ? DefaultSizeLimit : i;
             }
             return true;
         }

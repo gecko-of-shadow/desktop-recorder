@@ -11,6 +11,11 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 - Windows: new default, "Start recording (saved region) when Desktop Recorder starts" is off. Before, the app recorded at once when it started, and recorded the full desktop when it had no saved area.
 - Windows: new default, the mouse pointer is hidden. A moving pointer keeps the screen from settling and can show in the PNG frames. The folder-mode tests ran with the pointer hidden.
 - These new defaults apply only when `settings.txt` has no value for the key. An existing settings file keeps its values.
+- Windows: the size warning in `index.md` is now for a long side above 2576 px (was 1568 px), or more than 3.75 million pixels. Current Claude models read images up to this size without making them smaller. A `size_limit=1568` in a 3.0.0 settings file is read as 2576.
+
+### Fixed
+
+- Windows: the file-count warning in `index.md` now counts `index.md` too. Before, a recording with 20 frames put 21 files on the clipboard but got no warning.
 
 ## [3.0.0] - 2026-11-20
 
