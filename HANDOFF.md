@@ -762,7 +762,21 @@ This section replaces the "State of Bran's PC" list in 7.7.
 - Checked in the app: a recording of a spoken test sentence (Windows speech) gave `transcript.srt` and the section "Audio and transcript" in `index.md` with all words correct. The whole sentence is one row (0.0 s to 10.8 s).
 - New: `index.md` has an instruction for the AI in line 2 (`RecordingIndex.AiNote`). Reason: a chat app takes the files from the clipboard and not the text message, so the AI got no instruction. Unit test updated. Tests: `ok`.
 - Not checked: the time from Stop to "ready" with a transcript on a long recording; the sync of audio and video; the effect of the instruction on Claude chat, Gemini and Grok.
-- Not committed.
+- Committed in bcee269.
+
+### 7.11 Release v3.0.0
+
+Done on 2026-11-20. https://github.com/gecko-of-shadow/desktop-recorder/releases/tag/v3.0.0
+
+- Bran: "merge it into main and release it". The version is 3.0.0 (agent's choice) because the default output is now a folder, not one MP4 file.
+- Content: all of `ai-capture` (7.5 to 7.10). Version 3.0.0 in the manifest, the README and the two archive README files. CHANGELOG section 3.0.0.
+- Before the merge: unit tests `ok` and the app build on Bran's PC. The Build workflow passed on 05de6bf (pull request 4: build and linux).
+- `main` fast-forwarded from 133fbe8 to 05de6bf (no merge commit). Pull request 4 shows as merged.
+- Tag v3.0.0 = 05de6bf (annotated). The Release workflow passed in full (windows, linux, publish).
+- Checked: the release is Latest and not a draft. The release body equals the tag message. Both archives downloaded. The zip has `DesktopRecorder.exe` and a README that shows 3.0.0. The Linux README shows 3.0.0.
+- Bran's PC runs a local build of 05de6bf (SHA-256 starts with 54806862) in `%LOCALAPPDATA%\Programs\DesktopRecorder`, not the exe from the zip.
+- Not checked: the exe from the release zip on a PC; the v3.0.0 zip on a second PC; the points in 7.9 and 7.10 that are not checked.
+- The branch `ai-capture` still exists.
 
 ## 8. Rules for the agent
 
