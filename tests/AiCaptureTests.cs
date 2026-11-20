@@ -32,6 +32,10 @@ static class AiCaptureTests
         TestPendingThenScroll();
         TestScrollTurnsBack();
         TestAiMessage();
+        TestVideoIsNotScroll();
+        TestNoisyShiftIsNotScroll();
+        TestScrollStillFound();
+        TestMotionReport();
         return failures;
     }
 
@@ -223,7 +227,9 @@ static class AiCaptureTests
     static void TestStillChanging()
     {
         SettledFrameFinder f = Finder();
-        for (int i = 0; i < 120; i++) f.Feed(Page(100 + i), i / 10.0);   // new content every frame for 12 s
+        // New content every frame for 12 s. Not Page(100 + i): Page(seed + 1) is Page(seed) moved up by 12 rows,
+        // so that sequence is a real scroll (checked on 2026-11-20, all 28800 bytes of rows 16 to 115 the same).
+        for (int i = 0; i < 120; i++) f.Feed(VideoFrame(i / 10.0), i / 10.0);
         f.Finish(12);
         int still = 0;
         foreach (SettledFrame w in f.Written) if (w.Kind == FrameKind.StillChanging) still++;
@@ -355,6 +361,143 @@ static class AiCaptureTests
         for (int k = 0; k < 9; k++) { pos -= 6; i++; f.Feed(View(content, pos), i / 15.0); }   // back up
         f.Finish(i / 15.0 + 1);
         Expect(NoGap(f, 0, 54 + H), "scroll turns back: furthest view written");
+    }
+
+    // ------------------------------------------------------------ task 2 (Bran's Twitch recording, 2026-11-20)
+
+    // "Video": smooth color waves and a moving box, new content in each frame. Not a scroll.
+    static byte[] VideoFrame(double t)
+    {
+        byte[] f = new byte[W * H * 3];
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                double a = Math.Sin(x / 7.0 + t * 3.1) + Math.Cos(y / 5.0 - t * 2.3) + Math.Sin((x + y) / 9.0 + t * 1.7);
+                int v = (int)((a + 3) / 6 * 255);
+                if (v < 0) v = 0;
+                if (v > 255) v = 255;
+                int i = (y * W + x) * 3;
+                f[i] = (byte)v; f[i + 1] = (byte)((v * 3) & 255); f[i + 2] = (byte)(255 - v);
+            }
+        int cx = (int)((Math.Sin(t * 1.3) * 0.4 + 0.5) * W), cy = (int)((Math.Cos(t * 0.9) * 0.4 + 0.5) * H);
+        for (int y = Math.Max(0, cy - 10); y < Math.Min(H, cy + 10); y++)
+            for (int x = Math.Max(0, cx - 14); x < Math.Min(W, cx + 14); x++) Set(f, x, y, 240);
+        return f;
+    }
+
+    static int ScrollFrames(SettledFrameFinder f)
+    {
+        int n = 0;
+        foreach (SettledFrame w in f.Written) if (w.ScrollPixels != 0) n++;
+        return n;
+    }
+
+    // Frame 006 of the Twitch recording was "scroll, 573 px up (still scrolling)": video motion, not a scroll.
+    static void TestVideoIsNotScroll()
+    {
+        SettledFrameFinder f = Finder();
+        for (int i = 0; i < 12 * 15; i++) f.Feed(VideoFrame(i / 15.0), i / 15.0);
+        f.Finish(12);
+        Expect(f.TotalScroll == 0 && ScrollFrames(f) == 0, "video is not a scroll: total " + f.TotalScroll + ", scroll frames " + ScrollFrames(f));
+    }
+
+    // A shift that lowers the pixel error but does not match well: the content moved, and noise of up to
+    // +-48 changed every pixel (video). The old rule (error below 75% of no shift) took it as a scroll.
+    static void TestNoisyShiftIsNotScroll()
+    {
+        byte[] content = TallContent(H * 3);
+        Random rnd = new Random(5);
+        SettledFrameFinder f = Finder();
+        int pos = 0;
+        for (int i = 0; i < 40; i++)
+        {
+            byte[] v = View(content, pos);
+            for (int k = 0; k < v.Length; k += 3)
+            {
+                int n = rnd.Next(-48, 49);
+                for (int c = 0; c < 3; c++) { int x = v[k + c] + n; v[k + c] = (byte)(x < 0 ? 0 : x > 255 ? 255 : x); }
+            }
+            f.Feed(v, i / 15.0);
+            pos += 4;
+        }
+        f.Finish(40 / 15.0 + 1);
+        Expect(f.RejectedShifts > 0, "noisy shift: the match check ran (rejected " + f.RejectedShifts + ")");
+        Expect(f.TotalScroll == 0, "noisy shift is not a scroll: total " + f.TotalScroll);
+    }
+
+    // The match check must keep a real scroll, also with a static header and a static column at the left.
+    // Lines of random length and pattern. TallContent repeats every 70 rows, so a step of 7 px and a step of
+    // -63 px look the same in it.
+    static byte[] RandomContent(int tall, int seed)
+    {
+        Random r = new Random(seed);
+        byte[] content = new byte[W * tall * 3];
+        for (int i = 0; i < content.Length; i++) content[i] = 255;
+        for (int y = 2; y < tall - 10; y += 5 + r.Next(5))
+        {
+            int len = 8 + r.Next(W - 14);
+            for (int x = 4; x < 4 + len && x < W - 2; x++)
+                if (r.Next(10) < 6)
+                    for (int dy = 0; dy < 2; dy++) { int i = ((y + dy) * W + x) * 3; content[i] = 0; content[i + 1] = 0; content[i + 2] = 0; }
+        }
+        return content;
+    }
+
+    static void TestScrollStillFound()
+    {
+        byte[] content = RandomContent(H * 6, 3);
+        byte[] header = RandomContent(H, 11);
+        Fill(header, 0, 0, W, 16, 60);
+        for (int x = 4; x < 60; x += 3) Fill(header, x, 5, 2, 6, 230);   // header "text"
+        SettledFrameFinder f = Finder();
+        int pos = 0, frames = 60;
+        for (int k = 0; k <= frames; k++)
+        {
+            byte[] v = View(content, pos);
+            Buffer.BlockCopy(header, 0, v, 0, W * 3 * 16);                   // static header, 16 rows
+            Fill(v, 0, 16, 20, H - 16, 200);                                   // static column, 20 px, no text
+            // Known limit (HANDOFF 7.7): a static column WITH text lowers the error ratio of VerifiedShift, because
+            // PixelError compares the full width. The old and the new rule then both miss some steps.
+            f.Feed(v, k / 15.0);
+            if (k < frames) pos += 7;
+        }
+        f.Finish(frames / 15.0 + 1);
+        Expect(Math.Abs(f.TotalScroll - pos) <= 2 && f.RejectedShifts == 0,
+            "scroll with header and column: measured " + f.TotalScroll + " of " + pos + ", rejected " + f.RejectedShifts);
+    }
+
+    static void TestMotionReport()
+    {
+        SettledFrameFinder video = Finder();
+        for (int i = 0; i < 12 * 15; i++) video.Feed(VideoFrame(i / 15.0), i / 15.0);
+        video.Finish(12);
+        string note = video.MotionReport(12);
+        Expect(note != null && note.IndexOf("% of the recording", StringComparison.Ordinal) >= 0
+            && note.IndexOf("clip.mp4", StringComparison.Ordinal) >= 0, "motion note for video: " + note);
+        // A still page with one change: no note.
+        SettledFrameFinder still = Finder();
+        byte[] a = Page(1), b = Page(1);
+        Fill(b, 40, 50, 5, 7, 0);
+        for (int i = 0; i < 150; i++) still.Feed(i < 30 ? a : b, i / 15.0);
+        still.Finish(10);
+        Expect(still.MotionReport(10) == null, "no motion note for a still page");
+        // A short video (under 8 s): no note.
+        SettledFrameFinder brief = Finder();
+        for (int i = 0; i < 5 * 15; i++) brief.Feed(VideoFrame(i / 15.0), i / 15.0);
+        brief.Finish(5);
+        Expect(brief.MotionReport(5) == null, "no motion note under 8 s");
+        // "Changes only" mode: a still screen keeps 1 frame each second. Gaps of 1 s are not motion.
+        SettledFrameFinder sparse = Finder();
+        for (int i = 0; i < 20; i++) sparse.Feed(VideoFrame(i * 0.37), i);
+        sparse.Finish(20);
+        Expect(sparse.MotionReport(20) == null, "1 s gaps are not motion");
+        // A long scroll is not "moving content": the scroll rule writes its frames.
+        byte[] content = TallContent(H * 8);
+        SettledFrameFinder scroll = Finder();
+        int pos = 0;
+        for (int k = 0; k < 150; k++) { scroll.Feed(View(content, pos), k / 15.0); pos += 4; }
+        scroll.Finish(10);
+        Expect(scroll.MotionReport(10) == null, "no motion note for a scroll (moving " + scroll.MovingSeconds.ToString("0.0") + " s)");
     }
 
     static void TestIndex()

@@ -30,11 +30,20 @@ sealed class SettledOptions
     public int PixelTolerance = 24;
     public int MinChangedPixels = 3;
     public double ShiftAcceptRatio = 0.75;  // a shift counts when it lowers the pixel error below this part
+    // A shift counts only when this part of the edge pixels in the changed columns matches after the shift.
+    // Reason: video content (Bran's Twitch recording, 2026-11-20) gave a false "scroll, 573 px up". A lower
+    // error alone is not proof: moving video can match a shift a little better than no shift.
+    // A real scroll of a lossless capture matches almost every edge pixel (see MatchedEdgeFraction).
+    public double ShiftMatchRatio = 0.8;
     public int BlockMinPixels = 3;      // a block of 8 x 8 px counts when this many of its pixels changed
     public double BlinkSeconds = 1.5;
     public int SmallWidth = 48;
     public int SmallHeight = 64;
     public double MaskExpirySeconds = 3;
+    // Moving content (task 2, 2026-11-20): index.md says so when the picture changed (not a scroll) during at
+    // least this part of a recording of MotionMinSeconds or more. Bran's Twitch recording: 25.9 s, no settled frame.
+    public double MotionFraction = 0.7;
+    public double MotionMinSeconds = 8;
 }
 
 // Kinds of written frames. The index text comes from RecordingIndex.Describe.
@@ -111,6 +120,9 @@ sealed class SettledFrameFinder
     int lastShift;            // the scroll step of the last frame pair (0 = no scroll)
     const int SmallSearch = 96;
     int scrollArea;           // height of the moving area during the scroll since the last written frame
+    double firstTime;
+    double movingSeconds;     // time with changes that are not a scroll (frame pairs nearer than SettleSeconds)
+    int moveX0 = int.MaxValue, moveY0 = int.MaxValue, moveX1 = -1, moveY1 = -1;   // box of those changes
 
     // Called for each written frame, in order. The receiver can keep or drop Pixels.
     public event Action<SettledFrame> FrameWritten;
@@ -128,6 +140,27 @@ sealed class SettledFrameFinder
     }
 
     public List<SettledFrame> Written { get { return written; } }
+    // Seconds with changes that are not a scroll, and the box around them (see MotionReport).
+    public double MovingSeconds { get { return movingSeconds; } }
+
+    // A line for index.md when the picture did not settle for most of the recording, else null.
+    // endTime: the end of the video, as for Finish.
+    public string MotionReport(double endTime)
+    {
+        double length = endTime - firstTime;
+        if (!started || length < o.MotionMinSeconds || moveX1 < 0) return null;
+        double part = movingSeconds / length;
+        if (part < o.MotionFraction) return null;
+        int percent = (int)Math.Round(Math.Min(1, part) * 100);
+        return "the picture changed during " + percent.ToString(CultureInfo.InvariantCulture)
+            + "% of the recording (area x " + moveX0.ToString(CultureInfo.InvariantCulture)
+            + ", y " + moveY0.ToString(CultureInfo.InvariantCulture)
+            + ", " + (moveX1 - moveX0 + 1).ToString(CultureInfo.InvariantCulture)
+            + " x " + (moveY1 - moveY0 + 1).ToString(CultureInfo.InvariantCulture)
+            + " px), for example a video or an animation. Such content does not settle, so the frames in that time are samples every "
+            + o.StillIntervalSeconds.ToString("0.#", CultureInfo.InvariantCulture)
+            + " s (\"screen still changing\"). Use clip.mp4 to see the motion.";
+    }
     public int MaskCount { get { return masks.Count; } }
     // Total vertical scroll since the first frame (positive = the view moved down the content).
     public long TotalScroll { get { return totalScroll; } }
@@ -146,6 +179,7 @@ sealed class SettledFrameFinder
             stateHandled = true;
             lastStillOrWrite = time;
             prevTime = time;
+            firstTime = time;
             // The first frame is always written: it is the screen at the start. Without it, a recording that
             // starts during a scroll loses the first screens (checked on Bran's clip of 2026-11-19 14:02).
             Emit(MakeFrame(frame, time, FrameKind.First, new Change()));
@@ -183,7 +217,7 @@ sealed class SettledFrameFinder
                 TShift.Start(); NShift++;
                 int[] profile = Profile(frame);
                 if (prevProfile == null) prevProfile = Profile(prev);
-                dy = VerifiedShift(prev, frame, prevProfile, profile, d.Y0, d.Height);
+                dy = VerifiedShift(prev, frame, prevProfile, profile, d.Y0, d.Height, d.X0, d.X1);
                 prevProfile = profile;
                 TShift.Stop();
                 // The scroll rule uses the height of the moving area, not of the frame: a static header or
@@ -206,6 +240,16 @@ sealed class SettledFrameFinder
             }
             scrollSinceWritten += dy;
             totalScroll += dy;
+            // Moving content: a change that is not a scroll, close in time to the frame before. In "changes" mode a
+            // still screen keeps 1 frame each second, so a gap longer than SettleSeconds is still time, not motion.
+            if (dy == 0 && time - prevTime <= o.SettleSeconds + 1e-9)
+            {
+                movingSeconds += time - prevTime;
+                if (d.X0 < moveX0) moveX0 = d.X0;
+                if (d.Y0 < moveY0) moveY0 = d.Y0;
+                if (d.X1 > moveX1) moveX1 = d.X1;
+                if (d.Y1 > moveY1) moveY1 = d.Y1;
+            }
             if (IsSmall(d)) RegisterSmall(d, time);
             Buffer.BlockCopy(frame, 0, stateFrame, 0, width * height * 3);
             stateStart = time;
@@ -528,7 +572,7 @@ sealed class SettledFrameFinder
     // picture without a shift. Only the rows that changed count (y0 to y1), so a static header or footer
     // does not hide the scroll. Each candidate from the band votes is checked; the best one wins.
     // Reason: text lines repeat, so a profile alone can give a wrong shift (seen as +572 then -572 px).
-    int VerifiedShift(byte[] a, byte[] b, int[] pa, int[] pb, int y0, int rows)
+    int VerifiedShift(byte[] a, byte[] b, int[] pa, int[] pb, int y0, int rows, int x0, int x1)
     {
         List<int> candidates = ShiftCandidates(pa, pb, height, y0, rows);
         // Also the step of the frame before (a scroll keeps its speed), and a full search of small steps.
@@ -557,6 +601,12 @@ sealed class SettledFrameFinder
         for (int k = 0; k < order.Count && k < 6; k++)
             for (int fine = order[k].Key - 1; fine <= order[k].Key + 1; fine++)
                 if (fine != 0 && !fineShifts.Contains(fine)) fineShifts.Add(fine);
+        // The band votes and the step before always get the full grid too. Reason: on a sparse page the coarse
+        // grid gives an error of 0 to many shifts, and the sort does not keep an order for ties, so the true step
+        // could drop out (found with a synthetic page on 2026-11-20: 4 of 60 steps lost).
+        foreach (int s in candidates)
+            for (int fine = s - 1; fine <= s + 1; fine++)
+                if (fine != 0 && !fineShifts.Contains(fine)) fineShifts.Add(fine);
         double[] fineErr = new double[fineShifts.Count];
         System.Threading.Tasks.Parallel.For(0, fineShifts.Count, delegate(int k)
         {
@@ -581,8 +631,53 @@ sealed class SettledFrameFinder
         bestErr = tried.ContainsKey(best) ? tried[best] : bestErr;
         if (Debug != null) Debug("shift rows=" + y0 + "+" + rows + " candidates=" + string.Join(",", candidates.ConvertAll(delegate(int v) { return v.ToString(); }).ToArray()) + " best=" + best + " err=" + bestErr.ToString("0.0") + " err0=" + err0.ToString("0.0"));
         if (best == 0 || !(bestErr < o.ShiftAcceptRatio * err0)) { lastShift = 0; return 0; }
+        // The shifted rows must match well, not only better than no shift (task 2, 2026-11-20).
+        double match = MatchedEdgeFraction(a, b, best, y0, rows, x0, x1);
+        if (Debug != null) Debug("shift " + best + " match=" + match.ToString("0.000"));
+        if (!(match >= o.ShiftMatchRatio)) { lastShift = 0; RejectedShifts++; return 0; }
         lastShift = best;
         return best;
+    }
+
+    // Shifts that had a lower error but did not match well (VerifiedShift). For tests and the pass report.
+    public int RejectedShifts;
+
+    // The part of the edge pixels of b (rows y0 to y0 + rows, columns x0 to x1) that a matches at the shift s:
+    // b[y][x] against a[y + s][x], each color channel within PixelTolerance.
+    // Only edge pixels count (gray step to the right or down of 24 or more): a flat area matches every shift,
+    // so it proves nothing. Fewer than 64 edge pixels: 0 (a shift cannot be proved).
+    internal double MatchedEdgeFraction(byte[] a, byte[] b, int s, int y0, int rows, int x0, int x1)
+    {
+        int lo = Math.Max(y0, y0 - s), hi = Math.Min(y0 + rows, y0 + rows - s);
+        hi = Math.Min(hi, height - 1);   // the row below must exist (vertical step)
+        x0 = Math.Max(0, x0);
+        x1 = Math.Min(width - 2, x1);    // the pixel to the right must exist
+        if (hi <= lo || x1 < x0) return 0;
+        int stride = width * 3;
+        int tol = o.PixelTolerance;
+        long edges = 0, matched = 0;
+        for (int y = lo; y < hi; y += 2)
+        {
+            int rb = y * stride, ra = (y + s) * stride;
+            for (int x = x0; x <= x1; x += 2)
+            {
+                int i = rb + x * 3;
+                int g = b[i] + 2 * b[i + 1] + b[i + 2];
+                int gr = b[i + 3] + 2 * b[i + 4] + b[i + 5];
+                int gd = b[i + stride] + 2 * b[i + stride + 1] + b[i + stride + 2];
+                int dx = g - gr; if (dx < 0) dx = -dx;
+                int dyv = g - gd; if (dyv < 0) dyv = -dyv;
+                if (dx < 96 && dyv < 96) continue;   // 96 = a step of 24 in each channel (gray x 4)
+                edges++;
+                int j = ra + x * 3;
+                int c0 = a[j] - b[i]; if (c0 < 0) c0 = -c0;
+                int c1 = a[j + 1] - b[i + 1]; if (c1 < 0) c1 = -c1;
+                int c2 = a[j + 2] - b[i + 2]; if (c2 < 0) c2 = -c2;
+                if (c0 <= tol && c1 <= tol && c2 <= tol) matched++;
+            }
+        }
+        if (edges < 64) return 0;
+        return matched / (double)edges;
     }
 
     // Mean gray difference between b[y] and a[y + s] for rows y0 to y0 + rows, on a grid

@@ -46,6 +46,7 @@ sealed class AfterRecordingResult
     public double AnalyzeSeconds, EncodeSeconds;
     public long MinOffset, MaxOffset;        // scroll range seen in all frames (for the coverage test)
     public List<string> Warnings = new List<string>();
+    public string MotionNote;                // not null: the picture did not settle for most of the recording
 }
 
 static class AfterRecording
@@ -279,6 +280,9 @@ static class AfterRecording
         System.Collections.Concurrent.BlockingCollection<SettledFrame> tail = new System.Collections.Concurrent.BlockingCollection<SettledFrame>();
         finder.FrameWritten += delegate(SettledFrame f) { tail.Add(f); };
         finder.Finish(r.EndTime);
+        // Moving content (task 2, 2026-11-20): say so in index.md, so the AI knows that the frames are samples.
+        r.MotionNote = finder.MotionReport(r.EndTime);
+        if (r.MotionNote != null) r.Warnings.Add(r.MotionNote);
         foreach (SettledFrame f in tail)
         {
             try { SavePng(f.Pixels, width, height, Path.Combine(framesDir, RecordingIndex.FrameFileName(f.Number, f.Number) + ".png")); }
