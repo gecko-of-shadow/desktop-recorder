@@ -229,9 +229,13 @@ static class AudioTests
             // On PATH only: an openai-style program. "whisper" next to the app does not count.
             string app2 = Path.Combine(root, "app2");
             Touch(Path.Combine(app2, "whisper"));
-            Touch(Path.Combine(bin, "whisper-ctranslate2"));
-            t = Transcript.Find("", "", app2, "/nope:" + bin, false, out reason);
-            Expect(t != null && t.Kind == WhisperTool.KindOpenAi && Path.GetFileName(t.Path) == "whisper-ctranslate2" && t.Model == null, "openai-style on PATH");
+            // A Windows folder has a drive colon, so the ":" list of the other platforms cannot hold it.
+            // On Windows, this case uses the Windows rules (";" list, ".exe" names).
+            bool winPaths = Path.DirectorySeparatorChar == '\\';
+            string onPath = winPaths ? "whisper-ctranslate2.exe" : "whisper-ctranslate2";
+            Touch(Path.Combine(bin, onPath));
+            t = Transcript.Find("", "", app2, winPaths ? "Z:\\nope;" + bin : "/nope:" + bin, winPaths, out reason);
+            Expect(t != null && t.Kind == WhisperTool.KindOpenAi && Path.GetFileName(t.Path) == onPath && t.Model == null, "openai-style on PATH");
             // A configured path wins, and its kind comes from the name.
             string cfg = Path.Combine(root, "x", "faster-whisper-xxl");
             Touch(cfg);

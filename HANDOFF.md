@@ -731,6 +731,19 @@ Next steps for Bran: build with the commands in note section 9, run the unit tes
 - Next steps: find the folder (`Get-ChildItem -Path $env:USERPROFILE -Filter DesktopRecorder-ai.exe -Recurse -ErrorAction SilentlyContinue`), exit the 2.1.0 app from the tray, `git fetch origin ai-capture`, `git checkout ai-capture`, `git pull origin ai-capture`, build `DesktopRecorder-ai.exe` (command in `docs/audio-transcript.md` section 9), start it, then Save in its Settings with "start with Windows" on. Then do the tests of 7.7.
 - The draft pull request https://github.com/gecko-of-shadow/desktop-recorder/pull/4 (ai-capture into main, do not merge) exists for the Windows CI build. CI passed on a27b22f.
 
+### 7.8 Install of the new build on Bran's PC (2026-11-20, 00:20)
+
+This section replaces the "State of Bran's PC" list in 7.7.
+
+- Found at the start: no recorder process. The Run entry pointed at the old `DesktopRecorder-ai.exe` in the repository folder (build of 2026-11-19, without the audio code).
+- Checked: `csc.exe` builds the app from a4fc8c6 (first Windows build of the audio code). One warning (CS0649), no error.
+- Unit tests on Windows: 1 failure, "audio: openai-style on PATH". Cause: the test gave a ":" list with a Windows folder (drive colon) to the non-Windows rules. It is a test fault, not an app fault. `tests/AudioTests.cs` now uses the Windows rules for that case on Windows. Result after the change: `ok`. The change is not committed.
+- Installed: `%LOCALAPPDATA%\Programs\DesktopRecorder\DesktopRecorder.exe` (SHA-256 starts with 59773B28) and `README.txt`. The app no longer runs from the repository folder, so a build does not hit a locked file.
+- Checked: the Run entry (`HKCU` Run, name `DesktopRecorder`) and the Start Menu shortcut "Screen Vibe Recorder" point at the installed exe. The process runs from that path.
+- Checked: one recording with synthetic keys (hotkey, Space, 6 s, hotkey, Enter). Folder mode gave `clip.mp4`, `index.md` and 4 PNG frames. FFmpeg ended after Stop.
+- Not checked: audio and transcript on Windows (`record_audio` is off), the Settings window, the tray icons, a restart of Windows.
+- A Save in the Settings of an old exe with "start with Windows" on writes the path of that old exe into the Run entry.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.
