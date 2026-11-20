@@ -110,7 +110,7 @@ static class AfterRecording
     {
         double length = Math.Max(0, r.EndTime - r.FirstTime);
         string text = RecordingIndex.Build(input.Start, input.UtcOffset, note, length, r.Width, r.Height,
-            r.Frames, input.Titles, input.SizeLimit, r.Warnings);
+            r.Frames, input.Titles, input.SizeLimit, r.Warnings, r.FirstTime);
         RecorderCore.AtomicWrite(r.IndexPath, text);
     }
 
@@ -164,7 +164,9 @@ static class AfterRecording
         double frameLength = 1.0 / Math.Max(0.2, input.Fps);
         r.EndTime = times[times.Count - 1] + frameLength;
         // In "Changes only" mode the last frame can be up to 1 s before Stop. The app knows the stop time.
-        if (input.EndTimeHint > r.EndTime && input.EndTimeHint < r.EndTime + 5) r.EndTime = input.EndTimeHint;
+        // EndTimeHint is on the stats clock, which starts at 0 at the first frame.
+        double hint = input.EndTimeHint >= 0 ? input.EndTimeHint + r.FirstTime : -1;
+        if (hint > r.EndTime && hint < r.EndTime + 5) r.EndTime = hint;
 
         string framesDir = Path.Combine(input.Folder, "frames");
         Directory.CreateDirectory(framesDir);

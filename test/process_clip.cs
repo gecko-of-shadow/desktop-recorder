@@ -25,6 +25,8 @@ static class ProcessClip
         input.Options = RecorderCore.SettledOptionsOf(s);
         if (args.Length > 6) input.Options.PixelTolerance = int.Parse(args[6], CultureInfo.InvariantCulture);
         if (args.Length > 7) input.Options.MinChangedPixels = int.Parse(args[7], CultureInfo.InvariantCulture);
+        string q = Environment.GetEnvironmentVariable("CLIP_QUALITY");
+        if (!string.IsNullOrEmpty(q)) s.Quality = int.Parse(q, CultureInfo.InvariantCulture);
         input.Settings = s;
         input.Start = File.GetCreationTime(input.WorkFile);
         input.UtcOffset = TimeZoneInfo.Local.GetUtcOffset(input.Start);
@@ -57,6 +59,13 @@ static class ProcessClip
         Console.WriteLine("scroll_seen_px=" + seen + " covered_px=" + covered + " missed_px=" + (seen - covered)
             + " min_off=" + r.MinOffset + " max_off=" + r.MaxOffset);
         foreach (string w in r.Warnings) Console.WriteLine("warning=" + w);
+        if (Environment.GetEnvironmentVariable("NOTE_ZIP") == "1")
+        {
+            Console.WriteLine("note_file=" + AfterRecording.SaveNote(input, r, "test note from process_clip"));
+            string zip = AfterRecording.MakeZip(input.Folder);
+            using (System.IO.Compression.ZipArchive z = System.IO.Compression.ZipFile.OpenRead(zip))
+                foreach (System.IO.Compression.ZipArchiveEntry e in z.Entries) Console.WriteLine("zip_entry=" + e.FullName + " " + e.Length);
+        }
         foreach (SettledFrame f in r.Frames)
             Console.WriteLine("frame " + f.Number + " t=" + f.Time.ToString("0.000", CultureInfo.InvariantCulture) + " kind=" + f.Kind
                 + " scroll=" + f.ScrollPixels + " off=" + f.ContentOffset + " changed=" + f.ChangedFraction.ToString("0.0000", CultureInfo.InvariantCulture)

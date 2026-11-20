@@ -557,7 +557,7 @@ What the code does now:
 - Settled-frame rules (`SettledFrames.cs`): 400 ms still time (`settle_ms`), blink and spinner masks, a frame each 5 s during motion (`still_interval_s`), a scroll-distance rule at 60% of the moving area (`scroll_percent`, condition A), a frame before a step that would leave a gap, and a frame at a turn of the scroll.
 - `clip.mp4`: `-copyts`, `-g 999999`, `-forced-idr 1`, `-force_key_frames` with each time minus 0.01 s (condition C). libx264 with `scenecut=0` when NVENC is not used.
 - `index.md`: start time with the numeric UTC offset (condition F), note, length, region, frame count, a warning above 20 frames and above 1568 px (condition G), and one row for each frame. Times are on the time line of `clip.mp4` (condition H).
-- Window titles: the window at the center of the region, every 250 ms. The FFmpeg stats clock puts them on the video time line.
+- Window titles: the window at the center of the region, every 250 ms. The FFmpeg stats clock puts them on the video time line. Checked from two capture logs: the stats `time=` starts at 0 at the first frame (first packets at 0.2 s and 0.27 s). Thus the index adds the time of the first frame before it looks up a title.
 - Note box after Stop. It does not block the pass. When the pass fails, the note goes into `note.txt`.
 - Clipboard: the folder. Tray items: "Open last recording folder", "Copy ZIP of last recording" (the ZIP leaves out the work files).
 
@@ -571,12 +571,20 @@ Tests run on Bran's PC (offline, from files):
 | Synthetic, 15 look-alike changes (`test/settled_render.cs`) | 15 of 15 |
 | Synthetic, scroll of 100 lines and 5 settings pages | 0 px missed (own measure and `test/scroll_coverage.py`) |
 | Keyframes of `clip.mp4` (brief ffprobe command) | equal to the PNG count in all runs |
-| Bran's clip `desktop_2026-11-19_14-02-29_611.mp4` (condition B), lossy input | 50%: 37 frames; 60%: 34 frames; 70%: 33 frames; 0% missed in each (independent check `test/scroll_coverage.py`). Keyframe times equal the index times (first 0.600 s). |
-| Pass time (condition D), lossless files made from Bran's lossy recordings | 60 s, 1302x960: 3.5 s. 5 min, 1920x1080: 32 s. Worst case: lossy noise makes almost every frame a change. |
+| Bran's clip `desktop_2026-11-19_14-02-29_611.mp4` (condition B), lossy input | 50%: 37 frames; 60%: 34 frames; 70%: 33 frames; 0% missed in each (independent check `test/scroll_coverage.py`). 34 keyframes at the same times as the 34 index rows (first 0.600 s). |
+| `clip.mp4` size, Bran's clip at quality 0 (Smallest) | 3.1 MB. The original file is 2.1 MB. Causes: 34 IDR keyframes in 19 s, and a second encode of a lossy file. |
+| Pass time (condition D), lossless files made from Bran's lossy recordings, code of commit 68b2872 and later | 60 s, 1302x960: 3.6 s. 5 min, 1920x1080: 33 s. Worst case: lossy noise makes almost every frame a change. |
+| Pass failure (a file named `frames` blocks the folder) | `ok=False`, normal `clip.mp4` written (1 keyframe), input kept. |
+| Note and ZIP | The note is in `index.md`. The ZIP has `clip.mp4`, `index.md` and the frames, no work file. |
+| Pass without `ffprobe.exe` (only `ffmpeg.exe`) | Same 6 frames on the status video. |
 
 Not checked:
 
-- Condition E (counter test of the lossless capture at 15 fps). Two tries failed: the display was off (ddagrab gets no frames), then Chrome did not come to the front and the capture recorded another window. Run `test/lossless_counter.ps1` with the PC left alone for 40 s.
+- Condition E (counter test of the lossless capture at 15 fps). Two tries failed: the display was off (ddagrab gets no frames), then Chrome did not come to the front and the capture recorded another window. The script now brings the page to the front and records nothing when another window stays in front. Run `test/lossless_counter.ps1` with the PC left alone for 40 s.
+- That `clip.mp4` made with `-copyts` plays in a standard player, and the brief's keyframe extraction command.
+- The Mono build and the GitHub CI with the new files.
+- `index.md` writes "Note:", the brief shows "Note from Bran:". The README user text still describes the MP4 output only.
+- The pixel tolerance (24), the block minimum (3) and the 1% density gate were tuned on lossy files. Check them on the first real work file.
 - Any recording with the new app (brief section 8 tests). The new build is not installed. The running v2.0.2 locks `DesktopRecorder.exe`.
 - The time from Stop to "clipboard ready" in the app (the app shows it in the status line). The real value adds the FFmpeg stop (about 0.4 s, 6.7).
 - Title timing against real window changes.

@@ -796,6 +796,15 @@ static class RecordingIndex
     public static string Build(DateTime start, TimeSpan utcOffset, string note, double lengthSeconds,
         int width, int height, IList<SettledFrame> frames, TitleTimeline titles, int sizeLimit, IList<string> extraNotes)
     {
+        return Build(start, utcOffset, note, lengthSeconds, width, height, frames, titles, sizeLimit, extraNotes, 0);
+    }
+
+    // titleShift: the time of the first frame. The titles are on the FFmpeg stats clock, and the stats time=
+    // starts at 0 at the first frame (checked on Bran's PC: first packet 0.2 s and 0.27 s, first time= 0.0 s).
+    public static string Build(DateTime start, TimeSpan utcOffset, string note, double lengthSeconds,
+        int width, int height, IList<SettledFrame> frames, TitleTimeline titles, int sizeLimit, IList<string> extraNotes,
+        double titleShift)
+    {
         StringBuilder sb = new StringBuilder();
         sb.Append("# Recording ").Append(start.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture))
           .Append(" (").Append(UtcOffsetText(utcOffset)).Append(")\n");
@@ -820,7 +829,7 @@ static class RecordingIndex
         for (int i = 0; i < frames.Count; i++)
         {
             SettledFrame f = frames[i];
-            string title = titles != null ? titles.At(f.Time) : "";
+            string title = titles != null ? titles.At(f.Time - titleShift) : "";
             sb.Append("| ").Append(FrameFileName(f.Number, frames.Count))
               .Append(" | ").Append(f.Time.ToString("0.0", CultureInfo.InvariantCulture)).Append(" s")
               .Append(" | ").Append(Cell(title))

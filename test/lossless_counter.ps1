@@ -21,6 +21,36 @@ if ($LASTEXITCODE -ne 0) { throw 'capture_args build failed' }
 $ffmpeg = (Get-Command ffmpeg).Source
 $uri = (New-Object System.Uri (Join-Path $here 'counter.html')).AbsoluteUri
 $profileDir = Join-Path $env:TEMP 'dr_counter_profile'
+Add-Type -Namespace LC -Name U -MemberDefinition @'
+[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
+public delegate bool CB(IntPtr h, IntPtr l);
+[DllImport("user32.dll")] public static extern bool EnumWindows(CB cb, IntPtr l);
+[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
+public static string Title(IntPtr h) { var s = new System.Text.StringBuilder(300); GetWindowText(h, s, 300); return s.ToString(); }
+public static IntPtr Find(string start) {
+    IntPtr found = IntPtr.Zero;
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+        if (!IsWindowVisible(h)) return true;
+        if (Title(h).StartsWith(start)) { found = h; return false; }
+        return true; }, IntPtr.Zero);
+    return found;
+}
+'@
+# Brings the counter page to the front. Returns $false when another window stays in front.
+# Reason: a run on 2026-11-19 recorded another window because Chrome did not come to the front.
+function Show-CounterPage {
+    $h = [LC.U]::Find('Frame Counter')
+    if ($h -eq [IntPtr]::Zero) { return $false }
+    [void][LC.U]::ShowWindow($h, 3)   # SW_MAXIMIZE
+    [LC.U]::keybd_event(0x12, 0, 0, [IntPtr]::Zero); [LC.U]::keybd_event(0x12, 0, 2, [IntPtr]::Zero)
+    [void][LC.U]::SetForegroundWindow($h)
+    Start-Sleep -Milliseconds 700
+    return ([LC.U]::Title([LC.U]::GetForegroundWindow())).StartsWith('Frame Counter')
+}
 Start-Process chrome -ArgumentList @("--user-data-dir=$profileDir", '--no-first-run', '--new-window', '--start-maximized', $uri) | Out-Null
 Start-Sleep -Seconds 5
 $results = @()
@@ -29,8 +59,13 @@ foreach ($mode in @('changes', 'fixed')) {
     $argLine = & $tool $mode $Fps 20 120 1880 860 $work
     $argLine = $argLine -replace ' -movflags ', (" -t $Seconds -movflags ")
     $log = Join-Path $OutDir ("ffmpeg_$mode.log")
+    if (-not (Show-CounterPage)) { $results += "$mode NOT RUN: the counter page is not in front. Nothing was recorded."; continue }
     $p = Start-Process -FilePath $ffmpeg -ArgumentList $argLine -NoNewWindow -PassThru -RedirectStandardError $log
+    $null = $p.Handle   # keep the handle, so ExitCode is available after the wait
     if (-not $p.WaitForExit(($Seconds + 20) * 1000)) { Stop-Process -Id $p.Id -Force; $results += "$mode TIMEOUT (screen off?)"; continue }
+    $p.WaitForExit()
+    $front = [LC.U]::Title([LC.U]::GetForegroundWindow())
+    if (-not $front.StartsWith('Frame Counter')) { $results += "$mode WARNING: at the end '$front' was in front. The result is not valid." }
     $json = Join-Path $OutDir ("frames_$mode.json")
     $txt = & python (Join-Path $here 'frames.py') $work --counter --expected-fps $Fps --json $json 2>&1 | Out-String
     $results += "$mode exit=$($p.ExitCode)"

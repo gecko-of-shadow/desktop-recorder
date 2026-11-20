@@ -370,6 +370,12 @@ static class AiCaptureTests
         Expect(md.IndexOf("| 001 | 1.6 s | Grok Bot | first frame |", StringComparison.Ordinal) >= 0, "first row");
         Expect(md.IndexOf("| 005 | 5.6 s | Grok Bot \\| Settings | new window content |", StringComparison.Ordinal) >= 0, "title change row and pipe escape");
         Expect(md.IndexOf("| 006 | 6.6 s | Grok Bot \\| Settings | small change at x 10, y 20 (30 x 12 px) |", StringComparison.Ordinal) >= 0, "small change row");
+        // Titles are on the stats clock (0 at the first frame). With a first frame at 0.6 s, frame 5 (5.6 s) is
+        // 5.0 s after the first frame, so it gets the second title only with the shift.
+        string shifted = RecordingIndex.Build(new DateTime(2026, 11, 19, 13, 1, 41), TimeSpan.FromHours(-3), null,
+            119.5, 1302, 960, frames, t, 1568, null, 0.6);
+        Expect(shifted.IndexOf("| 005 | 5.6 s | Grok Bot \\| Settings |", StringComparison.Ordinal) >= 0
+            && shifted.IndexOf("| 004 | 4.6 s | Grok Bot |", StringComparison.Ordinal) >= 0, "title shift by the first frame time");
         string big = RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 2), t, 1568, null);
         Expect(big.IndexOf("more than 1568 px", StringComparison.Ordinal) >= 0, "size warning at 1920");
         Expect(big.IndexOf("Note:", StringComparison.Ordinal) < 0, "no note line");
