@@ -6,6 +6,14 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ## [Unreleased]
 
+### Added
+
+- Windows: new setting "Folder mode: copy one ZIP above this many files (1 = always)" (`clipboard_max_files`, default 20). When `index.md` and the frames are more files than this number, the clipboard holds one ZIP of the folder instead of the files. The text message for the AI stays on the clipboard. A note typed after the ZIP was made goes into the ZIP too. Reason: a Claude cloud session refused pastes of 8 and 12 files.
+
+### Notes
+
+- Tested on one PC: unit tests, the app build, and one recording with the value 1 (the clipboard held the ZIP and the AI message). Not tested: that a Claude cloud session or a chat app accepts the ZIP, the Settings row at 125%, and the ZIP with a late note.
+
 ## [3.0.1] - 2026-11-20
 
 ### Changed

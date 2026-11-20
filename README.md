@@ -74,7 +74,7 @@ When the recording stops:
 - In folder mode, a small note box opens. Type one line for the AI and press Enter, or press Esc. The note goes into `index.md` as "Note from Bran:" (into `note.txt` if the frame pass fails). The program does not wait for the note. "MP4 only" mode has no note box.
 - The program makes the frames, `index.md` and `clip.mp4` in the background. When this work is done, the status line in the tray menu ends with "Ready ... s after Stop."
 - `index.md` and the PNG frames go on the clipboard as files, together with a text message for the AI that has the folder path. Ctrl+V in a chat app attaches the files. Ctrl+V in a terminal pastes the text. `clip.mp4` is not on the clipboard, because some chat apps refuse video. In "MP4 only" mode, the video file goes on the clipboard. The setting "Copy the recording (folder or video) to the clipboard when it stops" turns off the whole clipboard copy: the files and the message.
-- Ctrl+V into the Claude desktop chat is tested. Other chat apps are not tested. Some chat apps take only about 20 files in one message, so a recording with many frames may not fit. Then use "Copy ZIP of last recording".
+- Ctrl+V into the Claude desktop chat is tested. Other chat apps are not tested. Some chat apps take only about 20 files in one message, so a recording with many frames may not fit. A Claude cloud session in the Claude desktop app refused pastes of 8 and 12 files (its limit is not documented). Then set "Folder mode: copy one ZIP above this many files" to a lower number, or 1 for always a ZIP, or use "Copy ZIP of last recording". Not tested: that a chat app or a cloud session accepts the ZIP.
 - The tray menu shows a status line. Folder mode example: "Last recording: Frames: 5. clip.mp4: 0.12 MB. Ready 3.1 s after Stop." With audio, the line also gives the transcript result. "MP4 only" example: "Last recording: Real frames: 83 of 83. Duplicates: 0. Dropped: 0. File size: 0.05 MB."
 
 The recording area is a fixed rectangle. If a window moves during the recording, the area does not move with it.
@@ -122,6 +122,7 @@ The size label shows the size in physical pixels. The program makes the width an
 | Start Desktop Recorder when Windows starts | Off | Adds one entry for your user account only. |
 | Start recording (saved region) when Desktop Recorder starts | Off | On records the last selected area as soon as the app starts, without the selector. With no saved area, or an area that is not on the screen now, it records the full desktop. |
 | Copy the recording (folder or video) to the clipboard when it stops | On | |
+| Folder mode: copy one ZIP above this many files (1 = always) | 20 | Key `clipboard_max_files`. When `index.md` and the frames are more files than this number, the clipboard holds one ZIP of the folder (as "Copy ZIP of last recording" makes it) instead of the files. 1 always copies the ZIP. |
 | Play a sound when recording starts and stops | On | Two rising tones for start, two falling tones for stop. |
 | Hide the mouse pointer in the video | On | Off shows the pointer in the video and in the frames. See [Good to know](#good-to-know). |
 | Record the sound of the PC, and make a transcript if Whisper is installed | Off | See [Audio and transcript](#audio-and-transcript-windows). |

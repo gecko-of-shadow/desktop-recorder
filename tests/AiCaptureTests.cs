@@ -71,6 +71,10 @@ static class AiCaptureTests
                 && System.IO.Path.GetFileName(files[0]) == "index.md"
                 && System.IO.Path.GetFileName(files[1]) == "001.png"
                 && System.IO.Path.GetFileName(files[2]) == "002.png", "clipboard: index.md, then the frames in order, no video");
+            // clipboard_max_files: the files up to the limit, one ZIP above it. 1 = always a ZIP.
+            Expect(!RecordingIndex.ClipboardUsesZip(20, 20) && RecordingIndex.ClipboardUsesZip(21, 20), "clipboard: ZIP only above the limit");
+            Expect(!RecordingIndex.ClipboardUsesZip(5, 7) && RecordingIndex.ClipboardUsesZip(8, 7), "clipboard: limit 7");
+            Expect(RecordingIndex.ClipboardUsesZip(1, 1) && RecordingIndex.ClipboardUsesZip(2, 1), "clipboard: limit 1 is always a ZIP");
         }
         finally { try { System.IO.Directory.Delete(root, true); } catch (Exception) { } }
     }
@@ -85,6 +89,13 @@ static class AiCaptureTests
         Expect(p.OutputMode == RecorderCore.OutputMp4, "output mp4");
         Expect(p.SettleMs == 300 && p.StillIntervalSeconds == 7 && p.SizeLimit == 2000, "ints");
         Expect(p.ScrollPercent == 95, "scroll clamp");
+        Expect(d.ClipboardMaxFiles == 20, "clipboard_max_files default");
+        Expect(p.ClipboardMaxFiles == 20, "clipboard_max_files missing keeps default");
+        StoredSettings z = RecorderCore.ParseSettings("clipboard_max_files=1\r\n", d);
+        Expect(z.ClipboardMaxFiles == 1, "clipboard_max_files 1");
+        Expect(RecorderCore.ParseSettings(RecorderCore.SerializeSettings(z), new StoredSettings()).ClipboardMaxFiles == 1, "clipboard_max_files round trip");
+        Expect(RecorderCore.ParseSettings("clipboard_max_files=0\r\n", d).ClipboardMaxFiles == 1, "clipboard_max_files clamp low");
+        Expect(RecorderCore.ParseSettings("clipboard_max_files=x\r\n", d).ClipboardMaxFiles == 20, "clipboard_max_files bad keeps default");
         StoredSettings q = RecorderCore.ParseSettings(RecorderCore.SerializeSettings(p), new StoredSettings());
         Expect(q.OutputMode == RecorderCore.OutputMp4 && q.SettleMs == 300 && q.ScrollPercent == 95, "round trip");
         StoredSettings bad = RecorderCore.ParseSettings("output_mode=zip\r\n", d);

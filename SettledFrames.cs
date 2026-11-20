@@ -878,6 +878,14 @@ static class RecordingIndex
         return files;
     }
 
+    // True when the clipboard holds one ZIP instead of the files (setting clipboard_max_files).
+    // A Claude cloud session refused 8 and 12 files, and the desktop chat took 5 (Bran, 2026-11-20).
+    // maxFiles 1 means always a ZIP, also when the pass failed and the list has the folder only.
+    public static bool ClipboardUsesZip(int fileCount, int maxFiles)
+    {
+        return maxFiles <= 1 || fileCount > maxFiles;
+    }
+
     // Text for the clipboard: a message for the AI and the folder path (Bran, 2026-11-19).
     public static string AiMessage(string folder, bool passOk)
     {

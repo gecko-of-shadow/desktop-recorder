@@ -503,6 +503,7 @@ Not checked: look-alike changes in a real screen capture (the states were drawn 
 | README and release notes for v3.0.0 | Done (7.12). |
 | New defaults and index.md warnings | Done (7.13, 7.14). |
 | Release v3.0.1 | Done (7.15). The exe from the zip is not run on a PC. |
+| ZIP on the clipboard (7.16) | Code done, test build installed. Cloud paste test open. Not released. |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -828,6 +829,16 @@ Install on Bran's PC (2026-11-20, 05:41, Bran: "Yes, install it"):
 - Installed the exe and README from the release zip into `%LOCALAPPDATA%\Programs\DesktopRecorder`. SHA-256 starts with CD5202653090B3AA (same as the release zip).
 - Checked: the app starts from that path and responds. No FFmpeg process started (no recording at start). The Run entry points at that exe. The settings file keeps `record_on_launch=0`, `show_pointer=0`, `output_mode=folder` and `size_limit=1568` (read as 2576).
 - Not checked: a recording with the 3.0.1 exe, the new warnings in a real `index.md`, the Settings window.
+
+### 7.16 ZIP on the clipboard above a file count (2026-11-20, not released)
+
+- Fault (Bran): a paste into a new Claude cloud session in the Claude desktop app gave a "file limit" error. Recordings: 12 files (05:42) and 8 files (05:43). The desktop chat took 5 files (7.9). The help center gives 20 files for a normal chat. The cloud session limit is not documented. Cause: probably the file count. Not proven.
+- Bran: "Build a fix now".
+- Code: setting `clipboard_max_files` (default 20, range 1 to 1000) and a Settings row "Folder mode: copy one ZIP above this many files (1 = always)". `RecordingIndex.ClipboardUsesZip`: a ZIP when the files are more than the value, or always when the value is 1. The ZIP is made on a background thread with `AfterRecording.MakeZip` (same ZIP as the tray item; it has `clip.mp4`). Exit waits for it. A note saved after the pass makes the ZIP again, so the ZIP has the note. One lock keeps two ZIP calls apart.
+- Checked on Bran's PC: unit tests `ok`, the app builds. Test build installed (SHA-256 starts with 7085A9DD4E06E502). The 3.0.1 exe is kept as `DesktopRecorder-3.0.1-backup.exe`. A synthetic test recording (Space, 5 s) with `clipboard_max_files=1`: the clipboard held `desktop_2026-11-20_14-25-32.zip` (5.9 MB: `clip.mp4`, `index.md`, `transcript.srt`, 3 frames) and the AI message. The app wrote the key back to `settings.txt`.
+- Bran's settings file now has `clipboard_max_files=1` (set by the agent for the test).
+- Not checked: that a Claude cloud session accepts the ZIP (Bran must paste it); a paste of 2 files into a cloud session (shows if a value from 2 to 7 has a use); the Settings row at 125%; the ZIP with a note typed after the pass; the README text on GitHub.
+- Do not release before the cloud paste test.
 
 ## 8. Rules for the agent
 
