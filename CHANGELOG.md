@@ -6,6 +6,16 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ## [Unreleased]
 
+### Added
+
+- Branch `ai-capture`: the "Folder for AI" output (settled frames as PNG, `index.md`, `clip.mp4`). See HANDOFF.md 7.5 and 7.6.
+- Branch `ai-capture`: optional system audio (off by default) in `clip.mp4` and in the MP4 files, and a transcript in `index.md` when a local Whisper program is present. Not tested on Windows yet. See [docs/audio-transcript.md](docs/audio-transcript.md).
+- Branch `ai-capture`: `index.md` says when the picture did not settle for most of the recording (for example a video), so the AI knows that the frames are samples.
+
+### Fixed
+
+- Branch `ai-capture`: moving video no longer gives false "scroll" rows. A shift must now match 80% of the edge pixels.
+
 ### Changed
 
 - README: new structure (summary, features, install, use, build, troubleshooting) and the current version. No program change.

@@ -20,6 +20,7 @@ Windows:
 - **"Changes only" mode** (default). Frames that do not change are dropped. A still screen costs almost nothing.
 - **Status line** after each recording: real frames, duplicates, dropped frames, file size.
 - **Folder for an AI** (default, not released yet). Each recording gives a folder with `frames\001.png` and so on, `index.md` and `clip.mp4`. See [Recording folder](#recording-folder-windows). "MP4 only" gives one MP4 file, as in version 2.0.2.
+- **System audio and transcript** (optional, off by default, not released yet). The sound of the PC goes into the video. When a local Whisper program is present, `index.md` gets a transcript. See [Audio and transcript](#audio-and-transcript-windows).
 - The finished recording (the folder, or the video) goes on the **clipboard**. Press Ctrl+V to paste it into a chat or a folder.
 - **Per-monitor DPI aware.** All positions and sizes are physical pixels.
 - FFmpeg stops when the program stops, also after a crash.
@@ -119,6 +120,7 @@ The size label shows the size in physical pixels. The program makes the width an
 | Copy the recording (folder or video) to the clipboard when it stops | On | |
 | Play a sound when recording starts and stops | On | Two rising tones for start, two falling tones for stop. |
 | Hide the mouse pointer in the video | Off | On removes the pointer from the video. See [Good to know](#good-to-know). |
+| Record the sound of the PC, and make a transcript if Whisper is installed | Off | See [Audio and transcript](#audio-and-transcript-windows). |
 | Region selector: Crosshair, Magnifier, Position | Off, On, On | The keys C, M and P in the selector change them too. |
 
 Settings are stored in `%APPDATA%\DesktopRecorder\settings.txt`.
@@ -190,6 +192,20 @@ How it works: FFmpeg records a lossless 4:4:4 work file. After Stop, a backgroun
 
 These settings have no control in the Settings window. Change them in `settings.txt`: `settle_ms` (400), `still_interval_s` (5), `scroll_percent` (60), `size_limit` (1568).
 
+When the picture changes almost all the time (for example a video or a stream), it never settles. Then `index.md` has a warning line: the frames in that time are samples every 5 seconds, and the AI must use `clip.mp4` for the motion.
+
+## Audio and transcript (Windows)
+
+This is on the branch `ai-capture`, is not in a release, and is not tested on Windows yet. Details: [docs/audio-transcript.md](docs/audio-transcript.md).
+
+- Turn on "Record the sound of the PC, and make a transcript if Whisper is installed" in Settings. It is off by default.
+- The program records what the default playback device plays (WASAPI loopback). No extra driver and no "Stereo Mix" device are necessary. The microphone is not recorded.
+- Folder mode: `clip.mp4` gets the audio. "MP4 only" mode: each video file gets the audio after Stop.
+- Transcript: put a Whisper program next to `DesktopRecorder.exe` (also in a subfolder `whisper`), or on PATH. The program looks for `whisper-cli.exe` (whisper.cpp, with a model file `ggml-*.bin` next to it or in a `models` folder), `faster-whisper-xxl.exe`, `whisper-ctranslate2.exe`, and `whisper.exe` (only on PATH, because the name is too general). The transcript goes into `index.md` (section "Audio and transcript") and into `transcript.srt`. Its times are on the time line of `clip.mp4`.
+- Without Whisper, the recording still has the audio, and `index.md` says that there is no transcript.
+- Settings without a control (edit `settings.txt`): `whisper_path` (a full path to the program), `whisper_model` (whisper.cpp: the model file; other programs: a model name), `whisper_language` (`auto`, or a code such as `en`).
+- The transcript runs before the folder goes on the clipboard, so "Ready ... s after Stop" is longer.
+
 ## Choose a frame rate
 
 When text scrolls, each frame must overlap the frame before it. If the scroll moves more than the area height between two frames, lines are lost.
@@ -211,7 +227,7 @@ With "Changes only", a higher frame rate costs space only while the screen chang
 
 ## Good to know
 
-- On Windows, no audio is recorded. On Ubuntu, system audio is recorded unless you turn it off in Settings.
+- On Windows, audio is recorded only when you turn it on in Settings (branch `ai-capture`). On Ubuntu, system audio is recorded unless you turn it off in Settings.
 - The MP4 stays playable if the PC loses power during a recording. You lose about the last 5 seconds at the default settings, and more at a very low frame rate.
 - If the program stops without a normal stop (for example, a crash), FFmpeg stops with it. A file shorter than 2 seconds can then be unreadable.
 - Hide the mouse pointer when the screen is mostly still and you move the mouse. In "Changes only" mode, each pointer move otherwise adds a frame. Hover effects in other programs (button colors, tooltips) still add frames.
@@ -247,7 +263,7 @@ Exit the running recorder first. If you do not, the build cannot replace the `.e
 Double-click `build.cmd`. It builds `DesktopRecorder.exe` in the repository folder, and installs FFmpeg with winget if FFmpeg is missing. Or run this in PowerShell in the folder:
 
 ```
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /win32manifest:DesktopRecorder.manifest /win32icon:app.ico RecorderCore.cs RecordingSession.cs NativeMethods.cs RegionSelector.cs RecordingFrame.cs SettledFrames.cs AfterRecording.cs DesktopRecorder.cs
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /win32manifest:DesktopRecorder.manifest /win32icon:app.ico RecorderCore.cs RecordingSession.cs NativeMethods.cs RegionSelector.cs RecordingFrame.cs SettledFrames.cs AfterRecording.cs AudioTranscript.cs AudioCapture.cs DesktopRecorder.cs
 ```
 
 The app manifest (`DesktopRecorder.manifest`) makes the program per-monitor DPI aware and holds the version number.
@@ -255,7 +271,7 @@ The app manifest (`DesktopRecorder.manifest`) makes the program per-monitor DPI 
 To run the unit tests on Windows, build them:
 
 ```
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /out:"$env:TEMP\CoreTests.exe" tests\CoreTests.cs tests\AiCaptureTests.cs RecorderCore.cs RecordingSession.cs SettledFrames.cs
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /out:"$env:TEMP\CoreTests.exe" tests\CoreTests.cs tests\AiCaptureTests.cs tests\AudioTests.cs RecorderCore.cs RecordingSession.cs SettledFrames.cs AudioTranscript.cs
 ```
 
 Then run them. The tests write `ok` when all checks pass:
@@ -313,6 +329,7 @@ The test kit is in `test/`: a source text, an auto-scroll page, a frame-counter 
 - [CHANGELOG.md](CHANGELOG.md): the version history.
 - [HANDOFF.md](HANDOFF.md): requirements, decisions, test plans and full test results.
 - [docs/export-frames.md](docs/export-frames.md): a design note for a possible "Export frames" feature. It is not part of the program.
+- [docs/audio-transcript.md](docs/audio-transcript.md): the design note for the audio and the transcript, and for the motion note and the scroll fix of 2026-11-20.
 
 ## Related repository
 

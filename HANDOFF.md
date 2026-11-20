@@ -496,6 +496,9 @@ Not checked: look-alike changes in a real screen capture (the states were drawn 
 | Look-alike changes in "Changes only" (6.10) | Done. Lower `mpdecimate` thresholds. Offline test 15/15. App runs PASS. Released in v2.0.1. |
 | Release v2.0.1 | Done (7.3). |
 | Release v2.0.2 | Done (7.4). Tray icons not checked in Bran's real tray. |
+| AI capture folder (7.5, 7.6) | On branch `ai-capture` (pushed). Real recordings checked on Bran's PC (7.6). Not merged, not released. |
+| Audio and transcript (7.7) | Code and unit tests done in a cloud session (Linux, Mono). Off by default. UNVERIFIED on Windows. |
+| Twitch recording faults (7.7) | Motion note and false-scroll fix done, tested on synthetic files. UNVERIFIED on the real recording. Clipboard risk written down, not changed. |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -664,6 +667,59 @@ Shared items: the new build uses the same settings file (`%APPDATA%\DesktopRecor
 - The settings file from before the tests is saved as `%APPDATA%/DesktopRecorder/settings.backup-2026-11-19-before-ai-test.txt` (old region `167,92,1482,762`).
 - Other files of the first session are still in its scratchpad (`syn_*.mp4`, `sheet.png`, some folders). They were not in the deletion list.
 - Next steps: the three open tests above (caret, busy 60 s and 5 min, counter test after `-bf 0`), then the final AI read test of the brief, then Bran decides about push and release.
+
+### 7.7 Audio, transcript and the Twitch faults (2026-11-20, cloud session, branch `ai-capture`)
+
+Bran's PC was off. The work ran in a cloud container: Linux, Mono 6.8 (`mcs`), FFmpeg 6.1, Python 3 with PIL. No Windows, no `csc.exe`, no NVENC, no screen, no sound device. The brief file `desktop-recorder-ai-capture-brief.md` is not in Git and was not read.
+
+Note: 7.5 and 7.6 say "not pushed". Since commit 535753c, `ai-capture` is on GitHub.
+
+Design note: [docs/audio-transcript.md](docs/audio-transcript.md). It has the research, the decisions, the time line rule, the test plan for Bran's PC (section 9) and all details.
+
+**Task 1: audio and transcript (off by default).**
+
+- Setting: check box "Record the sound of the PC, and make a transcript if Whisper is installed", key `record_audio` (same key and meaning as the Linux build; Windows default 0). Keys without a control: `whisper_path`, `whisper_model`, `whisper_language` (`auto`).
+- Capture: own WASAPI loopback with COM interop (`AudioCapture.cs`), no NuGet. FFmpeg `dshow` needs "Stereo Mix" or a virtual driver; FFmpeg has no WASAPI input (UNVERIFIED, not read in this session). The capture writes `audio_system.wav` (mix format). Silence fills the time with no packets, by the QPC time of each packet.
+- Mux after Stop, not live (a live pipe can delay the video capture). Rule: WAV time 0 is at `(audio start - clock start) - ClockOffset + first frame time` on the time line of the work file. `RecordingSession.ClockStartTimestamp` is new.
+- Folder mode: `clip.mp4` gets the audio (AAC 160 kb/s). If that encode fails, the clip is encoded without audio. A work file that stays gets the audio too. "MP4 only": each video file gets the audio by a stream copy after Stop; a split file gets only its own part.
+- Transcript: whisper.cpp (`whisper-cli` + `ggml-*.bin`) or an openai-style program (`faster-whisper-xxl`, `whisper-ctranslate2`, `whisper`). Input: 16 kHz copy on the time line of `clip.mp4`. Output: section "Audio and transcript" at the end of `index.md`, and `transcript.srt`. A missing, failing, slow (limit 2 min + 3 x length) or silent case writes the reason and never fails the pass. The AI message on the clipboard names the transcript and the audio.
+- Microphone: design only (note, section 8).
+
+**Task 2: faults from Bran's Twitch recording (full screen, 25.9 s, 7 frames).**
+
+| Fault | Change | Test |
+|---|---|---|
+| Video never settles, so only 5 s fallback frames | `index.md` gets a warning when the picture changed (not a scroll) during 70% or more of a recording of 8 s or more: the frames are samples, use `clip.mp4` for the motion. Chosen over "suggest MP4 only", because the folder keeps the titles, note, audio and transcript, and only `index.md` can tell the AI. The tray status line says it too. | Synthetic: note for a video player page, `testsrc2`, `mandelbrot`, `life`. No note for 3 scroll videos and `cellauto`. Unit test `TestMotionReport`. |
+| Frame 006: false "scroll, 573 px up" from video motion | A shift counts only when 80% or more of the edge pixels in the changed columns match after the shift (`ShiftMatchRatio`). Also: the band votes and the step before always get the fine check (a sort tie could drop the true step). | `testsrc2` 26 s: 19 false scroll frames before, 0 after. Plain scroll, header + sidebar, video inside a scrolling page: 0 missed rows before and after. Unit test `TestNoisyShiftIsNotScroll` fails with the old rule (-824 px), passes with the new rule. |
+| Clipboard: file drop and text together (risk, not checked) | No change. The note (section 10.3) has the risk, 3 possible fixes and a paste test for Bran. | - |
+
+Test changes:
+
+- `TestStillChanging` used `Page(100 + i)`. `Page(seed + 1)` is `Page(seed)` moved by 12 rows (checked: 28800 of 28800 bytes equal), so that test fed a real scroll and passed only by a sort tie. It now uses a video-like frame.
+- `CoreTests` used `record_audio=1` as an example of a Linux-only key. That key is now a Windows key too. The tests use `start_on_login=1` for that and check `record_audio` separately.
+- New file `tests/AudioTests.cs` (WAV writer, clock rule, filters, clip arguments, SRT reader, index section, Whisper search and arguments, AI message).
+- `test/process_clip.cs` has environment switches for the audio (`AUDIO_FILE`, `AUDIO_START`, `CLOCK_OFFSET`, `AUDIO_PEAK`, `WHISPER_PATH`, `WHISPER_MODEL`, `WHISPER_LANGUAGE`, `AUDIO_INTO_WORK`, `DELETE_WORK`).
+- Build lists: `build.cmd`, `.github/workflows/build.yml`, `.github/workflows/release.yml`, `run-tests.sh` and the README commands have `AudioTranscript.cs` and `AudioCapture.cs` (and `tests/AudioTests.cs` for the tests).
+
+Checked (cloud, 2026-11-20):
+
+- Unit tests with Mono: `ok`. `xvfb-run -a ./run-tests.sh`: Mono tests `ok`, 13 Linux tests OK.
+- The whole app compiles with Mono `mcs /target:winexe` (all 10 source files). This is not proof for `csc.exe`.
+- Full pass with audio under Mono (`test/process_clip.cs`), WAV from `WavWriter` (float, `WAVE_FORMAT_EXTENSIBLE`), beeps at WAV time 1, 4, 7 s: shift -0.45 s gave beeps at 0.550, 3.550, 6.550 s in `clip.mp4` and in the transcript; shift +0.30 s gave 1.300, 4.300, 7.300 s. Keyframes still equal the frame rows.
+- Fake Whisper programs (Python scripts with the same arguments): whisper.cpp form, openai form with model and language, failing program, missing program, missing `whisper_path`, silent audio. All gave `ok=True` and the reason in `index.md`.
+- Failed pass (a file named `frames` blocks the folder): normal `clip.mp4` and the kept work file have the audio at the right times; the WAV stays. Good pass with the work file deleted: the WAV is deleted, `transcript.srt` stays.
+- "MP4 only" FFmpeg commands on fragmented segments of 4 s: each file has its own audio part (found and fixed: without an end limit, segment 0 got all the audio).
+
+Not checked:
+
+- Anything on Windows: the `csc.exe` build, the WASAPI capture, the Settings check box, the start balloon, NVENC clip encode with audio, `Recorder.AddAudioToMp4Files`, the GitHub CI with the new files.
+- A real Whisper program, its arguments and its time. The argument names come from the documentation as the agent knows it.
+- The size of the `ClockOffset` error, and drift on long recordings.
+- Bran's Twitch recording with the new rules (the file is not in the cloud).
+- The clipboard risk.
+- Known limit, not changed: a static column with text (sidebar) can make the scroll measure miss steps, with the old and the new rule (`PixelError` uses the full width). See note 10.2.
+
+Next steps for Bran: build with the commands in note section 9, run the unit tests, then tests 1 to 7 of note section 9, the paste test of note section 10.3, and the pass with `test\process_clip.cs` on the `clip.mp4` of the Twitch recording (the work file is deleted after a good pass; the clip is lossy, so expect extra frames from encoder noise, see 7.5).
 
 ## 8. Rules for the agent
 

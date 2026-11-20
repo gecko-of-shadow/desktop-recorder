@@ -145,7 +145,8 @@ static class AfterRecording
     {
         r.AudioRecorded = false;
         if (input.AudioFile == null) return;
-        try { r.AudioRecorded = File.Exists(input.AudioFile) && new FileInfo(input.AudioFile).Length > 64; }
+        // More than a header: a header is 44 to 68 bytes, and 0.1 s of 8 kHz mono 8-bit audio is 800 bytes.
+        try { r.AudioRecorded = File.Exists(input.AudioFile) && new FileInfo(input.AudioFile).Length > 1024; }
         catch (Exception) { r.AudioRecorded = false; }
         if (!r.AudioRecorded) { r.Warnings.Add("The audio file is missing or empty, so the recording has no audio."); return; }
         r.AudioShift = AudioClock.VideoTimeOfAudioStart(input.AudioStartClock, input.ClockOffset, r.FirstTime);
