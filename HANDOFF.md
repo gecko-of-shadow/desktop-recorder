@@ -612,7 +612,7 @@ Bran asked the agent to make the recordings. The script `test\ai_capture_runs.ps
 
 | # | Fault | Cause | Fix |
 |---|---|---|---|
-| 1 | Times in `index.md` started at 3.0 s on a still screen. The window titles were then looked up at wrong times. | The lossless work file had B-frames. A fragmented MP4 then starts at (B-frame delay x frame time). "Changes" mode keeps 1 frame each second on a still screen, so the start was 3 x 1 s. The "0.2 s" in 7.5 was the same fault at 15 fps. | `-bf 0` in the lossless capture. Checked: the first frame is at 0.0 s in all later recordings. |
+| 1 | Times in `index.md` started at 3.0 s on a still screen. The window titles were then looked up at wrong times. | The lossless work file had B-frames. A fragmented MP4 then starts at (B-frame delay x frame time). "Changes" mode keeps 1 frame each second on a still screen, so the start was 3 x 1 s. The "0.2 s" in 7.5 was probably the same fault at 15 fps (3 x 0.067 s; not tested). | `-bf 0` in the lossless capture. Checked: the first frame is at 0.0 s in all later recordings. |
 | 2 | Keyframes in `clip.mp4` were up to 1 s after their time in `index.md` (index 14.3 s, keyframe 15.0 s). | The clip encoder used the frame rate of the work file (1 fps on a still screen) as its clock. | `-enc_time_base 1:90000` in the clip encode. Checked: keyframes at 11.267, 21.267 ... and index rows at 11.3, 21.3 ... |
 | 3 | The note box was in the last 2 frames of the video and made 2 false "scroll" rows. | The box opens while FFmpeg still captures. | The note box has `WDA_EXCLUDEFROMCAPTURE`. Checked: the second tour has no note box and no false rows. |
 
@@ -628,10 +628,10 @@ Other changes: `index.md` writes "Note from Bran:". With `DESKTOP_RECORDER_KEEP_
 | 60 s | `desktop_2026-11-19_19-20-04` | 61.1 s | 1 | 1 | 1.0 s | Still screen only. See below. |
 | 5 min | `desktop_2026-11-19_19-21-17` | 302.3 s | 3 | 3 | 1.8 s | Almost still screen. See below. |
 
-- The keyframe count is equal to the PNG count in all 6 folders. Each `clip.mp4` starts at 0.0 s and decodes to the end with no decode error.
-- "Stop to clipboard" = the time from the stop hotkey until the clipboard held the new folder, measured by the script. It is the same event as "Ready ... s after Stop" in the tray menu. The tray text was not read.
+- The keyframe count is equal to the PNG count in all 6 folders. Each `clip.mp4` starts at 0.0 s. FFmpeg decoded two of them (status, 5 min) to the end with no decode error, and their packet DTS values increase. The check command printed time stamp warnings from its own null output (1 fps clock), not from the clip.
+- "Stop to clipboard" = the time from the stop hotkey until the script saw the new folder on the clipboard. The script looks at the clipboard only after it typed the note (about 1 s). Thus each value is an upper limit for "Ready ... s after Stop" in the tray menu, and values near 1 s can hide a shorter time. The tray text was not read.
 - Tour notes: 4 of the 20 frames have the mark "(still scrolling)" (scroll-distance rule, condition A). They are sharp frames during a scroll. A page change shows as "scroll ... up" or "small change" in the "What changed" column (known limit: the scroll rule uses the box of all changed rows). The page title was outside the region that the script selected.
-- Caret: Windows stops the blink of the text cursor after 5 s with no input (`CaretTimeout` = 5000 ms on this PC). In the third run the cursor was in the region for 13.7 s and gave 1 frame, but the 14 kept capture frames show the same cursor pixels, so the cursor did not blink. In runs 1 and 2 the cursor was outside the region. Bran stopped run 3, and the rest of that recording shows the Claude window. The synthetic caret test (7.5) is still the only proof.
+- Caret: probable cause: Windows stops the blink of the text cursor after 5 s with no input (`CaretTimeout` = 5000 ms in the registry of this PC; the effect was not tested directly). In the third run the cursor was in the region for 13.7 s and gave 1 frame, but the 14 kept capture frames show the same cursor pixels, so the cursor did not blink. In runs 1 and 2 the cursor was outside the region. Bran stopped run 3, and the rest of that recording shows the Claude window. The synthetic caret test (7.5) is still the only proof.
 - 60 s and 5 min: the scroll page did not start (the Space key from the script had no effect), so these recordings show a still page. In the 5 min recording the Claude window came to the front before the end. The times 1.0 s and 1.8 s are thus for still screens.
 - Pass time on busy content (offline, `test\process_clip.cs`): the tour work file (44 s, 1400x900, real lossless): 1.3 s. The same file 7 times in a row (309 s, 637 changed frames, 134 PNG): 5.8 s. This is not a real 5 min recording.
 
@@ -649,6 +649,10 @@ Not checked:
 - The counter test after the `-bf 0` change. The tray text "Ready ... s after Stop". The note box with a real key press. "Copy ZIP" in the app. The Settings window of the new build.
 - The Mono build and the GitHub CI with these changes.
 - The final test of the brief (a new AI session reads the folder and answers 5 questions).
+
+The x264 lossless fallback did not get `-bf 0`: its preset `ultrafast` has no B-frames (x264 default for that preset; not run on this PC).
+
+Settings file after the tests, against the copy from before: 5 new keys (`output_mode=folder`, `settle_ms=400`, `still_interval_s=5`, `scroll_percent=60`, `size_limit=1568`), and `region` and `last_region` changed from `167,92,1482,762` to `0,40,1400,940` (the last test region). The clipboard holds the last test folder.
 
 Shared items: the new build uses the same settings file (`%APPDATA%\DesktopRecorder\settings.txt`) and the same "start with Windows" entry as the installed app. The new keys in the settings file do no harm to the installed app (not checked with the 2.1.0 exe).
 
