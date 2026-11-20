@@ -744,6 +744,15 @@ This section replaces the "State of Bran's PC" list in 7.7.
 - Not checked: audio and transcript on Windows (`record_audio` is off), the Settings window, the tray icons, a restart of Windows.
 - A Save in the Settings of an old exe with "start with Windows" on writes the path of that old exe into the Run entry.
 
+### 7.9 Clipboard holds files, not the folder (2026-11-20, 00:30)
+
+- Fault (checked, Bran's screenshot): Bran pasted a recording into the Claude desktop chat. The clipboard held the folder, and the chat made a file of 0 bytes with the folder name. This is the risk of 7.7 and of `docs/audio-transcript.md` section 10.3.
+- Decision (Bran): in folder mode, the clipboard holds `index.md` and the PNG frames as files, plus the AI text message. No `clip.mp4`, because Claude chat refuses video. No setting.
+- Code: `RecordingIndex.ClipboardFiles` in `SettledFrames.cs`. When the folder has no `index.md` and no frames (failed pass), the clipboard holds the folder as before. Unit test `TestClipboardFiles`. Tests: `ok`.
+- Checked on Bran's PC with the installed build (SHA-256 starts with 0EFE3BDD): after a test recording, the file drop list had `index.md`, `001.png` and `002.png`, and the text had the folder path.
+- Not checked: a real Ctrl+V in the Claude chat app, claude.ai, Gemini and Explorer. Claude chat takes 20 files in one message; a recording with more than 19 frames is over that limit.
+- Not committed.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.

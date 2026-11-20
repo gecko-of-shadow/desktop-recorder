@@ -1240,17 +1240,17 @@ class TrayApp : ApplicationContext
         {
             try
             {
-                // Two formats: a text paste (AI chat, terminal) gets the message with the path,
-                // and a paste in Explorer still gets the folder.
+                // Two formats: a text paste (Claude Code, terminal) gets the message with the path,
+                // and a file paste (chat app, Explorer) gets index.md and the PNG frames.
                 System.Collections.Specialized.StringCollection list = new System.Collections.Specialized.StringCollection();
-                list.Add(job.Input.Folder);
+                list.AddRange(RecordingIndex.ClipboardFiles(job.Input.Folder).ToArray());
                 DataObject data = new DataObject();
                 data.SetFileDropList(list);
                 data.SetText(RecordingIndex.AiMessage(job.Input.Folder, r.Ok, r.AudioInClip, r.HasTranscript), TextDataFormat.UnicodeText);
                 Clipboard.SetDataObject(data, true);
                 copied = true;
             }
-            catch (Exception e) { balloonText += "\nCould not copy the folder to the clipboard: " + e.Message; }
+            catch (Exception e) { balloonText += "\nCould not copy the files to the clipboard: " + e.Message; }
         }
         // Condition D (Bran, 2026-11-19): the time from Stop to "clipboard ready".
         job.SecondsFromStop = fromStop.Elapsed.TotalSeconds;
@@ -1260,7 +1260,7 @@ class TrayApp : ApplicationContext
         openLastItem.Enabled = Directory.Exists(job.Input.Folder);
         zipItem.Enabled = openLastItem.Enabled;
         tray.ShowBalloonTip(5000, "Desktop Recorder",
-            Shorten((copied ? "AI message and folder copied. Press Ctrl+V to paste.\n" : "Recording stopped.\n") + balloonText + ready),
+            Shorten((copied ? "AI message, index.md and frames copied. Press Ctrl+V to paste.\n" : "Recording stopped.\n") + balloonText + ready),
             r.Ok ? ToolTipIcon.Info : ToolTipIcon.Warning);
         if (quitRequested && passesRunning == 0 && !stopping) ExitNow();
     }

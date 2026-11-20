@@ -32,6 +32,7 @@ static class AiCaptureTests
         TestPendingThenScroll();
         TestScrollTurnsBack();
         TestAiMessage();
+        TestClipboardFiles();
         TestVideoIsNotScroll();
         TestNoisyShiftIsNotScroll();
         TestScrollStillFound();
@@ -49,6 +50,29 @@ static class AiCaptureTests
         string bad = RecordingIndex.AiMessage(folder, false);
         Expect(bad.IndexOf(folder, StringComparison.Ordinal) >= 0, "failed message has the folder");
         Expect(bad.IndexOf("failed", StringComparison.Ordinal) >= 0 && bad.IndexOf("note.txt", StringComparison.Ordinal) >= 0, "failed message");
+    }
+
+    static void TestClipboardFiles()
+    {
+        string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dr-clip-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            System.IO.Directory.CreateDirectory(System.IO.Path.Combine(root, "frames"));
+            // No index.md and no frames (the pass failed): the folder only.
+            List<string> none = RecordingIndex.ClipboardFiles(root);
+            Expect(none.Count == 1 && none[0] == root, "clipboard: the folder when there are no files");
+            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "index.md"), "x");
+            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "clip.mp4"), "x");
+            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "frames", "002.png"), "x");
+            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "frames", "001.png"), "x");
+            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "frames", "notes.txt"), "x");
+            List<string> files = RecordingIndex.ClipboardFiles(root);
+            Expect(files.Count == 3
+                && System.IO.Path.GetFileName(files[0]) == "index.md"
+                && System.IO.Path.GetFileName(files[1]) == "001.png"
+                && System.IO.Path.GetFileName(files[2]) == "002.png", "clipboard: index.md, then the frames in order, no video");
+        }
+        finally { try { System.IO.Directory.Delete(root, true); } catch (Exception) { } }
     }
 
     static void TestSettingsKeys()

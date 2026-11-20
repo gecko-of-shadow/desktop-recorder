@@ -846,6 +846,31 @@ static class RecordingIndex
 {
     public const int FrameWarningLimit = 20;
 
+    // Files for the clipboard (Bran, 2026-11-20): index.md and the PNG frames, not the folder.
+    // A chat app cannot take a folder: the Claude desktop app made a file of 0 bytes from it.
+    // clip.mp4 is not in the list, because Claude chat refuses video.
+    // When the folder has no index.md and no frames (the pass failed), the list has the folder only.
+    public static List<string> ClipboardFiles(string folder)
+    {
+        List<string> files = new List<string>();
+        try
+        {
+            string index = System.IO.Path.Combine(folder, "index.md");
+            if (System.IO.File.Exists(index)) files.Add(index);
+            string frames = System.IO.Path.Combine(folder, "frames");
+            if (System.IO.Directory.Exists(frames))
+            {
+                string[] png = System.IO.Directory.GetFiles(frames, "*.png");
+                Array.Sort(png, StringComparer.OrdinalIgnoreCase);
+                files.AddRange(png);
+            }
+        }
+        catch (System.IO.IOException) { files.Clear(); }
+        catch (UnauthorizedAccessException) { files.Clear(); }
+        if (files.Count == 0) files.Add(folder);
+        return files;
+    }
+
     // Text for the clipboard: a message for the AI and the folder path (Bran, 2026-11-19).
     public static string AiMessage(string folder, bool passOk)
     {

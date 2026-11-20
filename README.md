@@ -21,7 +21,7 @@ Windows:
 - **Status line** after each recording: real frames, duplicates, dropped frames, file size.
 - **Folder for an AI** (default, not released yet). Each recording gives a folder with `frames\001.png` and so on, `index.md` and `clip.mp4`. See [Recording folder](#recording-folder-windows). "MP4 only" gives one MP4 file, as in version 2.0.2.
 - **System audio and transcript** (optional, off by default, not released yet). The sound of the PC goes into the video. When a local Whisper program is present, `index.md` gets a transcript. See [Audio and transcript](#audio-and-transcript-windows).
-- The finished recording (the folder, or the video) goes on the **clipboard**. Press Ctrl+V to paste it into a chat or a folder.
+- The finished recording (`index.md` and the frames, or the video) goes on the **clipboard**. Press Ctrl+V to paste it into a chat or a folder.
 - **Per-monitor DPI aware.** All positions and sizes are physical pixels.
 - FFmpeg stops when the program stops, also after a crash.
 - Start and stop sounds, an option to hide the mouse pointer, start with Windows, split long recordings into parts.
@@ -71,7 +71,7 @@ When the recording stops:
 
 - A small note box opens. Type one line for the AI and press Enter, or press Esc. The note goes into `index.md` as "Note from Bran:". The program does not wait for the note.
 - The program makes the frames, `index.md` and `clip.mp4` in the background. When this work is done, the status line in the tray menu ends with "Ready ... s after Stop."
-- The recording folder goes on the clipboard (you can turn this off in Settings). In "MP4 only" mode, the video file goes on the clipboard.
+- `index.md` and the PNG frames go on the clipboard as files, together with a text message for the AI that has the folder path (you can turn this off in Settings). Ctrl+V in a chat app attaches the files. Ctrl+V in a terminal pastes the text. `clip.mp4` is not on the clipboard, because some chat apps refuse video. In "MP4 only" mode, the video file goes on the clipboard.
 - The tray menu shows a status line, for example: "Last recording: Real frames: 83 of 83. Duplicates: 0. Dropped: 0. File size: 0.05 MB."
 
 The recording area is a fixed rectangle. If a window moves during the recording, the area does not move with it.
