@@ -35,6 +35,7 @@ sealed class RecordingSession
     // so the smallest difference is the best estimate. Guarded by statsGate.
     readonly System.Diagnostics.Stopwatch clock = new System.Diagnostics.Stopwatch();
     double clockOffset = double.NaN;
+    long clockStartTimestamp;   // Stopwatch.GetTimestamp() when the clock started (for the audio, AudioCapture.cs)
 
     // Raised on a background thread when ffmpeg ends by itself. The argument is ffmpeg's error text.
     public event Action<string> Failed;
@@ -93,6 +94,7 @@ sealed class RecordingSession
                 clockOffset = double.NaN;
                 clock.Reset();
                 clock.Start();
+                clockStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
             }
             state = Recording;
             idleEvent.Reset();
@@ -220,6 +222,12 @@ sealed class RecordingSession
             try { if (!p.HasExited) p.Kill(); } catch (Exception) { }
             try { p.WaitForExit(); } catch (Exception) { }
         }
+    }
+
+    // Raw QPC ticks (Stopwatch.GetTimestamp) at clock 0 of the current or last recording.
+    public long ClockStartTimestamp
+    {
+        get { lock (statsGate) return clockStartTimestamp; }
     }
 
     // Seconds since FFmpeg of the current recording started.

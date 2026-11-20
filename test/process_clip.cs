@@ -1,9 +1,14 @@
 // Test tool: runs the pass of AfterRecording.cs on any video file (offline tests, condition B).
-// It does not change or delete the input file.
+// It does not change or delete the input file, unless AUDIO_INTO_WORK=1 or DELETE_WORK=1 is set (see below).
 // Build (PowerShell, repo folder):
-//   & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /out:"$env:TEMP\process_clip.exe" /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll test\process_clip.cs SettledFrames.cs AfterRecording.cs RecorderCore.cs RecordingSession.cs
+//   & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /out:"$env:TEMP\process_clip.exe" /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll test\process_clip.cs SettledFrames.cs AfterRecording.cs RecorderCore.cs RecordingSession.cs AudioTranscript.cs
 // Run:
 //   & "$env:TEMP\process_clip.exe" <ffmpeg.exe> <input.mp4> <output folder> <fps> [scroll percent] [settle ms]
+// Audio test (docs/audio-transcript.md), environment variables:
+//   AUDIO_FILE = a WAV file, AUDIO_START = WAV time 0 on the clock (s, default 0), CLOCK_OFFSET (s, default 0),
+//   AUDIO_PEAK (default -1 = not known), WHISPER_PATH, WHISPER_MODEL, WHISPER_LANGUAGE,
+//   AUDIO_INTO_WORK=1 (adds the audio to the input file: this changes the input),
+//   DELETE_WORK=1 (deletes the input after a good pass, as the app does: give a copy).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -31,7 +36,24 @@ static class ProcessClip
         input.Start = File.GetCreationTime(input.WorkFile);
         input.UtcOffset = TimeZoneInfo.Local.GetUtcOffset(input.Start);
         input.Titles = new TitleTimeline();
-        input.DeleteWorkFile = false;
+        // DELETE_WORK=1: as in the app, the pass deletes the input after a good pass. Use a copy.
+        input.DeleteWorkFile = Environment.GetEnvironmentVariable("DELETE_WORK") == "1";
+        string audio = Environment.GetEnvironmentVariable("AUDIO_FILE");
+        if (!string.IsNullOrEmpty(audio))
+        {
+            input.AudioFile = Path.GetFullPath(audio);
+            input.AudioStartClock = EnvDouble("AUDIO_START", 0);
+            input.ClockOffset = EnvDouble("CLOCK_OFFSET", 0);
+            input.AudioPeak = EnvDouble("AUDIO_PEAK", -1);
+            // AUDIO_INTO_WORK=1 tests the step that adds the audio to a kept work file. It changes the input file.
+            input.AudioIntoKeptWorkFile = Environment.GetEnvironmentVariable("AUDIO_INTO_WORK") == "1";
+            string reason;
+            input.Whisper = Transcript.Find(Environment.GetEnvironmentVariable("WHISPER_PATH"), Environment.GetEnvironmentVariable("WHISPER_MODEL"),
+                "", "", Path.DirectorySeparatorChar == '\\', out reason);
+            input.WhisperReason = reason;
+            string lang = Environment.GetEnvironmentVariable("WHISPER_LANGUAGE");
+            if (!string.IsNullOrEmpty(lang)) input.WhisperLanguage = lang;
+        }
         Directory.CreateDirectory(input.Folder);
         if (Environment.GetEnvironmentVariable("SETTLED_DEBUG") == "1") SettledFrameFinder.Debug = delegate(string m) { Console.WriteLine("dbg " + m); };
         DateTime t0 = DateTime.UtcNow;
@@ -59,6 +81,10 @@ static class ProcessClip
         Console.WriteLine("scroll_seen_px=" + seen + " covered_px=" + covered + " missed_px=" + (seen - covered)
             + " min_off=" + r.MinOffset + " max_off=" + r.MaxOffset);
         foreach (string w in r.Warnings) Console.WriteLine("warning=" + w);
+        if (r.AudioRecorded)
+            Console.WriteLine("audio_in_clip=" + r.AudioInClip + " audio_shift=" + r.AudioShift.ToString("0.000", CultureInfo.InvariantCulture)
+                + " transcript=" + (r.Transcript == null ? "none (" + r.TranscriptNote + ")" : r.Transcript.Count + " segments")
+                + " transcript_s=" + r.TranscriptSeconds.ToString("0.00", CultureInfo.InvariantCulture));
         if (Environment.GetEnvironmentVariable("NOTE_ZIP") == "1")
         {
             Console.WriteLine("note_file=" + AfterRecording.SaveNote(input, r, "test note from process_clip"));
@@ -71,5 +97,12 @@ static class ProcessClip
                 + " scroll=" + f.ScrollPixels + " off=" + f.ContentOffset + " changed=" + f.ChangedFraction.ToString("0.0000", CultureInfo.InvariantCulture)
                 + " box=" + f.BoxX + "," + f.BoxY + "," + f.BoxWidth + "x" + f.BoxHeight);
         return r.Ok ? 0 : 1;
+    }
+
+    static double EnvDouble(string name, double fallback)
+    {
+        string v = Environment.GetEnvironmentVariable(name);
+        double d;
+        return !string.IsNullOrEmpty(v) && double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out d) ? d : fallback;
     }
 }

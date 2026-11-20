@@ -30,6 +30,16 @@ sealed class AfterRecordingInput
     public bool DeleteWorkFile;              // true in the app (Bran, 2026-11-19). The test tool keeps its input.
     public bool ForceX264;                   // the capture plan used libx264 (NVENC cannot encode this size)
     public double EndTimeHint = -1;          // the stop time on the time line of the video, when known
+    // Audio and transcript (docs/audio-transcript.md). AudioFile null = no audio.
+    public string AudioFile;
+    public double AudioStartClock;           // WAV time 0 on the clock of RecordingSession
+    public double ClockOffset = double.NaN;  // RecordingSession.ClockOffset after the stop
+    public double AudioPeak = -1;            // AudioTake.Peak
+    public string AudioError;                // AudioTake.Error
+    public WhisperTool Whisper;              // null = no transcript
+    public string WhisperReason;             // why Whisper is null
+    public string WhisperLanguage = "auto";
+    public bool AudioIntoKeptWorkFile = true;  // false in the test tool: it must not change its input file
 }
 
 sealed class AfterRecordingResult
@@ -47,6 +57,14 @@ sealed class AfterRecordingResult
     public long MinOffset, MaxOffset;        // scroll range seen in all frames (for the coverage test)
     public List<string> Warnings = new List<string>();
     public string MotionNote;                // not null: the picture did not settle for most of the recording
+    public bool AudioRecorded;               // the input had a WAV file
+    public bool AudioInClip;                 // clip.mp4 has the audio track
+    public double AudioShift;                // WAV time 0 on the time line of clip.mp4
+    public List<TranscriptSegment> Transcript;   // null = no transcript (TranscriptNote says why)
+    public string TranscriptNote;
+    public string TranscriptTool;
+    public double TranscriptSeconds;
+    public bool HasTranscript { get { return Transcript != null && Transcript.Count > 0; } }
 }
 
 static class AfterRecording
@@ -67,19 +85,28 @@ static class AfterRecording
             r.AnalyzeSeconds = watch.Elapsed.TotalSeconds;
             watch.Reset();
             watch.Start();
-            string error = EncodeClip(input, r, true, input.ForceX264);
-            if (error != null && !input.ForceX264)
+            SetUpAudio(input, r);
+            bool audio = r.AudioRecorded;
+            string error = EncodeClipWithFallback(input, r, true, audio);
+            if (error != null && audio)
             {
-                // NVENC can fail (driver, other app): try libx264 once (review 2026-11-19).
-                string second = EncodeClip(input, r, true, true);
-                if (second == null) { r.Warnings.Add("NVENC failed for clip.mp4. libx264 encoded it."); error = null; }
-                else error += " libx264: " + second;
+                // The audio must not cost the clip: encode again without it (docs/audio-transcript.md).
+                string second = EncodeClipWithFallback(input, r, true, false);
+                if (second == null) { r.Warnings.Add("clip.mp4 has no audio. The audio encode failed: " + Trim(error)); error = null; audio = false; }
+                else error += " Without audio: " + second;
             }
+            r.AudioInClip = audio && error == null;
             r.EncodeSeconds = watch.Elapsed.TotalSeconds;
             if (error != null) throw new IOException("clip.mp4 with keyframes: " + error);
             r.ClipWritten = true;
             WriteIndex(input, r, null);
             r.Ok = true;
+            // The transcript comes last. A missing or failed Whisper never makes the pass fail.
+            if (r.AudioRecorded)
+            {
+                MakeTranscript(input, r);
+                WriteIndex(input, r, null);
+            }
         }
         catch (Exception e)
         {
@@ -90,20 +117,146 @@ static class AfterRecording
             // Condition D (Bran, 2026-11-19): still give a normal clip.mp4.
             try
             {
-                string error = EncodeClip(input, r, false, input.ForceX264);
-                if (error != null && !input.ForceX264) error = EncodeClip(input, r, false, true);
+                SetUpAudio(input, r);
+                string error = EncodeClipWithFallback(input, r, false, r.AudioRecorded);
+                if (error != null && r.AudioRecorded) error = EncodeClipWithFallback(input, r, false, false);
+                else if (error == null) r.AudioInClip = r.AudioRecorded;
                 if (error == null) r.ClipWritten = true;
                 else r.Error += " Normal clip.mp4 also failed: " + error;
             }
             catch (Exception e) { r.Error += " Normal clip.mp4 also failed: " + e.Message; }
         }
         try { if (File.Exists(r.ClipPath)) r.ClipBytes = new FileInfo(r.ClipPath).Length; } catch (Exception) { }
+        bool workStays = !(r.Ok && input.DeleteWorkFile);
+        // A work file that stays in the folder (failed pass, or the keep-work test switch) gets the audio too.
+        if (workStays && r.AudioRecorded && input.AudioIntoKeptWorkFile) AddAudioToWorkFile(input, r);
         if (r.Ok && input.DeleteWorkFile)
         {
             try { File.Delete(input.WorkFile); }
             catch (Exception e) { r.Warnings.Add("Cannot delete the work file: " + e.Message); }
         }
+        CleanUpAudio(input, r, workStays);
         return r;
+    }
+
+    // ------------------------------------------------------------ audio and transcript
+
+    static void SetUpAudio(AfterRecordingInput input, AfterRecordingResult r)
+    {
+        r.AudioRecorded = false;
+        if (input.AudioFile == null) return;
+        try { r.AudioRecorded = File.Exists(input.AudioFile) && new FileInfo(input.AudioFile).Length > 64; }
+        catch (Exception) { r.AudioRecorded = false; }
+        if (!r.AudioRecorded) { r.Warnings.Add("The audio file is missing or empty, so the recording has no audio."); return; }
+        r.AudioShift = AudioClock.VideoTimeOfAudioStart(input.AudioStartClock, input.ClockOffset, r.FirstTime);
+        if (double.IsNaN(input.ClockOffset))
+            r.Warnings.Add("FFmpeg gave no clock, so the audio can be up to about 0.5 s off the video.");
+        if (!string.IsNullOrEmpty(input.AudioError)) r.Warnings.Add(input.AudioError + " The audio after that point is silence.");
+    }
+
+    static void MakeTranscript(AfterRecordingInput input, AfterRecordingResult r)
+    {
+        Stopwatch watch = Stopwatch.StartNew();
+        try { MakeTranscriptCore(input, r); }
+        catch (Exception e) { r.Transcript = null; r.TranscriptNote = "the transcript failed: " + Trim(e.Message); }
+        r.TranscriptSeconds = watch.Elapsed.TotalSeconds;
+    }
+
+    static void MakeTranscriptCore(AfterRecordingInput input, AfterRecordingResult r)
+    {
+        if (input.Whisper == null) { r.TranscriptNote = input.WhisperReason ?? "no Whisper program was found"; return; }
+        // Whisper invents text on silence ("Thank you."), so silent audio gets no transcript.
+        if (input.AudioPeak >= 0 && input.AudioPeak < AudioTake.SilentPeak) { r.TranscriptNote = "the audio was silent"; return; }
+        string wav = Path.Combine(input.Folder, AudioMux.TranscriptWavName);
+        string output;
+        int exit;
+        string[] prep = AudioMux.BuildTranscriptWavArguments(input.AudioFile, r.AudioShift, wav);
+        if (!RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(prep), 10 * 60 * 1000, out output, out exit) || exit != 0)
+        {
+            r.TranscriptNote = "FFmpeg could not make the 16 kHz audio for Whisper: " + Trim(output);
+            return;
+        }
+        string srt;
+        string[] args = Transcript.BuildArguments(input.Whisper, wav, input.Folder, input.WhisperLanguage, out srt);
+        try { if (File.Exists(srt)) File.Delete(srt); } catch (Exception) { }
+        double seconds = Math.Max(0, r.EndTime - r.FirstTime);
+        int timeout = Transcript.TimeoutMs(seconds);
+        if (!RecorderCore.RunFfmpeg(input.Whisper.Path, RecorderCore.JoinWindowsArguments(args), timeout, out output, out exit))
+        {
+            r.TranscriptNote = Path.GetFileName(input.Whisper.Path) + " did not start, or did not end in "
+                + (timeout / 1000).ToString(CultureInfo.InvariantCulture) + " s";
+            return;
+        }
+        if (exit != 0 || !File.Exists(srt))
+        {
+            r.TranscriptNote = Path.GetFileName(input.Whisper.Path) + " failed (exit code " + exit.ToString(CultureInfo.InvariantCulture) + "): " + Trim(LastLines(output, 3));
+            return;
+        }
+        List<TranscriptSegment> segments = Transcript.ParseSrt(File.ReadAllText(srt, Encoding.UTF8));
+        RecorderCore.AtomicWrite(Path.Combine(input.Folder, AudioMux.TranscriptFileName), Transcript.FormatSrt(segments));
+        if (!string.Equals(Path.GetFileName(srt), AudioMux.TranscriptFileName, StringComparison.OrdinalIgnoreCase))
+        {
+            try { File.Delete(srt); } catch (Exception) { }
+        }
+        r.Transcript = segments;
+        string lang = string.IsNullOrEmpty(input.WhisperLanguage) ? "auto" : input.WhisperLanguage;
+        r.TranscriptTool = input.Whisper.Describe() + ", language " + lang;
+    }
+
+    static string LastLines(string text, int n)
+    {
+        string[] lines = (text ?? "").Replace("\r", "").Trim().Split('\n');
+        int from = Math.Max(0, lines.Length - n);
+        return string.Join(" ", lines, from, lines.Length - from);
+    }
+
+    static void AddAudioToWorkFile(AfterRecordingInput input, AfterRecordingResult r)
+    {
+        string temp = input.WorkFile + ".audio.tmp.mp4";
+        try
+        {
+            if (!File.Exists(input.WorkFile)) return;
+            string output;
+            int exit;
+            string[] a = AudioMux.BuildRemuxArguments(input.WorkFile, input.AudioFile, r.AudioShift, temp);
+            if (RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(a), 30 * 60 * 1000, out output, out exit)
+                && exit == 0 && File.Exists(temp) && new FileInfo(temp).Length > 0)
+            {
+                File.Delete(input.WorkFile);
+                File.Move(temp, input.WorkFile);
+                r.Warnings.Add("The work file has the audio too.");
+                return;
+            }
+            r.Warnings.Add("The audio could not be added to the work file. " + AudioMux.AudioFileName + " stays in the folder.");
+        }
+        catch (Exception e) { r.Warnings.Add("The audio could not be added to the work file: " + e.Message); }
+        try { if (File.Exists(temp)) File.Delete(temp); } catch (Exception) { }
+    }
+
+    // The 16 kHz copy is a temporary file. The WAV file goes when clip.mp4 has the audio and no work file stays.
+    static void CleanUpAudio(AfterRecordingInput input, AfterRecordingResult r, bool workStays)
+    {
+        try
+        {
+            string wav16 = Path.Combine(input.Folder, AudioMux.TranscriptWavName);
+            if (File.Exists(wav16)) File.Delete(wav16);
+        }
+        catch (Exception) { }
+        if (input.AudioFile == null || workStays || !r.AudioInClip) return;
+        try { if (File.Exists(input.AudioFile)) File.Delete(input.AudioFile); } catch (Exception) { }
+    }
+
+    static string EncodeClipWithFallback(AfterRecordingInput input, AfterRecordingResult r, bool keyframes, bool audio)
+    {
+        string error = EncodeClip(input, r, keyframes, input.ForceX264, audio);
+        if (error != null && !input.ForceX264)
+        {
+            // NVENC can fail (driver, other app): try libx264 once (review 2026-11-19).
+            string second = EncodeClip(input, r, keyframes, true, audio);
+            if (second == null) { r.Warnings.Add("NVENC failed for clip.mp4. libx264 encoded it."); return null; }
+            error += " libx264: " + second;
+        }
+        return error;
     }
 
     // Writes index.md again, for example after the user typed a note.
@@ -112,6 +265,9 @@ static class AfterRecording
         double length = Math.Max(0, r.EndTime - r.FirstTime);
         string text = RecordingIndex.Build(input.Start, input.UtcOffset, note, length, r.Width, r.Height,
             r.Frames, input.Titles, input.SizeLimit, r.Warnings, r.FirstTime);
+        if (r.AudioRecorded)
+            text += Transcript.IndexSection(r.AudioInClip, r.Transcript, r.TranscriptTool,
+                r.Transcript == null ? (r.TranscriptNote ?? "the transcript was not made yet") : null);
         RecorderCore.AtomicWrite(r.IndexPath, text);
     }
 
@@ -145,6 +301,9 @@ static class AfterRecording
                 string name = Path.GetFileName(file);
                 if (name.StartsWith("work_lossless", StringComparison.OrdinalIgnoreCase)) continue;
                 if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
+                // The WAV files are large, and clip.mp4 has the audio.
+                if (name.Equals(AudioMux.AudioFileName, StringComparison.OrdinalIgnoreCase)
+                    || name.Equals(AudioMux.TranscriptWavName, StringComparison.OrdinalIgnoreCase)) continue;
                 string rel = file.Substring(full.Length).TrimStart('\\', '/').Replace('\\', '/');
                 archive.CreateEntryFromFile(file, root + "/" + rel, CompressionLevel.Optimal);
             }
@@ -434,7 +593,7 @@ static class AfterRecording
 
     // keyframes = true: one keyframe at each settled frame and no other keyframe.
     // keyframes = false: a normal clip.mp4 (fallback after a failed pass).
-    static string EncodeClip(AfterRecordingInput input, AfterRecordingResult r, bool keyframes, bool forceX264)
+    static string EncodeClip(AfterRecordingInput input, AfterRecordingResult r, bool keyframes, bool forceX264, bool audio)
     {
         List<double> times = new List<double>();
         if (keyframes) foreach (SettledFrame f in r.Frames) times.Add(f.Time);
@@ -455,7 +614,8 @@ static class AfterRecording
             times = times.GetRange(0, keep);
         }
         string[] a = RecorderCore.BuildClipArguments(s, input.WorkFile, r.ClipPath,
-            keyframes ? times : null, input.Fps, input.NvencAvailable && !forceX264);
+            keyframes ? times : null, input.Fps, input.NvencAvailable && !forceX264,
+            audio ? input.AudioFile : null, r.AudioShift);
         string output;
         int exit;
         if (!RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(a), 30 * 60 * 1000, out output, out exit))

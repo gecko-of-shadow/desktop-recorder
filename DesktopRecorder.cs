@@ -68,6 +68,11 @@ class Settings
     public int StillIntervalSeconds = 5;
     public int ScrollPercent = 60;
     public int SizeLimit = RecorderCore.DefaultSizeLimit;
+    // Audio and transcript (docs/audio-transcript.md). See StoredSettings.
+    public bool RecordAudio = false;
+    public string WhisperPath = "";
+    public string WhisperModel = "";
+    public string WhisperLanguage = "auto";
     // Keys written by the Linux build. Saved again so a shared settings file does not lose them.
     public List<string> ExtraLines = new List<string>();
 
@@ -124,6 +129,10 @@ class Settings
         stored.StillIntervalSeconds = StillIntervalSeconds;
         stored.ScrollPercent = ScrollPercent;
         stored.SizeLimit = SizeLimit;
+        stored.RecordAudio = RecordAudio;
+        stored.WhisperPath = WhisperPath;
+        stored.WhisperModel = WhisperModel;
+        stored.WhisperLanguage = WhisperLanguage;
         stored.RegionX = Region.X;
         stored.RegionY = Region.Y;
         stored.RegionWidth = Region.Width;
@@ -161,6 +170,10 @@ class Settings
         StillIntervalSeconds = stored.StillIntervalSeconds;
         ScrollPercent = stored.ScrollPercent;
         SizeLimit = stored.SizeLimit;
+        RecordAudio = stored.RecordAudio;
+        WhisperPath = stored.WhisperPath ?? "";
+        WhisperModel = stored.WhisperModel ?? "";
+        WhisperLanguage = RecorderCore.IsLanguageCode(stored.WhisperLanguage) ? stored.WhisperLanguage : "auto";
         Region = ToRectangle(stored.RegionX, stored.RegionY, stored.RegionWidth, stored.RegionHeight);
         LastRegion = ToRectangle(stored.LastRegionX, stored.LastRegionY, stored.LastRegionWidth, stored.LastRegionHeight);
         ExtraLines = new List<string>(stored.ExtraLines ?? new List<string>());
@@ -264,6 +277,13 @@ class Recorder
     // NVENC probe result for each ffmpeg path. The probe runs once for each path.
     static readonly Dictionary<string, bool> nvencUsable = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
+    // System audio (docs/audio-transcript.md). The capture runs from before FFmpeg starts until after it stops.
+    // An automatic restart after a failed start (fallback) keeps the same capture.
+    LoopbackCapture audio;
+    AudioTake lastAudio;
+    // Why the audio is off for this recording (the capture did not start), or null.
+    public string AudioNote;
+
     public Recorder()
     {
         session.Failed += delegate(string message)
@@ -360,6 +380,8 @@ class Recorder
     {
         plan = null;
         recordingFolder = null;
+        // A new recording (not a restart with the capture still running) has no audio from before.
+        if (audio == null) { lastAudio = null; AudioNote = null; }
         string ffmpeg = FindFfmpeg();
         if (ffmpeg == null)
             return "ffmpeg.exe was not found. Run this in PowerShell: winget install -e --id Gyan.FFmpeg. " +
@@ -380,7 +402,12 @@ class Recorder
         {
             string arguments = RecorderCore.JoinWindowsArguments(
                 RecorderCore.BuildCaptureArguments(stored, capture, monitors, now, nvenc));
-            return session.Start(ffmpeg, arguments, s.Folder, s.Fps);
+            // The WAV file has the name of the video: desktop_<time>.wav. Not "desktop_*.mp4", so it is not
+            // counted as a video of this recording.
+            if (s.RecordAudio) StartAudio(s.Folder, "desktop_" + now.ToString("yyyy-MM-dd_HH-mm-ss_fff", CultureInfo.InvariantCulture) + ".wav");
+            string mp4Error = session.Start(ffmpeg, arguments, s.Folder, s.Fps);
+            if (mp4Error != null) DiscardAudio();
+            return mp4Error;
         }
         string folder = reuseFolder;
         if (folder == null)
@@ -393,10 +420,61 @@ class Recorder
         string work = Path.Combine(folder, AfterRecording.WorkFileName);
         string folderArguments = RecorderCore.JoinWindowsArguments(
             RecorderCore.BuildCaptureArguments(stored, capture, monitors, now, nvenc, work));
+        if (s.RecordAudio) StartAudio(folder, AudioMux.AudioFileName);
         string error = session.Start(ffmpeg, folderArguments, folder, s.Fps, AfterRecording.WorkFileName);
         if (error == null) recordingFolder = folder;
+        else if (reuseFolder == null) DiscardAudio();
+        else StopAudio();   // a failed restart: the recording is over, keep what the WAV file has
         return error;
     }
+
+    // Starts the capture before FFmpeg, so the WAV file covers the first frame. A capture that runs already
+    // (restart after a failed start) goes on. A failure only turns the audio off (AudioNote).
+    void StartAudio(string folder, string fileName)
+    {
+        if (audio != null) return;
+        AudioNote = null;
+        lastAudio = null;
+        try
+        {
+            Directory.CreateDirectory(folder);
+            LoopbackCapture c = new LoopbackCapture();
+            string error = c.Start(Path.Combine(folder, fileName));
+            if (error == null) { audio = c; return; }
+            AudioTake failed = c.Stop();
+            AudioNote = error;
+            TryDelete(failed.Path);
+        }
+        catch (Exception e) { AudioNote = "System audio is off for this recording: " + e.Message; }
+    }
+
+    void DiscardAudio()
+    {
+        AudioTake t = StopAudio();
+        if (t != null) TryDelete(t.Path);
+        lastAudio = null;
+    }
+
+    static void TryDelete(string path)
+    {
+        try { if (path != null && File.Exists(path)) File.Delete(path); } catch (Exception) { }
+    }
+
+    // Stops the audio capture (after FFmpeg). Returns the take, or null when no audio was recorded.
+    // StartClockSeconds uses the clock of the last FFmpeg start (after a fallback restart: the new one).
+    public AudioTake StopAudio()
+    {
+        LoopbackCapture c = audio;
+        audio = null;
+        if (c == null) return lastAudio;
+        AudioTake t = c.Stop();
+        t.StartClockSeconds = (c.StartTimestamp - session.ClockStartTimestamp) / (double)Stopwatch.Frequency;
+        lastAudio = t;
+        return t;
+    }
+
+    // The audio of the last recording (after Stop), or null.
+    public AudioTake LastAudio { get { return lastAudio; } }
 
     // NVENC is usable for the clip.mp4 encode after the recording (the same probe as the capture).
     public static bool NvencForClip(Settings s)
@@ -422,10 +500,51 @@ class Recorder
     public void Stop()
     {
         session.Stop();
+        StopAudio();
+    }
+
+    // MP4 output: adds the audio to each video file of the last recording (stream copy, audio as AAC).
+    // Split files: file n starts at n x split minutes on the clock of FFmpeg. Returns null, or a note.
+    public string AddAudioToMp4Files(Settings s)
+    {
+        AudioTake t = lastAudio;
+        if (t == null || t.Path == null || !File.Exists(t.Path)) return null;
+        string ffmpeg = FindFfmpeg();
+        string[] files = session.SessionFiles();
+        if (ffmpeg == null || files.Length == 0) return "The audio stays in " + Path.GetFileName(t.Path) + ".";
+        double offset = session.ClockOffset;
+        bool ok = true;
+        for (int i = 0; i < files.Length; i++)
+        {
+            int split = RecorderCore.ClampSplitMinutes(s.SplitMinutes);
+            double shift = AudioClock.VideoTimeOfAudioStart(t.StartClockSeconds, offset, 0) - AudioMux.SegmentStart(i, split);
+            // Each file but the last ends at the next cut.
+            double end = split > 0 && i < files.Length - 1 ? split * 60.0 : 0;
+            string temp = files[i] + ".audio.tmp";
+            string output;
+            int exit;
+            string[] a = AudioMux.BuildRemuxArguments(files[i], t.Path, shift, temp, end);
+            // The temp name does not end in .mp4: give the format.
+            List<string> args = new List<string>(a);
+            args.Insert(args.Count - 1, "-f");
+            args.Insert(args.Count - 1, "mp4");
+            if (RecorderCore.RunFfmpeg(ffmpeg, RecorderCore.JoinWindowsArguments(args.ToArray()), 10 * 60 * 1000, out output, out exit)
+                && exit == 0 && File.Exists(temp) && new FileInfo(temp).Length > 0)
+            {
+                try { File.Delete(files[i]); File.Move(temp, files[i]); continue; }
+                catch (Exception) { }
+            }
+            ok = false;
+            TryDelete(temp);
+        }
+        if (!ok) return "The audio could not be added to every video file. It stays in " + Path.GetFileName(t.Path) + ".";
+        TryDelete(t.Path);
+        return null;
     }
 }
 
-// Two short tones, made in memory. Start goes up, stop goes down. The recording has no audio, so they are not recorded.
+// Two short tones, made in memory. Start goes up, stop goes down. With "record the sound of the PC" on, the
+// start tone can be at the start of the audio (the capture starts before the tone plays). UNVERIFIED.
 static class Sounds
 {
     static readonly System.Media.SoundPlayer startSound = Make(660, 880);
@@ -574,6 +693,8 @@ class TrayApp : ApplicationContext
                 ui.BeginInvoke((MethodInvoker)delegate
                 {
                     if (TryFallback(message)) return;
+                    // No restart: the recording is over, so the audio capture stops too.
+                    AudioTake take = recorder.StopAudio();
                     DisposeFrame();
                     titleTimer.Stop();
                     Refresh();
@@ -585,6 +706,8 @@ class TrayApp : ApplicationContext
                         return;
                     }
                     string stats = UpdateStats();
+                    if (take != null && take.Path != null && File.Exists(take.Path))
+                        stats += " The audio is in " + Path.GetFileName(take.Path) + ".";
                     // Stats first: Shorten cuts the end of a long ffmpeg message.
                     tray.ShowBalloonTip(8000, "Desktop Recorder stopped",
                         Shorten(stats + "\n" + message), ToolTipIcon.Error);
@@ -788,6 +911,7 @@ class TrayApp : ApplicationContext
         }
         if (sound && settings.PlaySounds) Sounds.PlayStart();
         string planNote = plan != null ? plan.Note : "";
+        if (recorder.AudioNote != null) balloon = true;
         if (balloon || (planNote != null && planNote.Length > 0))
         {
             string text = "Recording started";
@@ -796,6 +920,7 @@ class TrayApp : ApplicationContext
             if (note != null) text += "\n" + note;
             if (planNote != null && planNote.Length > 0) text += "\n" + planNote;
             if (frameWarning != null) text += "\n" + frameWarning;
+            if (recorder.AudioNote != null) text += "\n" + recorder.AudioNote;
             tray.ShowBalloonTip(3000, "Desktop Recorder", Shorten(text), ToolTipIcon.Info);
         }
     }
@@ -886,6 +1011,7 @@ class TrayApp : ApplicationContext
         if (wait && recordingFolder == null)
         {
             recorder.Stop();
+            mp4AudioNote = recorder.AddAudioToMp4Files(recordingSettings ?? settings);
             FinishStop();
             return;
         }
@@ -907,6 +1033,7 @@ class TrayApp : ApplicationContext
                 job.Input.Titles = BuildTitles();
                 double offset = recorder.ClockOffset;
                 if (!double.IsNaN(offset)) job.Input.EndTimeHint = stopClock - offset;
+                SetAudioInput(job.Input, recorder.LastAudio, offset);
                 try
                 {
                     ui.BeginInvoke((MethodInvoker)delegate
@@ -929,11 +1056,16 @@ class TrayApp : ApplicationContext
                 catch (InvalidOperationException) { }
                 return;
             }
+            // MP4 output: the audio goes into the video file(s) before they go to the clipboard.
+            string audioNote = null;
+            try { audioNote = recorder.AddAudioToMp4Files(recordingSettings ?? settings); }
+            catch (Exception e) { audioNote = "The audio could not be added: " + e.Message; }
             try
             {
                 ui.BeginInvoke((MethodInvoker)delegate
                 {
                     stopping = false;
+                    mp4AudioNote = audioNote;
                     FinishStop();
                     Refresh();
                     if (quitRequested) ExitNow();
@@ -941,6 +1073,19 @@ class TrayApp : ApplicationContext
             }
             catch (InvalidOperationException) { stopping = false; }
         });
+    }
+
+    string mp4AudioNote;   // a note about the audio of the last MP4 recording, or null
+
+    // The audio of the recording for the pass (docs/audio-transcript.md).
+    static void SetAudioInput(AfterRecordingInput input, AudioTake take, double clockOffset)
+    {
+        if (take == null || take.Path == null) return;
+        input.AudioFile = take.Path;
+        input.AudioStartClock = take.StartClockSeconds;
+        input.ClockOffset = clockOffset;
+        input.AudioPeak = take.Peak;
+        input.AudioError = take.Error;
     }
 
     // ------------------------------------------------------------ folder mode (AI capture brief, Phase 1)
@@ -1005,6 +1150,14 @@ class TrayApp : ApplicationContext
         input.Titles = BuildTitles();
         // The clip encode uses libx264 when the capture plan did (NVENC cannot encode this size, or it failed).
         input.ForceX264 = (recordingPlan != null && recordingPlan.Encoder == RecorderCore.EncoderX264) || forcedX264;
+        if (s.RecordAudio)
+        {
+            string reason;
+            input.Whisper = Transcript.Find(s.WhisperPath, s.WhisperModel, Path.GetDirectoryName(Application.ExecutablePath),
+                Environment.GetEnvironmentVariable("PATH") ?? "", true, out reason);
+            input.WhisperReason = reason;
+            input.WhisperLanguage = s.WhisperLanguage;
+        }
         PassJob job = new PassJob();
         job.Input = input;
         job.Problem = problem;
@@ -1039,6 +1192,8 @@ class TrayApp : ApplicationContext
     {
         if (recordingFolder == null) return;
         PassJob job = CreateJob(problem);
+        // The Failed handler stopped the audio already.
+        SetAudioInput(job.Input, recorder.LastAudio, recorder.ClockOffset);
         Stopwatch fromStop = Stopwatch.StartNew();
         passesRunning++;
         Refresh();
@@ -1073,6 +1228,11 @@ class TrayApp : ApplicationContext
             ? "Frames: " + r.Frames.Count.ToString(CultureInfo.InvariantCulture) + ". clip.mp4: " + clip + "."
             : "The frame pass failed. " + (r.ClipWritten ? "clip.mp4 (" + clip + ") has no settled keyframes. " : "")
               + "The work file stays in the folder. " + r.Error;
+        if (r.AudioRecorded)
+            text += r.HasTranscript ? " Transcript: " + r.Transcript.Count.ToString(CultureInfo.InvariantCulture) + " lines ("
+                    + r.TranscriptSeconds.ToString("0", CultureInfo.InvariantCulture) + " s)."
+                : r.Ok ? " No transcript: " + (r.TranscriptNote ?? "") + "." : "";
+        if (r.MotionNote != null) text += " The screen did not settle (moving content): the frames are samples.";
         if (job.Problem != null) text = job.Problem + "\n" + text;
         string balloonText = text;
         bool copied = false;
@@ -1086,7 +1246,7 @@ class TrayApp : ApplicationContext
                 list.Add(job.Input.Folder);
                 DataObject data = new DataObject();
                 data.SetFileDropList(list);
-                data.SetText(RecordingIndex.AiMessage(job.Input.Folder, r.Ok), TextDataFormat.UnicodeText);
+                data.SetText(RecordingIndex.AiMessage(job.Input.Folder, r.Ok, r.AudioInClip, r.HasTranscript), TextDataFormat.UnicodeText);
                 Clipboard.SetDataObject(data, true);
                 copied = true;
             }
@@ -1185,6 +1345,7 @@ class TrayApp : ApplicationContext
     void FinishStop()
     {
         string stats = UpdateStats();
+        if (mp4AudioNote != null) { stats += "\n" + mp4AudioNote; mp4AudioNote = null; }
         if (!settings.CopyToClipboard)
         {
             tray.ShowBalloonTip(4000, "Desktop Recorder", "Recording stopped.\n" + stats, ToolTipIcon.Info);
@@ -1568,6 +1729,7 @@ class SettingsForm : Form
     readonly CheckBox copyBox = new CheckBox();
     readonly CheckBox soundBox = new CheckBox();
     readonly CheckBox pointerBox = new CheckBox();
+    readonly CheckBox audioBox = new CheckBox();
     readonly CheckBox winBox = new CheckBox();
     readonly CheckBox ctrlBox = new CheckBox();
     readonly CheckBox altBox = new CheckBox();
@@ -1602,7 +1764,7 @@ class SettingsForm : Form
         MinimizeBox = false;
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(470, 604);
+        ClientSize = new Size(470, 630);
         Font = SystemFonts.MessageBoxFont;
 
         AddLabel("Save recordings to:", 15);
@@ -1682,31 +1844,36 @@ class SettingsForm : Form
         pointerBox.SetBounds(15, 494, 440, 22);
         pointerBox.Checked = !current.ShowPointer;
 
-        AddLabel("Region selector:", 523, 110);
+        // Off by default (Bran, 2026-11-20). Whisper is optional: without it there is audio but no transcript.
+        audioBox.Text = "Record the sound of the PC, and make a transcript if Whisper is installed";
+        audioBox.SetBounds(15, 520, 440, 22);
+        audioBox.Checked = current.RecordAudio;
+
+        AddLabel("Region selector:", 549, 110);
         crosshairBox.Text = "Crosshair";
-        crosshairBox.SetBounds(130, 520, 95, 22);
+        crosshairBox.SetBounds(130, 546, 95, 22);
         crosshairBox.Checked = current.SelectorCrosshair;
         magnifierBox.Text = "Magnifier";
-        magnifierBox.SetBounds(230, 520, 95, 22);
+        magnifierBox.SetBounds(230, 546, 95, 22);
         magnifierBox.Checked = current.SelectorMagnifier;
         positionBox.Text = "Position";
-        positionBox.SetBounds(330, 520, 95, 22);
+        positionBox.SetBounds(330, 546, 95, 22);
         positionBox.Checked = current.SelectorPosition;
 
         Button save = new Button();
         save.Text = "Save";
-        save.SetBounds(290, 564, 80, 27);
+        save.SetBounds(290, 590, 80, 27);
         save.Click += delegate { OnSave(); };
         Button cancel = new Button();
         cancel.Text = "Cancel";
-        cancel.SetBounds(375, 564, 80, 27);
+        cancel.SetBounds(375, 590, 80, 27);
         cancel.DialogResult = DialogResult.Cancel;
 
         Controls.AddRange(new Control[]
         {
             folderBox, browse, fpsBox, qualityBox, splitBox, winBox, ctrlBox, altBox, shiftBox, keyBox,
             backendBox, encoderBox, chromaBox, modeBox, outputBox,
-            startupBox, recordBox, copyBox, soundBox, pointerBox, crosshairBox, magnifierBox, positionBox, save, cancel
+            startupBox, recordBox, copyBox, soundBox, pointerBox, audioBox, crosshairBox, magnifierBox, positionBox, save, cancel
         });
         // The first control in Controls is on top. AddLabel adds the labels first, so they covered
         // the input fields (the fps value, the start of each list, the Win check box) at 125% on
@@ -1804,6 +1971,7 @@ class SettingsForm : Form
         Result.CopyToClipboard = copyBox.Checked;
         Result.PlaySounds = soundBox.Checked;
         Result.ShowPointer = !pointerBox.Checked;
+        Result.RecordAudio = audioBox.Checked;
         Result.HotkeyModifiers = mods;
         Result.HotkeyKey = hotkeyKey;
         Result.CaptureBackend = ChoiceValue(backendBox, BackendValues);

@@ -50,6 +50,7 @@ static class CoreTests
         TestAtomicWrite();
         TestSession();
         failures += AiCaptureTests.Run();
+        failures += AudioTests.Run();
         if (failures > 0)
         {
             Console.Error.WriteLine(failures + " failed");
@@ -106,7 +107,7 @@ static class CoreTests
     {
         StoredSettings defaults = new StoredSettings();
         defaults.Folder = @"C:\Users\me\Recordings";
-        string text = "fps=NaN\r\nquality=9\r\nsplit_minutes=-5\r\nhotkey=Shift+A\r\nrecord_audio=1\r\nwayland_restore_token=abc\r\n";
+        string text = "fps=NaN\r\nquality=9\r\nsplit_minutes=-5\r\nhotkey=Shift+A\r\nstart_on_login=1\r\nwayland_restore_token=abc\r\n";
         StoredSettings parsed = RecorderCore.ParseSettings(text, defaults);
         Expect(parsed.Fps == RecorderCore.DefaultFps && RecorderCore.DefaultFps == 10, "nan in file becomes default");
         Expect(parsed.Quality == 2, "quality clamped on load");
@@ -115,7 +116,14 @@ static class CoreTests
         Expect(parsed.Folder == defaults.Folder, "missing folder keeps default");
         Expect(parsed.ExtraLines.Count == 2, "two linux lines kept");
         string saved = RecorderCore.SerializeSettings(parsed);
-        Expect(saved.Contains("record_audio=1"), "audio line saved");
+        Expect(saved.Contains("start_on_login=1"), "linux login line saved");
+        // record_audio is a Windows setting too since 2026-11-20 (same meaning as in the Linux build).
+        StoredSettings audio = RecorderCore.ParseSettings("record_audio=1\r\nwhisper_language=de\r\nwhisper_path=\"C:\\w\\whisper-cli.exe\"\r\n", defaults);
+        Expect(audio.RecordAudio && audio.ExtraLines.Count == 0, "record_audio read");
+        Expect(audio.WhisperLanguage == "de" && audio.WhisperPath == @"C:\w\whisper-cli.exe", "whisper keys read");
+        Expect(!parsed.RecordAudio && parsed.WhisperLanguage == "auto", "audio off by default");
+        Expect(RecorderCore.ParseSettings("whisper_language=German\r\n", defaults).WhisperLanguage == "auto", "bad language keeps default");
+        Expect(RecorderCore.SerializeSettings(audio).Contains("record_audio=1\r\n"), "record_audio saved");
         Expect(saved.Contains("wayland_restore_token=abc"), "token line saved");
         Expect(saved.Contains("fps=10\r\n"), "fps serialized");
         Expect(saved.Contains("hotkey=Win+Shift+D\r\n"), "hotkey serialized");
@@ -285,7 +293,7 @@ static class CoreTests
         s.LastRegionY = 20;
         s.LastRegionWidth = 300;
         s.LastRegionHeight = 400;
-        s.ExtraLines.Add("record_audio=1");
+        s.ExtraLines.Add("start_on_login=1");
         string text = RecorderCore.SerializeSettings(s);
         Expect(text.Contains("capture_backend=gdigrab\r\n"), "backend saved");
         Expect(text.Contains("region=-1920,108,1200,700\r\n"), "region saved");

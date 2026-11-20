@@ -42,6 +42,12 @@ sealed class StoredSettings
     public int StillIntervalSeconds = 5;       // a frame at this interval when the screen does not settle
     public int ScrollPercent = 60;             // scroll-distance rule (condition A, Bran 2026-11-19): start value
     public int SizeLimit = RecorderCore.DefaultSizeLimit;   // long side in px; index.md warns above it
+    // Audio and transcript (docs/audio-transcript.md). Off by default (Bran, 2026-11-20): the PC almost always
+    // plays some sound, so the app does not detect audio by itself. Same key as the Linux build.
+    public bool RecordAudio = false;
+    public string WhisperPath = "";            // empty = search next to the app and on PATH
+    public string WhisperModel = "";           // whisper.cpp: the ggml file; other programs: a model name
+    public string WhisperLanguage = "auto";    // "auto", or a code such as "en" or "de"
     // Lines this program does not understand. Written back so another OS can keep its keys.
     public List<string> ExtraLines = new List<string>();
 }
@@ -469,6 +475,22 @@ static class RecorderCore
             }
             return true;
         }
+        if (key == "record_audio") { s.RecordAudio = val == "1"; return true; }
+        if (key == "whisper_path")
+        {
+            if (val.IndexOf('\n') < 0 && val.IndexOf('\r') < 0) s.WhisperPath = val.Trim('"');
+            return true;
+        }
+        if (key == "whisper_model")
+        {
+            if (val.IndexOf('\n') < 0 && val.IndexOf('\r') < 0) s.WhisperModel = val.Trim('"');
+            return true;
+        }
+        if (key == "whisper_language")
+        {
+            if (IsLanguageCode(val)) s.WhisperLanguage = val;
+            return true;
+        }
         if (key == "selector_crosshair") { s.SelectorCrosshair = val == "1"; return true; }
         if (key == "selector_magnifier") { s.SelectorMagnifier = val == "1"; return true; }
         if (key == "selector_position") { s.SelectorPosition = val == "1"; return true; }
@@ -497,6 +519,15 @@ static class RecorderCore
         // The one hotkey starts and stops. Read and drop the old keys, so they do not stay in the file.
         if (key == "last_region_hotkey" || key == "stop_hotkey") return true;
         return false;
+    }
+
+    // "auto" or 2 to 3 lower-case letters (Whisper language codes such as "en", "de", "yue").
+    public static bool IsLanguageCode(string v)
+    {
+        if (v == "auto") return true;
+        if (v == null || v.Length < 2 || v.Length > 3) return false;
+        foreach (char c in v) if (c < 'a' || c > 'z') return false;
+        return true;
     }
 
     // "x,y,width,height". A bad value changes nothing.
@@ -546,6 +577,10 @@ static class RecorderCore
         Append(sb, "still_interval_s", ClampInt(s.StillIntervalSeconds, 1, 600).ToString(CultureInfo.InvariantCulture));
         Append(sb, "scroll_percent", ClampInt(s.ScrollPercent, 10, 95).ToString(CultureInfo.InvariantCulture));
         Append(sb, "size_limit", ClampInt(s.SizeLimit, 256, 16384).ToString(CultureInfo.InvariantCulture));
+        Append(sb, "record_audio", s.RecordAudio ? "1" : "0");
+        Append(sb, "whisper_path", s.WhisperPath ?? "");
+        Append(sb, "whisper_model", s.WhisperModel ?? "");
+        Append(sb, "whisper_language", IsLanguageCode(s.WhisperLanguage) ? s.WhisperLanguage : "auto");
         Append(sb, "selector_crosshair", s.SelectorCrosshair ? "1" : "0");
         Append(sb, "selector_magnifier", s.SelectorMagnifier ? "1" : "0");
         Append(sb, "selector_position", s.SelectorPosition ? "1" : "0");
@@ -597,6 +632,10 @@ static class RecorderCore
         s.StillIntervalSeconds = defaults.StillIntervalSeconds;
         s.ScrollPercent = defaults.ScrollPercent;
         s.SizeLimit = defaults.SizeLimit;
+        s.RecordAudio = defaults.RecordAudio;
+        s.WhisperPath = defaults.WhisperPath;
+        s.WhisperModel = defaults.WhisperModel;
+        s.WhisperLanguage = defaults.WhisperLanguage;
         s.SelectorCrosshair = defaults.SelectorCrosshair;
         s.SelectorMagnifier = defaults.SelectorMagnifier;
         s.SelectorPosition = defaults.SelectorPosition;
@@ -1153,6 +1192,14 @@ static class RecorderCore
     public static string[] BuildClipArguments(StoredSettings s, string workFile, string clipFile,
         IList<double> keyframeTimes, double fps, bool nvencAvailable)
     {
+        return BuildClipArguments(s, workFile, clipFile, keyframeTimes, fps, nvencAvailable, null, 0);
+    }
+
+    // audioFile != null: the system audio goes into clip.mp4 as AAC. audioShift: the time of WAV time 0 on the
+    // time line of the work file (AudioClock.VideoTimeOfAudioStart). docs/audio-transcript.md.
+    public static string[] BuildClipArguments(StoredSettings s, string workFile, string clipFile,
+        IList<double> keyframeTimes, double fps, bool nvencAvailable, string audioFile, double audioShift)
+    {
         if (s == null) s = new StoredSettings();
         string encoder = ResolveEncoder(s.Encoder, nvencAvailable);
         bool nvenc = encoder == EncoderNvenc;
@@ -1168,8 +1215,21 @@ static class RecorderCore
         a.Add("-copyts");
         a.Add("-i");
         a.Add(workFile);
+        if (audioFile != null)
+        {
+            a.Add("-i");
+            a.Add(audioFile);
+        }
         a.Add("-map");
         a.Add("0:v:0");
+        if (audioFile != null)
+        {
+            a.Add("-map");
+            a.Add("1:a:0");
+            a.Add("-af");
+            a.Add(AudioMux.AlignFilter(audioShift));
+            AudioMux.AddAac(a);
+        }
         a.Add("-fps_mode");
         a.Add("passthrough");
         // A fine encoder time base. Without it, the encoder used the frame rate of the work file as its clock.

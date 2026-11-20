@@ -849,17 +849,28 @@ static class RecordingIndex
     // Text for the clipboard: a message for the AI and the folder path (Bran, 2026-11-19).
     public static string AiMessage(string folder, bool passOk)
     {
+        return AiMessage(folder, passOk, false, false);
+    }
+
+    // audio: clip.mp4 has the system audio. transcript: index.md has a transcript section.
+    public static string AiMessage(string folder, bool passOk, bool audio, bool transcript)
+    {
         string nl = "\r\n";
         string head = "Read my screen recording in this folder:" + nl + folder + nl + nl;
+        string sound = audio
+            ? "clip.mp4 also has the sound of the PC. If you can hear the audio of a video, listen to it." + nl : "";
         if (passOk)
             return head
                 + "1. Read index.md first. It gives the start time, my note, and one row for each frame: the time, the window title and what changed." + nl
                 + "2. Look at the PNG files in the frames folder. Each file is one settled frame at full resolution. The file names match the rows in index.md." + nl
-                + "3. Use clip.mp4 only for the motion between the frames. Its keyframes are at the times in index.md." + nl;
+                + "3. Use clip.mp4 only for the motion between the frames. Its keyframes are at the times in index.md." + nl
+                + (transcript ? "4. Read the section \"Audio and transcript\" at the end of index.md. It has the words that were spoken, with times on the time line of clip.mp4." + nl : "")
+                + sound;
         return head
             + "The frame pass failed, so the folder has no frames and no index.md." + nl
             + "1. Watch clip.mp4." + nl
-            + "2. If note.txt is in the folder, read it. It has my note." + nl;
+            + "2. If note.txt is in the folder, read it. It has my note." + nl
+            + sound;
     }
 
     public static string Describe(SettledFrame f, string title, string previousTitle)
@@ -898,7 +909,7 @@ static class RecordingIndex
         return number.ToString(new string('0', digits), CultureInfo.InvariantCulture);
     }
 
-    static string Cell(string s)
+    internal static string Cell(string s)
     {
         if (s == null) return "";
         return s.Replace("\r", " ").Replace("\n", " ").Replace("|", "\\|");
