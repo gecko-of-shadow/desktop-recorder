@@ -18,7 +18,7 @@ Windows:
 - **Recording frame.** A red frame and a Stop button show around the recorded area. Windows keeps them out of the video.
 - **GPU capture and encode.** `ddagrab` capture and `h264_nvenc` encode by default. The program uses `gdigrab` and `libx264` when the GPU path is not available.
 - **"Changes only" mode** (default). Frames that do not change are dropped. A still screen costs almost nothing.
-- **Status line** after each recording: real frames, duplicates, dropped frames, file size.
+- **Status line** after each recording: the frame count, the `clip.mp4` size and the time until the files are ready (folder mode), or real frames, duplicates, dropped frames and file size ("MP4 only").
 - **Folder for an AI** (default, new in 3.0.0). Each recording gives a folder with `frames\001.png` and so on, `index.md` and `clip.mp4`. See [Recording folder](#recording-folder-windows). "MP4 only" gives one MP4 file, as in version 2.0.2.
 - **System audio and transcript** (optional, off by default, new in 3.0.0). The sound of the PC goes into the video. When a local Whisper program is present, `index.md` gets a transcript. See [Audio and transcript](#audio-and-transcript-windows).
 - The finished recording (`index.md` and the frames, or the video) goes on the **clipboard**. Press Ctrl+V to paste it into a chat or a folder.
@@ -69,10 +69,11 @@ Windows SmartScreen can show a warning, because the program is not signed. Click
 
 When the recording stops:
 
-- A small note box opens. Type one line for the AI and press Enter, or press Esc. The note goes into `index.md` as "Note from Bran:". The program does not wait for the note.
+- In folder mode, a small note box opens. Type one line for the AI and press Enter, or press Esc. The note goes into `index.md` as "Note from Bran:" (into `note.txt` if the frame pass fails). The program does not wait for the note. "MP4 only" mode has no note box.
 - The program makes the frames, `index.md` and `clip.mp4` in the background. When this work is done, the status line in the tray menu ends with "Ready ... s after Stop."
-- `index.md` and the PNG frames go on the clipboard as files, together with a text message for the AI that has the folder path (you can turn this off in Settings). Ctrl+V in a chat app attaches the files. Ctrl+V in a terminal pastes the text. `clip.mp4` is not on the clipboard, because some chat apps refuse video. In "MP4 only" mode, the video file goes on the clipboard.
-- The tray menu shows a status line, for example: "Last recording: Real frames: 83 of 83. Duplicates: 0. Dropped: 0. File size: 0.05 MB."
+- `index.md` and the PNG frames go on the clipboard as files, together with a text message for the AI that has the folder path. Ctrl+V in a chat app attaches the files. Ctrl+V in a terminal pastes the text. `clip.mp4` is not on the clipboard, because some chat apps refuse video. In "MP4 only" mode, the video file goes on the clipboard. The setting "Copy the recording (folder or video) to the clipboard when it stops" turns off the whole clipboard copy: the files and the message.
+- Ctrl+V into the Claude desktop chat is tested. Other chat apps are not tested. Some chat apps take only about 20 files in one message, so a recording with many frames may not fit. Then use "Copy ZIP of last recording".
+- The tray menu shows a status line. Folder mode example: "Last recording: Frames: 5. clip.mp4: 0.12 MB. Ready 3.1 s after Stop." With audio, the line also gives the transcript result. "MP4 only" example: "Last recording: Real frames: 83 of 83. Duplicates: 0. Dropped: 0. File size: 0.05 MB."
 
 The recording area is a fixed rectangle. If a window moves during the recording, the area does not move with it.
 
@@ -81,6 +82,7 @@ Other controls:
 - A short sound plays when the recording starts and when it stops.
 - Right-click the tray icon for: Select region and record (or Stop recording), Open recordings folder, Open last recording folder, Copy ZIP of last recording, Settings, Exit.
 - Double-click the tray icon to open Settings.
+- Exit stops a running recording. The program then stays in the tray until the files of the last recording are made. The tray shows "Finishing the last recording, then the app closes...".
 
 ### Region selector keys
 
@@ -107,12 +109,12 @@ The size label shows the size in physical pixels. The program makes the width an
 |---|---|---|
 | Save recordings to | `C:\Users\<you>\Recordings` | The program makes the folder. |
 | Frames per second | 10 | 0.2 to 60. See [Choose a frame rate](#choose-a-frame-rate). |
-| Quality | Balanced | Smallest files, Balanced, or Sharpest text. See [Capture and encoding](#capture-and-encoding-windows). |
-| Start a new file every | 30 minutes | 0 means one file for each recording. |
+| Quality | Balanced | Smallest files, Balanced, or Sharpest text. See [Capture and encoding](#capture-and-encoding-windows). In folder mode it applies only to `clip.mp4`. |
+| Start a new file every | 30 minutes | 0 means one file for each recording. "MP4 only" mode only. Folder mode does not split. |
 | Hotkey | Win+Shift+D | Win, Ctrl, Alt and Shift, plus a letter, a digit or F1 to F12. Shift alone works only with F1 to F12. The same hotkey opens the selector and stops the recording. |
 | Capture | ddagrab (GPU) | ddagrab or gdigrab. |
 | Encoder | Auto | Auto (NVENC, else x264), NVENC only, or x264 only. |
-| Color detail (chroma) | 4:2:0 | 4:2:0 or 4:4:4. |
+| Color detail (chroma) | 4:2:0 | 4:2:0 or 4:4:4. In folder mode it applies only to `clip.mp4`. |
 | Frame-rate mode | Changes only | Fixed frame rate, or Changes only. |
 | Output | Folder for AI | Folder for AI (frames, `index.md`, `clip.mp4`), or MP4 only. See [Recording folder](#recording-folder-windows). |
 | Start Desktop Recorder when Windows starts | Off | Adds one entry for your user account only. |
@@ -171,7 +173,7 @@ A lower number gives a sharper picture and a larger file. The AI read test read 
 
 ## Recording folder (Windows)
 
-This is the default output. It is on the branch `ai-capture` and is not in a release yet.
+This is the default output since version 3.0.0.
 
 ```
 desktop_2026-11-19_13-01-41\
@@ -184,11 +186,13 @@ desktop_2026-11-19_13-01-41\
 
 - **`frames\`** has the settled frames only, as PNG files with no loss. A settled frame is the first frame after the screen stops changing for 400 ms. A blinking text cursor makes no new frame. A small change that stays makes a new frame.
 - During a long scroll, the program writes a frame each time the content moved 60% of the scrolled area, so no text is lost between two frames. When the screen changes without a stop, it writes a frame every 5 seconds.
-- **`index.md`** has the start time with the UTC offset of the PC, your note, the length, the region size, the frame count, and one row for each frame: the time, the window title and what changed. It warns when there are more than 20 frames, and when the long side is above 1568 px.
+- **`index.md`** starts with an instruction for the AI: the files are one screen recording, and they are context for your message. Then it has the start time with the UTC offset of the PC, your note, the length, the region size, the frame count, and one row for each frame: the time, the window title and what changed. It warns when there are more than 20 frames, and when the long side is above 1568 px.
 - **`clip.mp4`** is the video for people. Each frame in `frames\` is a keyframe of `clip.mp4`, at the time that `index.md` gives. The clip has no other keyframes.
-- **Copy ZIP of last recording** (tray menu) makes one ZIP file of the folder and puts it on the clipboard.
+- **Copy ZIP of last recording** (tray menu) makes `<folder>.zip` next to the folder and puts it on the clipboard. It replaces an older ZIP with that name. The ZIP leaves out the work file and the WAV files.
 
-How it works: FFmpeg records a lossless 4:4:4 work file. After Stop, a background pass reads the work file, writes the frames, the index and the clip, and then deletes the work file. If the pass fails, the work file stays and the program writes a normal `clip.mp4`. A recording in this mode is not split into parts.
+How it works: FFmpeg records a lossless 4:4:4 work file. After Stop, a background pass reads the work file, writes the frames, the index and the clip, and then deletes the work file. A recording in this mode is not split into parts. The Quality and Color detail settings apply only to `clip.mp4`. The work file and the PNG frames are always lossless.
+
+If the pass fails, the work file stays and the program writes a normal `clip.mp4`. Your note then goes into `note.txt`, because there is no `index.md`. The clipboard holds the files that exist (or the folder, when there are none) and a message for the AI that says the pass failed.
 
 These settings have no control in the Settings window. Change them in `settings.txt`: `settle_ms` (400), `still_interval_s` (5), `scroll_percent` (60), `size_limit` (1568).
 
@@ -196,13 +200,16 @@ When the picture changes almost all the time (for example a video or a stream), 
 
 ## Audio and transcript (Windows)
 
-This is on the branch `ai-capture`, is not in a release, and is not tested on Windows yet. Details: [docs/audio-transcript.md](docs/audio-transcript.md).
+New in 3.0.0. Tested on one Windows 11 PC: the audio capture, and a transcript with whisper.cpp. Not tested: the sync of audio and video, long recordings with a transcript, and the Whisper programs other than whisper.cpp. Details: [docs/audio-transcript.md](docs/audio-transcript.md).
 
 - Turn on "Record the sound of the PC, and make a transcript if Whisper is installed" in Settings. It is off by default.
 - The program records what the default playback device plays (WASAPI loopback). No extra driver and no "Stereo Mix" device are necessary. The microphone is not recorded.
 - Folder mode: `clip.mp4` gets the audio. "MP4 only" mode: each video file gets the audio after Stop.
-- Transcript: put a Whisper program next to `DesktopRecorder.exe` (also in a subfolder `whisper`), or on PATH. The program looks for `whisper-cli.exe` (whisper.cpp, with a model file `ggml-*.bin` next to it or in a `models` folder), `faster-whisper-xxl.exe`, `whisper-ctranslate2.exe`, and `whisper.exe` (only on PATH, because the name is too general). The transcript goes into `index.md` (section "Audio and transcript") and into `transcript.srt`. Its times are on the time line of `clip.mp4`.
+- Transcript: set `whisper_path`, or put a Whisper program next to `DesktopRecorder.exe` (or in a subfolder `whisper`, `whisper.cpp` or `Faster-Whisper-XXL`), or on PATH. The program uses `whisper_path` first, then the folder of the app, then PATH. If `whisper_path` names a file that does not exist, there is no transcript. It looks for `whisper-cli.exe` (whisper.cpp), `faster-whisper-xxl.exe`, `whisper-ctranslate2.exe`, and `whisper.exe` (only on PATH, because the name is too general). The transcript goes into `index.md` (section "Audio and transcript") and into `transcript.srt`. Its times are on the time line of `clip.mp4`.
+- whisper.cpp needs a model file `ggml-*.bin`: next to the program, in its `models` folder, or in `models` or `whisper\models` next to the app. With more than one model, the program uses the first of large-v3-turbo, medium, small, base, large and tiny.
 - Without Whisper, the recording still has the audio, and `index.md` says that there is no transcript.
+- Whisper can run for at most 2 minutes plus 3 times the recording length (at most 1 hour). If it takes longer, or if the audio is silent, `index.md` gives the reason that there is no transcript.
+- If the audio cannot go into the video, it stays as a WAV file: `audio_system.wav` in the recording folder, or `desktop_<time>.wav` next to the MP4 files.
 - Settings without a control (edit `settings.txt`): `whisper_path` (a full path to the program), `whisper_model` (whisper.cpp: the model file; other programs: a model name), `whisper_language` (`auto`, or a code such as `en`).
 - The transcript runs before the folder goes on the clipboard, so "Ready ... s after Stop" is longer.
 
@@ -227,7 +234,7 @@ With "Changes only", a higher frame rate costs space only while the screen chang
 
 ## Good to know
 
-- On Windows, audio is recorded only when you turn it on in Settings (branch `ai-capture`). On Ubuntu, system audio is recorded unless you turn it off in Settings.
+- On Windows, audio is recorded only when you turn it on in Settings. On Ubuntu, system audio is recorded unless you turn it off in Settings.
 - The MP4 stays playable if the PC loses power during a recording. You lose about the last 5 seconds at the default settings, and more at a very low frame rate.
 - If the program stops without a normal stop (for example, a crash), FFmpeg stops with it. A file shorter than 2 seconds can then be unreadable.
 - Hide the mouse pointer when the screen is mostly still and you move the mouse. In "Changes only" mode, each pointer move otherwise adds a frame. Hover effects in other programs (button colors, tooltips) still add frames.
@@ -321,6 +328,17 @@ Version 2.0.x was tested on one PC: one 1920x1080 monitor at 125% scale, RTX 406
 - **Look-alike changes (2.0.1).** An offline test caught 15 of 15 one-character changes, with 2 font sizes and light and dark themes.
 
 Not tested: PCs with two or more monitors (also `gdigrab` with an area across two monitors), monitors with different scales, the `libx264` fallback in the program, PCs without an NVIDIA GPU, and AI tools other than Claude. In the selector, these keys are not tested: `~`, Shift and Ctrl while you drag, C, M and P.
+
+Version 3.0.0 (folder output, audio, transcript) was tested on the same PC with Windows 11. `HANDOFF.md` sections 7.5 to 7.10 have the full tables. Summary:
+
+- **Lossless capture.** Counter test at 15 fps for 10 s: 150 of 150 frames, in "Changes only" and in fixed mode. This test ran before the `-bf 0` change and did not run again after it.
+- **Settled frames (offline).** A status line that changed 5 times gave 6 frames, one for each status. A blinking text cursor for 30 s gave 1 frame. 15 of 15 look-alike changes were caught. A scroll of 100 lines and 5 settings pages: 0 px missed.
+- **Real recordings.** Status line: 6 frames, each status in one frame. Settings tour: all 5 pages, no blended frame. The keyframes of `clip.mp4` equal the PNG count in all folders, and `clip.mp4` starts at 0.0 s. Stop to clipboard: 1.0 to 1.8 s (upper limits).
+- **Video content (offline, Linux and Mono, not on this PC).** A `testsrc2` test video gave 19 false "scroll" rows before the fix and 0 after.
+- **Clipboard.** Ctrl+V in the Claude desktop chat attached `index.md` and 4 frames, and the chat read them.
+- **Audio and transcript.** The WASAPI capture gave an AAC stream of 12.48 s for a 12.40 s video. whisper.cpp (large-v3-turbo, RTX 4060) wrote a transcript of a spoken test sentence with all words correct.
+
+Not tested in 3.0.0: the sync of audio and video, long recordings with a transcript, a busy 60 s or 5 min recording, a real blinking text cursor, `clip.mp4` in a normal video player, Ctrl+V in claude.ai, Gemini or Explorer, Whisper programs other than whisper.cpp, the exe from the release zip (the test PC ran a local build of the same commit), and a PC without an NVIDIA GPU.
 
 The test kit is in `test/`: a source text, an auto-scroll page, a frame-counter page, and scripts that count frames and score an AI copy.
 

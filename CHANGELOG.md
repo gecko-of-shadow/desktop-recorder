@@ -12,6 +12,8 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 - Windows: the default output is a folder for an AI, not one MP4 file. Each recording gives `frames\001.png` and so on (settled frames at full resolution), `index.md` (start time, note, one row for each frame with the time, the window title and what changed) and `clip.mp4` (keyframes at the frame times). Settings has "MP4 only" for the old output.
 - Windows: in folder mode, the clipboard holds `index.md` and the PNG frames as files, plus a text message for the AI with the folder path. A chat app attaches the files. A terminal gets the text.
+- Windows: in folder mode, a recording is not split into parts. "Start a new file every" applies only to "MP4 only". Quality and Color detail apply only to `clip.mp4`; the frames are always lossless.
+- Windows: Exit stops a running recording, then waits until the files of the last recording are made.
 - README: new structure (summary, features, install, use, build, troubleshooting).
 
 ### Added
@@ -19,16 +21,16 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 - Windows: `index.md` starts with an instruction for the AI: the files are one screen recording and they are context for the message.
 - Windows: a note box after Stop. The note goes into `index.md`.
 - Windows: tray items "Open last recording folder" and "Copy ZIP of last recording".
-- Windows: optional system audio (off by default) in `clip.mp4` and in the MP4 files. When a local Whisper program is present (whisper.cpp, faster-whisper-xxl, whisper-ctranslate2 or whisper), `index.md` gets a transcript and the folder gets `transcript.srt`. See [docs/audio-transcript.md](docs/audio-transcript.md).
+- Windows: optional system audio (off by default) in `clip.mp4` and in the MP4 files. When a local Whisper program is present (whisper.cpp; faster-whisper-xxl, whisper-ctranslate2 and whisper are supported but not tested), `index.md` gets a transcript and the folder gets `transcript.srt`. See [docs/audio-transcript.md](docs/audio-transcript.md).
 - Windows: `index.md` says when the picture did not settle for most of the recording (for example a video), so the AI knows that the frames are samples.
 
 ### Fixed
 
-- Windows: moving video no longer gives false "scroll" rows. A shift must now match 80% of the edge pixels.
+- Windows: moving video no longer gives false "scroll" rows. A shift must now match 80% of the edge pixels. A row for a screen that still changes does not name a scroll smaller than 2% of the moving area (for example a camera tilt in a video). Rows for settled frames still name the scroll.
 
 ### Notes
 
-- Tested on one PC (Windows 11, one monitor, RTX 4060): folder output, paste into the Claude desktop chat, audio capture, and a transcript with whisper.cpp. Not tested: the sync of audio and video, long recordings with a transcript, and a PC without an NVIDIA GPU.
+- Tested on one PC (Windows 11, one monitor, RTX 4060): folder output, paste into the Claude desktop chat, audio capture, and a transcript with whisper.cpp. Not tested: the sync of audio and video, long recordings with a transcript, Whisper programs other than whisper.cpp, other chat apps, a busy 60 s or 5 min recording, `clip.mp4` in a normal video player, the exe from the release zip (the test PC ran a local build of the same commit), and a PC without an NVIDIA GPU.
 - Ubuntu: no change.
 
 ## [2.0.2] - 2026-11-15

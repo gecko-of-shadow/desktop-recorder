@@ -496,9 +496,10 @@ Not checked: look-alike changes in a real screen capture (the states were drawn 
 | Look-alike changes in "Changes only" (6.10) | Done. Lower `mpdecimate` thresholds. Offline test 15/15. App runs PASS. Released in v2.0.1. |
 | Release v2.0.1 | Done (7.3). |
 | Release v2.0.2 | Done (7.4). Tray icons not checked in Bran's real tray. |
-| AI capture folder (7.5, 7.6) | On branch `ai-capture` (pushed). Real recordings checked on Bran's PC (7.6). Not merged, not released. |
-| Audio and transcript (7.7) | Code and unit tests done in a cloud session (Linux, Mono). Off by default. UNVERIFIED on Windows. |
-| Twitch recording faults (7.7) | Motion note and false-scroll fix done, tested on synthetic files. UNVERIFIED on the real recording. Clipboard risk written down, not changed. |
+| AI capture folder (7.5, 7.6) | Real recordings checked on Bran's PC (7.6). Merged into `main` and released in v3.0.0 (7.11). |
+| Audio and transcript (7.7) | Off by default. Released in v3.0.0. WASAPI capture and a whisper.cpp transcript checked on Bran's PC (7.9, 7.10). Audio sync and other Whisper programs UNVERIFIED. |
+| Twitch recording faults (7.7) | Motion note and false-scroll fix done, tested on synthetic files. UNVERIFIED on the real recording. Clipboard fault fixed in 7.9. |
+| README and release notes for v3.0.0 | Done (7.12). |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -777,6 +778,17 @@ Done on 2026-11-20. https://github.com/gecko-of-shadow/desktop-recorder/releases
 - Bran's PC runs a local build of 05de6bf (SHA-256 starts with 54806862) in `%LOCALAPPDATA%\Programs\DesktopRecorder`, not the exe from the zip.
 - Not checked: the exe from the release zip on a PC; the v3.0.0 zip on a second PC; the points in 7.9 and 7.10 that are not checked.
 - The branch `ai-capture` still exists.
+- 7.12 changed the release body. It no longer equals the tag message.
+
+### 7.12 README, CHANGELOG and release notes after v3.0.0 (2026-11-20)
+
+- Bran: "make sure the readme and release info reflects everything that's new with the app".
+- Method: a review workflow compared README.md, CHANGELOG [3.0.0], `packaging/windows/README.txt` and the release body with the v3.0.0 code and HANDOFF 7.5 to 7.11. A second agent tried to refute each finding. All 29 findings held, some with narrower wording.
+- README: removed the "branch `ai-capture`, not in a release, not tested on Windows" text. Added: the AI instruction in `index.md`, the folder-mode status line, the note box only in folder mode and `note.txt` after a failed pass, the clipboard setting covers files and message, the tested paste (Claude desktop chat only) and the 20-file risk, Exit waits for the last pass, ZIP place and contents, Quality and Color detail apply only to `clip.mp4` in folder mode, no split in folder mode, the Whisper search order, subfolders, model order and time limit, WAV files that can stay, and a 3.0.0 test summary.
+- CHANGELOG [3.0.0]: no split and lossless frames in folder mode, Exit waits, the 2% scroll rule, only whisper.cpp tested, a longer "Not tested" list.
+- Release body: edited with `gh release edit v3.0.0 --notes-file`. Tag and assets not changed. The tag message still has the old text.
+- Not changed: `packaging/windows/README.txt` (inside the released zip), the test switch `DESKTOP_RECORDER_KEEP_WORK` (left out of the README on purpose).
+- Not checked: the 20-file limit of the Claude chat (from 7.9, not tested).
 
 ## 8. Rules for the agent
 
