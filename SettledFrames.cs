@@ -875,10 +875,26 @@ static class RecordingIndex
 
     public static string Describe(SettledFrame f, string title, string previousTitle)
     {
+        return Describe(f, title, previousTitle, 0);
+    }
+
+    // A scroll below this part of the moving area is not named in a row of a changing screen.
+    public const double SmallScrollFraction = 0.02;
+
+    // regionHeight: the height of the frame. It is the moving area when the frame has no change box.
+    public static string Describe(SettledFrame f, string title, string previousTitle, int regionHeight)
+    {
         string kind = f.Kind;
         if (kind == FrameKind.First) return "first frame";
         string scroll = "";
-        if (f.ScrollPixels != 0)
+        // Video content can move the picture a few pixels up or down (a camera tilt). The shift check cannot
+        // tell this from a slow scroll, so a row of a changing screen does not name a scroll below 2% of the
+        // moving area. Bran's YouTube test recording of 2026-11-20 gave "scroll, 3 px up" on such rows.
+        // The frames do not change: this rule is for the text only.
+        int area = f.BoxHeight > 0 ? f.BoxHeight : regionHeight;
+        bool changing = kind == FrameKind.StillChanging || kind == FrameKind.Last;
+        bool small = changing && area > 0 && Math.Abs(f.ScrollPixels) < SmallScrollFraction * area;
+        if (f.ScrollPixels != 0 && !small)
             scroll = "scroll, " + Math.Abs(f.ScrollPixels).ToString(CultureInfo.InvariantCulture)
                 + " px " + (f.ScrollPixels > 0 ? "down" : "up");
         if (kind == FrameKind.ScrollPart) return scroll + " (still scrolling)";
@@ -955,7 +971,7 @@ static class RecordingIndex
             sb.Append("| ").Append(FrameFileName(f.Number, frames.Count))
               .Append(" | ").Append(f.Time.ToString("0.0", CultureInfo.InvariantCulture)).Append(" s")
               .Append(" | ").Append(Cell(title))
-              .Append(" | ").Append(Cell(Describe(f, title, previousTitle))).Append(" |\n");
+              .Append(" | ").Append(Cell(Describe(f, title, previousTitle, height))).Append(" |\n");
             previousTitle = title;
         }
         return sb.ToString();

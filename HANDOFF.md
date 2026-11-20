@@ -693,6 +693,8 @@ Design note: [docs/audio-transcript.md](docs/audio-transcript.md). It has the re
 | Frame 006: false "scroll, 573 px up" from video motion | A shift counts only when 80% or more of the edge pixels in the changed columns match after the shift (`ShiftMatchRatio`). Also: the band votes and the step before always get the fine check (a sort tie could drop the true step). | `testsrc2` 26 s: 19 false scroll frames before, 0 after. Plain scroll, header + sidebar, video inside a scrolling page: 0 missed rows before and after. Unit test `TestNoisyShiftIsNotScroll` fails with the old rule (-824 px), passes with the new rule. |
 | Clipboard: file drop and text together (risk, not checked) | No change. The note (section 10.3) has the risk, 3 possible fixes and a paste test for Bran. | - |
 
+**Bran's YouTube test recording (`desktop_2026-11-20_00-00-01_531.mp4`, "MP4 only", 19.9 s, lossy, no audio), pass run under Mono (note 10.2.1):** the motion note shows (98%). No large false scroll before or after the change. The new match check rejected 1 shift and accepted 4 shifts of 1 to 3 px (probably real camera motion in the video). Change, approved by Bran: rows of a changing screen do not name a scroll below 2% of the moving area (text only, frames unchanged). Checked on this file: no row names a scroll. Not checked: audio (the file has none), the 573 px fault (this file does not have it).
+
 Test changes:
 
 - `TestStillChanging` used `Page(100 + i)`. `Page(seed + 1)` is `Page(seed)` moved by 12 rows (checked: 28800 of 28800 bytes equal), so that test fed a real scroll and passed only by a sort tie. It now uses a video-like frame.

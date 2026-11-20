@@ -236,6 +236,21 @@ Known limit (not changed): `PixelError` compares the full width of the frame. A 
 
 UNVERIFIED: the Twitch recording itself.
 
+### 10.2.1 Bran's YouTube test recording (2026-11-20)
+
+File: `desktop_2026-11-20_00-00-01_531.mp4` ("MP4 only" output, 1920x1020, 19.9 s, 15 fps "Changes only", lossy, no audio track). Content: a YouTube video in Chrome. The pass ran on it under Mono with the code before (535753c) and after (a27b22f) the task 2 changes.
+
+| | Before | After |
+|---|---|---|
+| Frames | 5 (first, 3 x "screen still changing", last) | the same 5 |
+| Large false scroll | none | none |
+| Motion note | none | "the picture changed during 98% of the recording (area x 16, y 16, 1848 x 976 px) ..." |
+| Scroll values in the rows | -3, +4, +3 px | -3, +2, +3 px |
+
+- The new match check rejected 1 of the 5 shifts that passed the error rule (match 0.76). It accepted 4 shifts of 1 to 3 px (match 0.80 to 0.92). These are probably real motion in the video (a camera tilt). A pixel check cannot tell them from a slow scroll.
+- Change (Bran approved): a row of a changing screen ("screen still changing", or the last frame when the screen was changing) does not name a scroll below 2% of the moving area (`RecordingIndex.SmallScrollFraction`; the area is the height of the change box, or the region height). Settled rows keep the scroll text. The frames do not change. Checked on this file: no row names a scroll. Unit test `TestSmallScrollText`.
+- This file did not repeat the 573 px fault, so the 573 px fix is proved on synthetic files only.
+
 ### 10.3 Clipboard: file drop and text (risk, no change)
 
 In folder mode the clipboard holds two formats: a file drop (the folder) and Unicode text (the AI message). Each program that pastes picks one format.

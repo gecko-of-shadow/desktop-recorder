@@ -36,6 +36,7 @@ static class AiCaptureTests
         TestNoisyShiftIsNotScroll();
         TestScrollStillFound();
         TestMotionReport();
+        TestSmallScrollText();
         return failures;
     }
 
@@ -498,6 +499,28 @@ static class AiCaptureTests
         for (int k = 0; k < 150; k++) { scroll.Feed(View(content, pos), k / 15.0); pos += 4; }
         scroll.Finish(10);
         Expect(scroll.MotionReport(10) == null, "no motion note for a scroll (moving " + scroll.MovingSeconds.ToString("0.0") + " s)");
+    }
+
+    // A few pixels of "scroll" in a changing screen (video) are not named; a real scroll is (2026-11-20).
+    static void TestSmallScrollText()
+    {
+        SettledFrame f = new SettledFrame();
+        f.Kind = FrameKind.StillChanging;
+        f.ScrollPixels = -3;
+        f.BoxHeight = 976;
+        Expect(RecordingIndex.Describe(f, "", "", 1020) == "screen still changing", "small scroll not named: " + RecordingIndex.Describe(f, "", "", 1020));
+        f.ScrollPixels = 40;
+        Expect(RecordingIndex.Describe(f, "", "", 1020) == "screen still changing, scroll, 40 px down", "real scroll named");
+        f.BoxHeight = 0;
+        f.ScrollPixels = 3;
+        Expect(RecordingIndex.Describe(f, "", "", 1020) == "screen still changing", "no box: region height is the area");
+        f.Kind = FrameKind.Last;
+        f.ChangedFraction = 0.4;
+        Expect(RecordingIndex.Describe(f, "", "", 1020) == "large change, last frame (screen was changing)", "last frame: small scroll not named");
+        f.Kind = FrameKind.Settled;
+        Expect(RecordingIndex.Describe(f, "", "", 1020) == "scroll, 3 px down", "settled frame keeps a small scroll");
+        f.Kind = FrameKind.StillChanging;
+        Expect(RecordingIndex.Describe(f, "", "") == "screen still changing, scroll, 3 px down", "old overload unchanged");
     }
 
     static void TestIndex()
