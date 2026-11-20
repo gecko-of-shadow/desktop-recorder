@@ -6,6 +6,8 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-11-20
+
 ### Changed
 
 - Windows: new default, "Start recording (saved region) when Desktop Recorder starts" is off. Before, the app recorded at once when it started, and recorded the full desktop when it had no saved area.
@@ -16,6 +18,11 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 ### Fixed
 
 - Windows: the file-count warning in `index.md` now counts `index.md` too. Before, a recording with 20 frames put 21 files on the clipboard but got no warning.
+
+### Notes
+
+- Tested: unit tests and the app build on one PC (Windows 11), and the Build workflow on GitHub. Not tested: a recording with the 3.0.1 build, the first start with no settings file, and the exe from the release zip.
+- Ubuntu: no change.
 
 ## [3.0.0] - 2026-11-20
 
@@ -145,7 +152,8 @@ First release, with portable archives for Windows and Ubuntu 24.04. FFmpeg is no
 
 - Not tested: a GNOME Wayland session, real audio samples, and the Windows program on a Windows desktop (the exe was built by GitHub Actions).
 
-[Unreleased]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.0.1...HEAD
+[3.0.1]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.2...v3.0.0
 [2.0.2]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.0...v2.0.1

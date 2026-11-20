@@ -2,7 +2,7 @@
 
 A small tray program that records a part of your screen, so that an AI model can read the text on it. On Windows, one recording gives one folder: the settled frames as PNG files, an `index.md` that describes each frame, and `clip.mp4` for people.
 
-Current version: **3.0.0** (2026-11-20). See [CHANGELOG.md](CHANGELOG.md) for the version history.
+Current version: **3.0.1** (2026-11-20). See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 You select the area with the text. The program records that area at full resolution, so each character stays sharp. A still screen costs almost no space, so the files stay small.
 
