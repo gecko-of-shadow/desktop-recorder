@@ -544,6 +544,45 @@ Done on 2026-11-15. https://github.com/gecko-of-shadow/desktop-recorder/releases
 - The subject of commit 89c03d9 starts with a BOM character (`Set-Content -Encoding utf8` in PowerShell 5.1 writes a BOM). Not corrected: a correction needs a force push of `main`. Write message files with `[IO.File]::WriteAllText` and `UTF8Encoding($false)`.
 - Not checked: the tray icons in Bran's real tray; the v2.0.2 zip on a second PC.
 
+
+### 7.5 AI capture folder, Phase 1 (2026-11-19, branch `ai-capture`, not pushed)
+
+Source: `desktop-recorder-ai-capture-brief.md` (Version 2, not in Git) and Bran's decisions and conditions A to H of 2026-11-19.
+
+What the code does now:
+
+- New output mode "folder" (default). "MP4 only" keeps the old behavior (setting `output_mode`).
+- In folder mode, FFmpeg records a lossless 4:4:4 work file (`work_lossless.mp4`, fragmented). No split.
+- After Stop, a pass on a background thread (`AfterRecording.cs`) writes `frames\NNN.png`, `clip.mp4` and `index.md`. Then it deletes the work file. When the pass fails, the work file stays and a normal `clip.mp4` is written (condition D).
+- Settled-frame rules (`SettledFrames.cs`): 400 ms still time (`settle_ms`), blink and spinner masks, a frame each 5 s during motion (`still_interval_s`), a scroll-distance rule at 60% of the moving area (`scroll_percent`, condition A), a frame before a step that would leave a gap, and a frame at a turn of the scroll.
+- `clip.mp4`: `-copyts`, `-g 999999`, `-forced-idr 1`, `-force_key_frames` with each time minus 0.01 s (condition C). libx264 with `scenecut=0` when NVENC is not used.
+- `index.md`: start time with the numeric UTC offset (condition F), note, length, region, frame count, a warning above 20 frames and above 1568 px (condition G), and one row for each frame. Times are on the time line of `clip.mp4` (condition H).
+- Window titles: the window at the center of the region, every 250 ms. The FFmpeg stats clock puts them on the video time line.
+- Note box after Stop. It does not block the pass. When the pass fails, the note goes into `note.txt`.
+- Clipboard: the folder. Tray items: "Open last recording folder", "Copy ZIP of last recording" (the ZIP leaves out the work files).
+
+Tests run on Bran's PC (offline, from files):
+
+| Test | Result |
+|---|---|
+| Unit tests (`tests/CoreTests.cs` + `tests/AiCaptureTests.cs`) | ok |
+| Synthetic, status line changes 5 times in 60 s, with a blinking caret | 6 frames, each status in one frame (fixed and "changes" mode) |
+| Synthetic, blinking caret 30 s | 1 frame |
+| Synthetic, 15 look-alike changes (`test/settled_render.cs`) | 15 of 15 |
+| Synthetic, scroll of 100 lines and 5 settings pages | 0 px missed (own measure and `test/scroll_coverage.py`) |
+| Keyframes of `clip.mp4` (brief ffprobe command) | equal to the PNG count in all runs |
+| Bran's clip `desktop_2026-11-19_14-02-29_611.mp4` (condition B), lossy input | 50%: 37 frames; 60%: 34 frames; 70%: 33 frames; 0% missed in each (independent check `test/scroll_coverage.py`). Keyframe times equal the index times (first 0.600 s). |
+| Pass time (condition D), lossless files made from Bran's lossy recordings | 60 s, 1302x960: 3.5 s. 5 min, 1920x1080: 32 s. Worst case: lossy noise makes almost every frame a change. |
+
+Not checked:
+
+- Condition E (counter test of the lossless capture at 15 fps). Two tries failed: the display was off (ddagrab gets no frames), then Chrome did not come to the front and the capture recorded another window. Run `test/lossless_counter.ps1` with the PC left alone for 40 s.
+- Any recording with the new app (brief section 8 tests). The new build is not installed. The running v2.0.2 locks `DesktopRecorder.exe`.
+- The time from Stop to "clipboard ready" in the app (the app shows it in the status line). The real value adds the FFmpeg stop (about 0.4 s, 6.7).
+- Title timing against real window changes.
+- Extra frames on Bran's clip come from lossy encoder noise on still frames. A lossless work file should not have this noise. UNVERIFIED.
+- Known limits: a scroll step larger than about 80% of the moving area cannot be measured; the scroll rule uses the box of all changed rows, so other changes during a scroll make the box larger; a log-off (SessionEnding) keeps the work file but runs no pass.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.
