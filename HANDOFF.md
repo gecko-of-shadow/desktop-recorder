@@ -656,6 +656,15 @@ Settings file after the tests, against the copy from before: 5 new keys (`output
 
 Shared items: the new build uses the same settings file (`%APPDATA%\DesktopRecorder\settings.txt`) and the same "start with Windows" entry as the installed app. The new keys in the settings file do no harm to the installed app (not checked with the 2.1.0 exe).
 
+**State at the end of the session (2026-11-19, 20:02):**
+
+- Bran approved the deletion of the test items. The recording folders that the table above names are deleted, and so are the log files in `test/results/` and the scratchpad files of both sessions that were in the list. The results in this section cannot be checked again from those files.
+- Bran uses the new build now: `DesktopRecorder-ai.exe` in the repository folder, built from commit e53e69e (Git ignores no such name, so do not add it to a commit). It runs without the keep-work switch. The "start with Windows" entry (`HKCU` Run, name `DesktopRecorder`) points at this exe.
+- The 2.1.0 app in `Desktop/tools/screen-vibe-recorder-2.1.0-windows-x64` is stopped and not changed. Bran keeps it as the fallback.
+- The settings file from before the tests is saved as `%APPDATA%/DesktopRecorder/settings.backup-2026-11-19-before-ai-test.txt` (old region `167,92,1482,762`).
+- Other files of the first session are still in its scratchpad (`syn_*.mp4`, `sheet.png`, some folders). They were not in the deletion list.
+- Next steps: the three open tests above (caret, busy 60 s and 5 min, counter test after `-bf 0`), then the final AI read test of the brief, then Bran decides about push and release.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.
