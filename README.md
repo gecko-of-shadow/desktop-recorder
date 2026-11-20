@@ -118,10 +118,10 @@ The size label shows the size in physical pixels. The program makes the width an
 | Frame-rate mode | Changes only | Fixed frame rate, or Changes only. |
 | Output | Folder for AI | Folder for AI (frames, `index.md`, `clip.mp4`), or MP4 only. See [Recording folder](#recording-folder-windows). |
 | Start Desktop Recorder when Windows starts | Off | Adds one entry for your user account only. |
-| Start recording (saved region) when Desktop Recorder starts | On | Records the last selected area, without the selector. With no saved area, or an area that is not on the screen now, it records the full desktop. |
+| Start recording (saved region) when Desktop Recorder starts | Off | On records the last selected area as soon as the app starts, without the selector. With no saved area, or an area that is not on the screen now, it records the full desktop. |
 | Copy the recording (folder or video) to the clipboard when it stops | On | |
 | Play a sound when recording starts and stops | On | Two rising tones for start, two falling tones for stop. |
-| Hide the mouse pointer in the video | Off | On removes the pointer from the video. See [Good to know](#good-to-know). |
+| Hide the mouse pointer in the video | On | Off shows the pointer in the video and in the frames. See [Good to know](#good-to-know). |
 | Record the sound of the PC, and make a transcript if Whisper is installed | Off | See [Audio and transcript](#audio-and-transcript-windows). |
 | Region selector: Crosshair, Magnifier, Position | Off, On, On | The keys C, M and P in the selector change them too. |
 
@@ -237,7 +237,7 @@ With "Changes only", a higher frame rate costs space only while the screen chang
 - On Windows, audio is recorded only when you turn it on in Settings. On Ubuntu, system audio is recorded unless you turn it off in Settings.
 - The MP4 stays playable if the PC loses power during a recording. You lose about the last 5 seconds at the default settings, and more at a very low frame rate.
 - If the program stops without a normal stop (for example, a crash), FFmpeg stops with it. A file shorter than 2 seconds can then be unreadable.
-- Hide the mouse pointer when the screen is mostly still and you move the mouse. In "Changes only" mode, each pointer move otherwise adds a frame. Hover effects in other programs (button colors, tooltips) still add frames.
+- The mouse pointer is hidden by default (3.0.0 and earlier showed it). A shown pointer that moves keeps the screen from settling: in "Changes only" mode each pointer move adds a frame, and in folder mode the pointer can show in the PNG frames. Hover effects in other programs (button colors, tooltips) still add frames.
 
 ## Troubleshooting
 

@@ -13,12 +13,12 @@ sealed class StoredSettings
     public double Fps = RecorderCore.DefaultFps;
     public int Quality = 1;
     public int SplitMinutes = 30;
-    public bool RecordOnLaunch = true;
+    public bool RecordOnLaunch = false;
     public bool CopyToClipboard = true;
     public bool PlaySounds = true;
     // Draw the mouse pointer in the video. Off = no pointer: a mouse move on a still screen
     // changes no pixel in the video, and the pointer cannot cover text.
-    public bool ShowPointer = true;
+    public bool ShowPointer = false;
     public int HotkeyModifiers = 4 | 8;   // 1 = Alt, 2 = Ctrl, 4 = Shift, 8 = Win
     public int HotkeyKey = (int)'D';
     // Capture and encoding (HANDOFF 4.3). Strings, so the settings file stays readable.

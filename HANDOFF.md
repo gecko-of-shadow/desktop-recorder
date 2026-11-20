@@ -154,10 +154,11 @@ Other rules:
 6. Remove the "record last region" feature (hotkey, tray item, settings row). Bran does not use it.
 7. Save in Settings does not restart a running recording. New capture settings apply to the next recording (bug 4 in 6.7).
 8. Icons: Bran's 3D icon for the exe, and his tray icon set for the tray (6.7).
-9. Mouse pointer: shown by default (`show_pointer=1`). The "Hide the mouse pointer" check box in Settings is off by default (6.9). Bran decided on 2026-11-14.
+9. Mouse pointer: hidden by default (`show_pointer=0`). The "Hide the mouse pointer" check box in Settings is on by default. Bran decided on 2026-11-20 (7.13). Before that, the default was "shown" (Bran, 2026-11-14, 6.9).
 10. Default frame rate: 10 fps (was 2). Bran decided on 2026-11-14. Reason: the 6.8 rule needs 2.3 fps for 1000 CSS px/s at 125% in an 892 px area. 10 fps is safe up to about 4400 CSS px/s. Bran's settings file already had `fps=10`.
 11. Quality default: keep Balanced (CQ 23). More reads of B3, B9 and B11 are put off to a later date (Bran, 2026-11-14).
 12. Release: push `test-kit`, merge it into `main`, publish v2.0.0 (Bran, 2026-11-14). The version is 2.0.0 because the hotkey now opens the selector, not a full-desktop recording.
+13. "Start recording (saved region) when Desktop Recorder starts": off by default (`record_on_launch=0`). Bran decided on 2026-11-20 (7.13).
 
 ---
 
@@ -789,6 +790,15 @@ Done on 2026-11-20. https://github.com/gecko-of-shadow/desktop-recorder/releases
 - Release body: edited with `gh release edit v3.0.0 --notes-file`. Tag and assets not changed. The tag message still has the old text.
 - Not changed: `packaging/windows/README.txt` (inside the released zip), the test switch `DESKTOP_RECORDER_KEEP_WORK` (left out of the README on purpose).
 - Not checked: the 20-file limit of the Claude chat (from 7.9, not tested).
+
+### 7.13 New defaults: no recording at start, pointer hidden (2026-11-20)
+
+- Bran: "turn off record on launch and hide the pointer".
+- Reasons: `record_on_launch=1` came from the v1 design (98136d2), when the app always recorded the full desktop. With no saved area it recorded the full desktop with no question, also at login. All folder-mode tests (7.6) ran with the pointer hidden. A moving pointer keeps the screen from settling.
+- Code: `RecordOnLaunch = false` and `ShowPointer = false` in `StoredSettings` (`RecorderCore.cs`) and in the app settings class (`DesktopRecorder.cs`). The test helper `Base()` sets `ShowPointer = true`, so the argument tests still check `draw_mouse 1` first. New test "explicit record on launch".
+- An existing `settings.txt` keeps its values. Bran's file already had `record_on_launch=0` and `show_pointer=0`.
+- Checked on Bran's PC: unit tests `ok`. The app builds with `csc.exe` (CS0649 warnings only).
+- Not checked: the first start of the new build with no settings file, and its Settings window. Not released. The Linux port is not changed.
 
 ## 8. Rules for the agent
 

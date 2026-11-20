@@ -129,16 +129,17 @@ static class CoreTests
         Expect(saved.Contains("hotkey=Win+Shift+D\r\n"), "hotkey serialized");
         StoredSettings again = RecorderCore.ParseSettings(saved, defaults);
         Expect(again.ExtraLines.Count == 2, "extras survive a second load");
-        Expect(again.CopyToClipboard && again.PlaySounds && again.RecordOnLaunch, "bool defaults when omitted");
+        Expect(again.CopyToClipboard && again.PlaySounds && !again.RecordOnLaunch, "bool defaults when omitted");
+        Expect(RecorderCore.ParseSettings("record_on_launch=1\r\n", defaults).RecordOnLaunch, "explicit record on launch");
 
         StoredSettings off = RecorderCore.ParseSettings("record_on_launch=0\r\ncopy_to_clipboard=0\r\nplay_sounds=0\r\nfps=2.5\r\n", defaults);
         Expect(!off.RecordOnLaunch && !off.CopyToClipboard && !off.PlaySounds, "explicit off");
         Expect(off.Fps == 2.5, "fractional fps");
-        Expect(again.ShowPointer, "pointer shown by default");
-        Expect(saved.Contains("show_pointer=1\r\n"), "pointer serialized");
-        StoredSettings hidden = RecorderCore.ParseSettings("show_pointer=0\r\n", defaults);
-        Expect(!hidden.ShowPointer, "pointer hidden");
-        Expect(RecorderCore.SerializeSettings(hidden).Contains("show_pointer=0\r\n"), "hidden pointer serialized");
+        Expect(!again.ShowPointer, "pointer hidden by default");
+        Expect(saved.Contains("show_pointer=0\r\n"), "pointer serialized");
+        StoredSettings shown = RecorderCore.ParseSettings("show_pointer=1\r\n", defaults);
+        Expect(shown.ShowPointer, "pointer shown");
+        Expect(RecorderCore.SerializeSettings(shown).Contains("show_pointer=1\r\n"), "shown pointer serialized");
     }
 
     static void TestArguments()
@@ -223,6 +224,8 @@ static class CoreTests
         s.SplitMinutes = 0;
         // The argument tests below use fixed fps unless they set "changes" themselves.
         s.FrameRateMode = "fixed";
+        // The pointer is hidden by default. The argument tests below check draw_mouse 1 first, then set it off themselves.
+        s.ShowPointer = true;
         return s;
     }
 

@@ -43,10 +43,10 @@ class Settings
     public double Fps = RecorderCore.DefaultFps;
     public int Quality = 1;          // 0 = smallest, 1 = balanced, 2 = sharpest
     public int SplitMinutes = 30;    // 0 = one file per recording
-    public bool RecordOnLaunch = true;
+    public bool RecordOnLaunch = false;
     public bool CopyToClipboard = true;
     public bool PlaySounds = true;
-    public bool ShowPointer = true;
+    public bool ShowPointer = false;
     public int HotkeyModifiers = 4 | 8;   // 1 = Alt, 2 = Ctrl, 4 = Shift, 8 = Win
     public Keys HotkeyKey = Keys.D;
     // Capture and encoding (HANDOFF 4.3).

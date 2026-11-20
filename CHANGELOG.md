@@ -6,6 +6,12 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ## [Unreleased]
 
+### Changed
+
+- Windows: new default, "Start recording (saved region) when Desktop Recorder starts" is off. Before, the app recorded at once when it started, and recorded the full desktop when it had no saved area.
+- Windows: new default, the mouse pointer is hidden. A moving pointer keeps the screen from settling and can show in the PNG frames. The folder-mode tests ran with the pointer hidden.
+- These new defaults apply only when `settings.txt` has no value for the key. An existing settings file keeps its values.
+
 ## [3.0.0] - 2026-11-20
 
 ### Changed
