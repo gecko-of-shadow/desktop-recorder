@@ -29,6 +29,12 @@ sealed class RecordingSession
     FfmpegProgress progress;
     bool hasProgress;
     int generation;
+    string pattern = "desktop_*.mp4";
+    // Clock of the recording (condition H, Bran 2026-11-19): seconds since FFmpeg started, and the smallest
+    // (clock - stats time) seen. Video time = clock - ClockOffset. A stats line comes after its packet,
+    // so the smallest difference is the best estimate. Guarded by statsGate.
+    readonly System.Diagnostics.Stopwatch clock = new System.Diagnostics.Stopwatch();
+    double clockOffset = double.NaN;
 
     // Raised on a background thread when ffmpeg ends by itself. The argument is ffmpeg's error text.
     public event Action<string> Failed;
@@ -40,6 +46,12 @@ sealed class RecordingSession
 
     // Returns null on success, or a message to show.
     public string Start(string ffmpegPath, string arguments, string outputFolder, double framesPerSecond)
+    {
+        return Start(ffmpegPath, arguments, outputFolder, framesPerSecond, "desktop_*.mp4");
+    }
+
+    // filePattern: the files of this recording in outputFolder (folder mode: "*.mp4" in the recording folder).
+    public string Start(string ffmpegPath, string arguments, string outputFolder, double framesPerSecond, string filePattern)
     {
         if (ffmpegPath == null || ffmpegPath.Length == 0) return "ffmpeg was not found.";
         if (outputFolder == null || outputFolder.Length == 0) return "The recordings folder is empty.";
@@ -57,7 +69,8 @@ sealed class RecordingSession
         {
             if (state != Idle)
                 return "Desktop Recorder is already recording.";
-            List<string> existing = Snapshot(outputFolder);
+            pattern = string.IsNullOrEmpty(filePattern) ? "desktop_*.mp4" : filePattern;
+            List<string> existing = Snapshot(outputFolder, pattern);
             try { p.Start(); }
             catch (Exception e)
             {
@@ -77,6 +90,9 @@ sealed class RecordingSession
                 gen = generation;
                 progress = new FfmpegProgress();
                 hasProgress = false;
+                clockOffset = double.NaN;
+                clock.Reset();
+                clock.Start();
             }
             state = Recording;
             idleEvent.Reset();
@@ -157,7 +173,7 @@ sealed class RecordingSession
         {
             if (dir == null || !Directory.Exists(dir)) return new string[0];
             HashSet<string> skip = new HashSet<string>(prior, StringComparer.OrdinalIgnoreCase);
-            string[] files = Directory.GetFiles(dir, "desktop_*.mp4");
+            string[] files = Directory.GetFiles(dir, pattern);
             for (int i = 0; i < files.Length; i++)
             {
                 if (skip.Contains(files[i])) continue;
@@ -173,12 +189,12 @@ sealed class RecordingSession
         return found.ToArray();
     }
 
-    static List<string> Snapshot(string dir)
+    static List<string> Snapshot(string dir, string pattern)
     {
         List<string> list = new List<string>();
         try
         {
-            if (Directory.Exists(dir)) list.AddRange(Directory.GetFiles(dir, "desktop_*.mp4"));
+            if (Directory.Exists(dir)) list.AddRange(Directory.GetFiles(dir, pattern));
         }
         catch (Exception) { }
         return list;
@@ -204,6 +220,18 @@ sealed class RecordingSession
             try { if (!p.HasExited) p.Kill(); } catch (Exception) { }
             try { p.WaitForExit(); } catch (Exception) { }
         }
+    }
+
+    // Seconds since FFmpeg of the current recording started.
+    public double ClockSeconds
+    {
+        get { lock (statsGate) return clock.Elapsed.TotalSeconds; }
+    }
+
+    // Clock seconds minus video seconds, from the stats lines. NaN when FFmpeg gave no time.
+    public double ClockOffset
+    {
+        get { lock (statsGate) return clockOffset; }
     }
 
     // Stats of the last recording: frames, duplicates and drops from the last FFmpeg stats line,
@@ -239,6 +267,11 @@ sealed class RecordingSession
                 {
                     progress = parsed;
                     hasProgress = true;
+                    if (parsed.TimeSeconds >= 0)
+                    {
+                        double diff = clock.Elapsed.TotalSeconds - parsed.TimeSeconds;
+                        if (double.IsNaN(clockOffset) || diff < clockOffset) clockOffset = diff;
+                    }
                 }
             }
             return;

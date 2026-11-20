@@ -49,6 +49,7 @@ static class CoreTests
         TestWav();
         TestAtomicWrite();
         TestSession();
+        failures += AiCaptureTests.Run();
         if (failures > 0)
         {
             Console.Error.WriteLine(failures + " failed");

@@ -262,6 +262,64 @@ static class NativeMethods
         return list.ToArray();
     }
 
+    // ---------------------------------------------------------------- window titles (AI capture index)
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int max);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr WindowFromPoint(POINT point);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+
+    [DllImport("user32.dll")]
+    static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    const uint GA_ROOT = 2;
+
+    /// <summary>
+    /// The title of the top-level window at the screen point (physical px). When that window belongs to this
+    /// process (the border or the Stop button), or has no title, the title of the foreground window.
+    /// Returns "" when Windows gives no title.
+    /// </summary>
+    public static string WindowTitleAt(Point screenPoint)
+    {
+        try
+        {
+            POINT p = new POINT();
+            p.X = screenPoint.X;
+            p.Y = screenPoint.Y;
+            IntPtr h = WindowFromPoint(p);
+            if (h != IntPtr.Zero) h = GetAncestor(h, GA_ROOT);
+            string title = h != IntPtr.Zero && !IsOwnWindow(h) ? TitleOf(h) : "";
+            if (title.Length == 0)
+            {
+                IntPtr f = GetForegroundWindow();
+                if (f != IntPtr.Zero && !IsOwnWindow(f)) title = TitleOf(f);
+            }
+            return title;
+        }
+        catch (Exception) { return ""; }
+    }
+
+    static bool IsOwnWindow(IntPtr h)
+    {
+        uint pid;
+        GetWindowThreadProcessId(h, out pid);
+        return pid == (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+    }
+
+    static string TitleOf(IntPtr h)
+    {
+        System.Text.StringBuilder sb = new System.Text.StringBuilder(512);
+        GetWindowText(h, sb, sb.Capacity);
+        return sb.ToString().Trim();
+    }
+
     /// <summary>The DPI scale (1.0 = 96 DPI) of the monitor nearest to the point. Returns 1.0 when Windows cannot tell.</summary>
     public static float GetScaleForPoint(Point screenPoint)
     {

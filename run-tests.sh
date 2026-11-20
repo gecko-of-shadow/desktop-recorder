@@ -6,6 +6,6 @@ if [ -z "${DISPLAY:-}" ] && command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo -dis
   export DISPLAY=:1
 fi
 mcs -sdk:4.5 -nologo -target:exe -out:/tmp/desktop-recorder-tests.exe \
-  tests/CoreTests.cs RecorderCore.cs RecordingSession.cs
+  tests/CoreTests.cs tests/AiCaptureTests.cs RecorderCore.cs RecordingSession.cs SettledFrames.cs
 mono /tmp/desktop-recorder-tests.exe
 PYTHONPATH=linux python3 -m unittest discover -s tests -v

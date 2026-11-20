@@ -62,6 +62,12 @@ class Settings
     public bool SelectorCrosshair = false;
     public bool SelectorMagnifier = true;
     public bool SelectorPosition = true;
+    // AI capture folder (AI capture brief, Phase 1). See StoredSettings for the meaning.
+    public string OutputMode = RecorderCore.OutputFolder;
+    public int SettleMs = 400;
+    public int StillIntervalSeconds = 5;
+    public int ScrollPercent = 60;
+    public int SizeLimit = RecorderCore.DefaultSizeLimit;
     // Keys written by the Linux build. Saved again so a shared settings file does not lose them.
     public List<string> ExtraLines = new List<string>();
 
@@ -113,6 +119,11 @@ class Settings
         stored.SelectorCrosshair = SelectorCrosshair;
         stored.SelectorMagnifier = SelectorMagnifier;
         stored.SelectorPosition = SelectorPosition;
+        stored.OutputMode = OutputMode;
+        stored.SettleMs = SettleMs;
+        stored.StillIntervalSeconds = StillIntervalSeconds;
+        stored.ScrollPercent = ScrollPercent;
+        stored.SizeLimit = SizeLimit;
         stored.RegionX = Region.X;
         stored.RegionY = Region.Y;
         stored.RegionWidth = Region.Width;
@@ -145,6 +156,11 @@ class Settings
         SelectorCrosshair = stored.SelectorCrosshair;
         SelectorMagnifier = stored.SelectorMagnifier;
         SelectorPosition = stored.SelectorPosition;
+        OutputMode = RecorderCore.NormalizeOutputMode(stored.OutputMode);
+        SettleMs = stored.SettleMs;
+        StillIntervalSeconds = stored.StillIntervalSeconds;
+        ScrollPercent = stored.ScrollPercent;
+        SizeLimit = stored.SizeLimit;
         Region = ToRectangle(stored.RegionX, stored.RegionY, stored.RegionWidth, stored.RegionHeight);
         LastRegion = ToRectangle(stored.LastRegionX, stored.LastRegionY, stored.LastRegionWidth, stored.LastRegionHeight);
         ExtraLines = new List<string>(stored.ExtraLines ?? new List<string>());
@@ -332,7 +348,18 @@ class Recorder
     // forceGdigrab and forceX264 are for the automatic fallback after a failed start (TrayApp).
     public string Start(Settings s, Rectangle region, bool forceGdigrab, bool forceX264, out CapturePlan plan)
     {
+        string folder;
+        return Start(s, region, forceGdigrab, forceX264, null, out plan, out folder);
+    }
+
+    // Folder mode (s.OutputMode = folder): FFmpeg records the lossless work file into a new recording folder,
+    // or into reuseFolder (the automatic fallback after a failed start). recordingFolder is that folder,
+    // or null in MP4 mode.
+    public string Start(Settings s, Rectangle region, bool forceGdigrab, bool forceX264, string reuseFolder,
+        out CapturePlan plan, out string recordingFolder)
+    {
         plan = null;
+        recordingFolder = null;
         string ffmpeg = FindFfmpeg();
         if (ffmpeg == null)
             return "ffmpeg.exe was not found. Run this in PowerShell: winget install -e --id Gyan.FFmpeg. " +
@@ -348,10 +375,39 @@ class Recorder
             : new CaptureRegion(region.X, region.Y, region.Width, region.Height);
         List<MonitorBounds> monitors = Monitors();
         plan = RecorderCore.PlanCapture(stored, capture, monitors, nvenc);
-        string arguments = RecorderCore.JoinWindowsArguments(
-            RecorderCore.BuildCaptureArguments(stored, capture, monitors, DateTime.Now, nvenc));
-        return session.Start(ffmpeg, arguments, s.Folder, s.Fps);
+        DateTime now = DateTime.Now;
+        if (RecorderCore.NormalizeOutputMode(s.OutputMode) == RecorderCore.OutputMp4)
+        {
+            string arguments = RecorderCore.JoinWindowsArguments(
+                RecorderCore.BuildCaptureArguments(stored, capture, monitors, now, nvenc));
+            return session.Start(ffmpeg, arguments, s.Folder, s.Fps);
+        }
+        string folder = reuseFolder;
+        if (folder == null)
+        {
+            string name = RecorderCore.RecordingFolderName(now);
+            folder = Path.Combine(s.Folder, name);
+            for (int n = 2; Directory.Exists(folder) && n < 100; n++)
+                folder = Path.Combine(s.Folder, name + "_" + n.ToString(CultureInfo.InvariantCulture));
+        }
+        string work = Path.Combine(folder, AfterRecording.WorkFileName);
+        string folderArguments = RecorderCore.JoinWindowsArguments(
+            RecorderCore.BuildCaptureArguments(stored, capture, monitors, now, nvenc, work));
+        string error = session.Start(ffmpeg, folderArguments, folder, s.Fps, AfterRecording.WorkFileName);
+        if (error == null) recordingFolder = folder;
+        return error;
     }
+
+    // NVENC is usable for the clip.mp4 encode after the recording (the same probe as the capture).
+    public static bool NvencForClip(Settings s)
+    {
+        if (RecorderCore.NormalizeEncoder(s.Encoder) != RecorderCore.EncoderAuto) return true;
+        string ffmpeg = FindFfmpeg();
+        return ffmpeg != null && IsNvencUsable(ffmpeg);
+    }
+
+    public double ClockSeconds { get { return session.ClockSeconds; } }
+    public double ClockOffset { get { return session.ClockOffset; } }
 
     public string[] SessionFiles()
     {
@@ -470,6 +526,15 @@ class TrayApp : ApplicationContext
     const int FallbackWindowMs = 10000;
     bool selecting;
     bool stopping;   // FFmpeg is finishing the file on a background thread
+    // Folder mode (AI capture brief, Phase 1).
+    string recordingFolder;                 // null in MP4 mode
+    DateTime recordingStartTime;
+    Settings recordingSettings;             // the settings of the running recording
+    readonly List<KeyValuePair<double, string>> titleSamples = new List<KeyValuePair<double, string>>();
+    readonly System.Windows.Forms.Timer titleTimer = new System.Windows.Forms.Timer();
+    PassJob lastJob;                        // the last recording in folder mode
+    readonly MenuItem openLastItem = new MenuItem("Open last recording folder");
+    readonly MenuItem zipItem = new MenuItem("Copy ZIP of last recording");
     Icon currentIcon;
     IntPtr currentIconHandle = IntPtr.Zero;
 
@@ -484,13 +549,19 @@ class TrayApp : ApplicationContext
         toggleItem.Click += delegate { Toggle(); };
         MenuItem folderItem = new MenuItem("Open recordings folder");
         folderItem.Click += delegate { OpenFolder(); };
+        openLastItem.Click += delegate { OpenLastFolder(); };
+        zipItem.Click += delegate { CopyZip(); };
+        openLastItem.Enabled = false;
+        zipItem.Enabled = false;
+        titleTimer.Interval = 250;
+        titleTimer.Tick += delegate { SampleTitle(); };
         MenuItem settingsItem = new MenuItem("Settings...");
         settingsItem.Click += delegate { ShowSettings(); };
         MenuItem exitItem = new MenuItem("Exit");
         exitItem.Click += delegate { Quit(); };
         tray.ContextMenu = new ContextMenu(new MenuItem[]
         {
-            statusItem, statsItem, new MenuItem("-"), toggleItem, folderItem, settingsItem,
+            statusItem, statsItem, new MenuItem("-"), toggleItem, folderItem, openLastItem, zipItem, settingsItem,
             new MenuItem("-"), exitItem
         });
         tray.DoubleClick += delegate { ShowSettings(); };
@@ -504,8 +575,15 @@ class TrayApp : ApplicationContext
                 {
                     if (TryFallback(message)) return;
                     DisposeFrame();
+                    titleTimer.Stop();
                     Refresh();
                     if (settings.PlaySounds) Sounds.PlayStop();
+                    if (recordingFolder != null)
+                    {
+                        // Keep what was recorded: the pass makes the frames and clip.mp4 from the work file.
+                        StartPass(null, "FFmpeg stopped: " + Shorten(message));
+                        return;
+                    }
                     string stats = UpdateStats();
                     // Stats first: Shorten cuts the end of a long ffmpeg message.
                     tray.ShowBalloonTip(8000, "Desktop Recorder stopped",
@@ -548,7 +626,7 @@ class TrayApp : ApplicationContext
         DisposeFrame();
         string firstLine = (message ?? "").Replace("\r", "").Split('\n')[0];
         StartRecordingWith(region, false, true, reason + "\nFFmpeg: " + firstLine,
-            forcedGdigrab || useGdigrab, forcedX264 || useX264);
+            forcedGdigrab || useGdigrab, forcedX264 || useX264, recordingFolder);
         return true;
     }
 
@@ -654,11 +732,31 @@ class TrayApp : ApplicationContext
 
     void StartRecordingWith(Rectangle region, bool sound, bool balloon, string note, bool forceGdigrab, bool forceX264)
     {
+        StartRecordingWith(region, sound, balloon, note, forceGdigrab, forceX264, null);
+    }
+
+    void StartRecordingWith(Rectangle region, bool sound, bool balloon, string note, bool forceGdigrab, bool forceX264,
+        string reuseFolder)
+    {
         CapturePlan plan;
-        string error = recorder.Start(settings, region, forceGdigrab, forceX264, out plan);
+        string folder;
+        bool restart = reuseFolder != null;
+        string error = recorder.Start(settings, region, forceGdigrab, forceX264, reuseFolder, out plan, out folder);
         string frameWarning = null;
         if (error == null)
         {
+            recordingFolder = folder;
+            if (!restart)
+            {
+                recordingStartTime = DateTime.Now;
+                recordingSettings = settings.Copy();
+            }
+            lock (titleSamples) titleSamples.Clear();
+            if (folder != null)
+            {
+                SampleTitle();
+                titleTimer.Start();
+            }
             recordingRegion = region;
             recordingFps = settings.Fps;
             recordingPlan = plan;
@@ -768,18 +866,58 @@ class TrayApp : ApplicationContext
         }
         if (sound && settings.PlaySounds) Sounds.PlayStop();
         DisposeFrame();
+        titleTimer.Stop();
+        Stopwatch fromStop = Stopwatch.StartNew();
         if (wait)
         {
             recorder.Stop();
+            if (recordingFolder != null)
+            {
+                // Quit: make the folder before the app ends, so the recording is not lost.
+                PassJob quitJob = CreateJob(null);
+                RunPass(quitJob);
+                OnPassDone(quitJob, fromStop);
+                return;
+            }
             FinishStop();
             return;
         }
+        PassJob job = recordingFolder != null ? CreateJob(null) : null;
+        // The note box does not wait for the pass, and the pass does not wait for the note box (Bran, 2026-11-19).
+        if (job != null) ShowNoteBox(job);
         stopping = true;
+        if (job != null) passesRunning++;
         Refresh();
         System.Threading.ThreadPool.QueueUserWorkItem(delegate
         {
             try { recorder.Stop(); }
             catch (Exception) { }
+            if (job != null)
+            {
+                // The clock offset is final after the stop.
+                job.Input.Titles = BuildTitles();
+                try
+                {
+                    ui.BeginInvoke((MethodInvoker)delegate
+                    {
+                        stopping = false;
+                        Refresh();
+                    });
+                }
+                catch (InvalidOperationException) { stopping = false; }
+                RunPass(job);
+                try
+                {
+                    ui.BeginInvoke((MethodInvoker)delegate
+                    {
+                        passesRunning--;
+                        OnPassDone(job, fromStop);
+                        Refresh();
+                    });
+                }
+                catch (InvalidOperationException) { }
+                return;
+            }
             try
             {
                 ui.BeginInvoke((MethodInvoker)delegate
@@ -790,6 +928,218 @@ class TrayApp : ApplicationContext
                 });
             }
             catch (InvalidOperationException) { stopping = false; }
+        });
+    }
+
+    // ------------------------------------------------------------ folder mode (AI capture brief, Phase 1)
+
+    int passesRunning;
+
+    // Window title at the center of the region, every 250 ms, with the clock of the recording.
+    void SampleTitle()
+    {
+        Rectangle r = recordingRegion.IsEmpty ? NativeMethods.GetVirtualScreen() : recordingRegion;
+        string title = NativeMethods.WindowTitleAt(new Point(r.X + r.Width / 2, r.Y + r.Height / 2));
+        double clock = recorder.ClockSeconds;
+        lock (titleSamples)
+        {
+            if (titleSamples.Count > 0 && titleSamples[titleSamples.Count - 1].Value == title) return;
+            titleSamples.Add(new KeyValuePair<double, string>(clock, title));
+        }
+    }
+
+    // The titles on the time line of the video (condition H): video time = clock - ClockOffset.
+    // ClockOffset comes from the FFmpeg stats lines. Without it, the clock is used as it is.
+    TitleTimeline BuildTitles()
+    {
+        double offset = recorder.ClockOffset;
+        if (double.IsNaN(offset)) offset = 0;
+        TitleTimeline t = new TitleTimeline();
+        lock (titleSamples)
+        {
+            foreach (KeyValuePair<double, string> s in titleSamples) t.Add(s.Key - offset, s.Value);
+        }
+        return t;
+    }
+
+    PassJob CreateJob(string problem)
+    {
+        Settings s = recordingSettings ?? settings;
+        AfterRecordingInput input = new AfterRecordingInput();
+        input.Ffmpeg = Recorder.FindFfmpeg();
+        input.Folder = recordingFolder;
+        input.WorkFile = Path.Combine(recordingFolder, AfterRecording.WorkFileName);
+        input.Start = recordingStartTime;
+        // Condition F (Bran, 2026-11-19): the numeric UTC offset of this PC at the start time.
+        input.UtcOffset = TimeZoneInfo.Local.GetUtcOffset(recordingStartTime);
+        input.Settings = s.ToStored();
+        input.Options = RecorderCore.SettledOptionsOf(input.Settings);
+        input.Fps = recordingFps;
+        input.SizeLimit = s.SizeLimit;
+        input.DeleteWorkFile = true;
+        input.Titles = BuildTitles();
+        PassJob job = new PassJob();
+        job.Input = input;
+        job.Problem = problem;
+        return job;
+    }
+
+    // Background thread. Never throws.
+    static void RunPass(PassJob job)
+    {
+        try
+        {
+            if (job.Input.Ffmpeg == null) throw new IOException("ffmpeg.exe was not found.");
+            job.Input.NvencAvailable = Recorder.NvencForClip(job.Input.Settings == null ? new Settings() : SettingsFrom(job.Input.Settings));
+            job.Result = AfterRecording.Run(job.Input);
+        }
+        catch (Exception e)
+        {
+            job.Result = new AfterRecordingResult();
+            job.Result.Error = e.Message;
+        }
+    }
+
+    static Settings SettingsFrom(StoredSettings stored)
+    {
+        Settings s = new Settings();
+        s.Apply(stored);
+        return s;
+    }
+
+    // Starts the pass on a background thread (after FFmpeg stopped by itself).
+    void StartPass(string unused, string problem)
+    {
+        if (recordingFolder == null) return;
+        PassJob job = CreateJob(problem);
+        Stopwatch fromStop = Stopwatch.StartNew();
+        passesRunning++;
+        Refresh();
+        System.Threading.ThreadPool.QueueUserWorkItem(delegate
+        {
+            RunPass(job);
+            try
+            {
+                ui.BeginInvoke((MethodInvoker)delegate
+                {
+                    passesRunning--;
+                    OnPassDone(job, fromStop);
+                    Refresh();
+                });
+            }
+            catch (InvalidOperationException) { }
+        });
+    }
+
+    // UI thread, after the pass.
+    void OnPassDone(PassJob job, Stopwatch fromStop)
+    {
+        job.Done = true;
+        lastJob = job;
+        AfterRecordingResult r = job.Result ?? new AfterRecordingResult();
+        if (job.Note != null && r.Ok)
+        {
+            try { AfterRecording.WriteIndex(job.Input, r, job.Note); } catch (Exception) { }
+        }
+        string clip = (r.ClipBytes / (1024.0 * 1024.0)).ToString("0.00", CultureInfo.InvariantCulture) + " MB";
+        string text = r.Ok
+            ? "Frames: " + r.Frames.Count.ToString(CultureInfo.InvariantCulture) + ". clip.mp4: " + clip + "."
+            : "The frame pass failed. " + (r.ClipWritten ? "clip.mp4 (" + clip + ") has no settled keyframes. " : "")
+              + "The work file stays in the folder. " + r.Error;
+        if (job.Problem != null) text = job.Problem + "\n" + text;
+        string balloonText = text;
+        bool copied = false;
+        if (settings.CopyToClipboard && Directory.Exists(job.Input.Folder))
+        {
+            try
+            {
+                System.Collections.Specialized.StringCollection list = new System.Collections.Specialized.StringCollection();
+                list.Add(job.Input.Folder);
+                Clipboard.SetFileDropList(list);
+                copied = true;
+            }
+            catch (Exception e) { balloonText += "\nCould not copy the folder to the clipboard: " + e.Message; }
+        }
+        // Condition D (Bran, 2026-11-19): the time from Stop to "clipboard ready".
+        job.SecondsFromStop = fromStop.Elapsed.TotalSeconds;
+        string ready = " Ready " + job.SecondsFromStop.ToString("0.0", CultureInfo.InvariantCulture) + " s after Stop.";
+        statsItem.Text = "Last recording: " + Shorten(text.Replace("\n", " ") + ready);
+        statsItem.Visible = true;
+        openLastItem.Enabled = Directory.Exists(job.Input.Folder);
+        zipItem.Enabled = openLastItem.Enabled;
+        tray.ShowBalloonTip(5000, "Desktop Recorder",
+            Shorten((copied ? "Folder copied. Press Ctrl+V to paste it.\n" : "Recording stopped.\n") + balloonText + ready),
+            r.Ok ? ToolTipIcon.Info : ToolTipIcon.Warning);
+    }
+
+    void ShowNoteBox(PassJob job)
+    {
+        IntPtr oldDpi = NativeMethods.SetThreadDpiContext(NativeMethods.DpiContextSystemAware);
+        try
+        {
+            NoteForm form = new NoteForm();
+            form.Saved += delegate(string note)
+            {
+                job.Note = note;
+                if (job.Done && job.Result != null && job.Result.Ok)
+                {
+                    try { AfterRecording.WriteIndex(job.Input, job.Result, note); }
+                    catch (Exception e) { tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("Cannot save the note: " + e.Message), ToolTipIcon.Warning); }
+                }
+            };
+            form.Show();
+            form.Activate();
+        }
+        catch (Exception) { }
+        finally { NativeMethods.RestoreThreadDpiContext(oldDpi); }
+    }
+
+    void OpenLastFolder()
+    {
+        if (lastJob == null) return;
+        try
+        {
+            Process started = Process.Start("explorer.exe", RecorderCore.QuoteWindowsArgument(lastJob.Input.Folder));
+            if (started != null) started.Dispose();
+        }
+        catch (Exception e) { MessageBox.Show(e.Message, "Desktop Recorder"); }
+    }
+
+    // Makes the ZIP of the last folder on a background thread, then puts it on the clipboard.
+    void CopyZip()
+    {
+        if (lastJob == null) return;
+        string folder = lastJob.Input.Folder;
+        zipItem.Enabled = false;
+        System.Threading.ThreadPool.QueueUserWorkItem(delegate
+        {
+            string zip = null, error = null;
+            try { zip = AfterRecording.MakeZip(folder); }
+            catch (Exception e) { error = e.Message; }
+            try
+            {
+                ui.BeginInvoke((MethodInvoker)delegate
+                {
+                    zipItem.Enabled = true;
+                    if (error != null)
+                    {
+                        tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("Cannot make the ZIP: " + error), ToolTipIcon.Warning);
+                        return;
+                    }
+                    try
+                    {
+                        System.Collections.Specialized.StringCollection list = new System.Collections.Specialized.StringCollection();
+                        list.Add(zip);
+                        Clipboard.SetFileDropList(list);
+                        tray.ShowBalloonTip(4000, "Desktop Recorder", Shorten("ZIP copied. Press Ctrl+V to paste it.\n" + zip), ToolTipIcon.Info);
+                    }
+                    catch (Exception e)
+                    {
+                        tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("ZIP made, but not copied: " + e.Message + "\n" + zip), ToolTipIcon.Warning);
+                    }
+                });
+            }
+            catch (InvalidOperationException) { }
         });
     }
 
@@ -910,7 +1260,8 @@ class TrayApp : ApplicationContext
         string where = recordingRegion.IsEmpty ? "whole desktop"
             : recordingRegion.Width.ToString(CultureInfo.InvariantCulture) + "x"
               + recordingRegion.Height.ToString(CultureInfo.InvariantCulture) + " region";
-        statusItem.Text = on ? "Recording at " + fpsText + " fps, " + where : "Not recording";
+        statusItem.Text = on ? "Recording at " + fpsText + " fps, " + where
+            : passesRunning > 0 ? "Making the frames of the last recording..." : "Not recording";
         // One hotkey starts and stops (Bran, 2026-11-14).
         toggleItem.Text = (on ? "Stop recording" : "Select region and record")
             + (hotkey.IsRegistered(SelectHotkeyId) ? "\t" + settings.HotkeyText : "");
@@ -1061,8 +1412,81 @@ static class TrayIcons
     }
 }
 
+// One recording in folder mode: the input of the pass, its result, and the note.
+sealed class PassJob
+{
+    public AfterRecordingInput Input;
+    public AfterRecordingResult Result;
+    public bool Done;
+    public string Note;              // null = no note (yet)
+    public string Problem;           // why the recording ended, when FFmpeg stopped by itself
+    public double SecondsFromStop;   // Stop to "clipboard ready"
+}
+
+// The note box after Stop (AI capture brief, Phase 1, item 3). One line. Enter saves, Esc closes.
+// It does not block the pass. index.md gets the note when the user saves it, also after the pass.
+sealed class NoteForm : Form
+{
+    readonly TextBox box = new TextBox();
+    public event Action<string> Saved;
+
+    public NoteForm()
+    {
+        SuspendLayout();
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        Text = "Desktop Recorder: note for the AI";
+        try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch (Exception) { }
+        FormBorderStyle = FormBorderStyle.FixedToolWindow;
+        MaximizeBox = false;
+        MinimizeBox = false;
+        ShowInTaskbar = true;
+        TopMost = true;
+        StartPosition = FormStartPosition.Manual;
+        ClientSize = new Size(420, 92);
+        Font = SystemFonts.MessageBoxFont;
+        Label label = new Label();
+        label.Text = "Note for index.md (optional). Enter saves. Esc closes.";
+        label.SetBounds(10, 8, 400, 20);
+        box.SetBounds(10, 30, 400, 23);
+        box.MaxLength = 500;
+        Button save = new Button();
+        save.Text = "Save";
+        save.SetBounds(250, 60, 76, 26);
+        save.Click += delegate { SaveNote(); };
+        Button close = new Button();
+        close.Text = "Close";
+        close.SetBounds(334, 60, 76, 26);
+        close.DialogResult = DialogResult.Cancel;
+        close.Click += delegate { Close(); };
+        Controls.AddRange(new Control[] { box, save, close, label });
+        AcceptButton = save;
+        CancelButton = close;
+        ResumeLayout(false);
+        Rectangle work = Screen.PrimaryScreen.WorkingArea;
+        Location = new Point(work.Right - Width - 16, work.Bottom - Height - 16);
+    }
+
+    void SaveNote()
+    {
+        string text = box.Text.Replace("\r", " ").Replace("\n", " ").Trim();
+        Action<string> h = Saved;
+        if (h != null && text.Length > 0) h(text);
+        Close();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        base.OnClosed(e);
+        Dispose();
+    }
+}
+
 class SettingsForm : Form
 {
+    static readonly string[] OutputNames = { "Folder for AI: frames, index.md, clip.mp4 (recommended)", "MP4 only (as before)" };
+    static readonly string[] OutputValues = { RecorderCore.OutputFolder, RecorderCore.OutputMp4 };
+    readonly ComboBox outputBox = new ComboBox();
     static readonly string[] BackendNames = { "ddagrab: GPU capture (recommended)", "gdigrab: CPU capture (fallback)" };
     static readonly string[] BackendValues = { RecorderCore.BackendDdagrab, RecorderCore.BackendGdigrab };
     static readonly string[] EncoderNames = { "Auto: NVENC, else x264 (recommended)", "NVIDIA NVENC (h264_nvenc)", "x264 on the CPU (libx264)" };
@@ -1116,7 +1540,7 @@ class SettingsForm : Form
         MinimizeBox = false;
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(470, 569);
+        ClientSize = new Size(470, 604);
         Font = SystemFonts.MessageBoxFont;
 
         AddLabel("Save recordings to:", 15);
@@ -1173,51 +1597,53 @@ class SettingsForm : Form
         SetUpChoice(chromaBox, 282, ChromaNames, ChromaValues, current.ChromaFormat);
         AddLabel("Frame-rate mode:", 320, 180);
         SetUpChoice(modeBox, 317, ModeNames, ModeValues, current.FrameRateMode);
+        AddLabel("Output:", 355, 180);
+        SetUpChoice(outputBox, 352, OutputNames, OutputValues, current.OutputMode);
 
         startupBox.Text = "Start Desktop Recorder when Windows starts";
-        startupBox.SetBounds(15, 355, 440, 22);
+        startupBox.SetBounds(15, 390, 440, 22);
         try { startupBox.Checked = Settings.StartsWithWindows; } catch (Exception) { }
 
         recordBox.Text = "Start recording (saved region) when Desktop Recorder starts";
-        recordBox.SetBounds(15, 381, 440, 22);
+        recordBox.SetBounds(15, 416, 440, 22);
         recordBox.Checked = current.RecordOnLaunch;
 
-        copyBox.Text = "Copy the video to the clipboard when recording stops";
-        copyBox.SetBounds(15, 407, 440, 22);
+        copyBox.Text = "Copy the recording (folder or video) to the clipboard when it stops";
+        copyBox.SetBounds(15, 442, 440, 22);
         copyBox.Checked = current.CopyToClipboard;
 
         soundBox.Text = "Play a sound when recording starts and stops";
-        soundBox.SetBounds(15, 433, 440, 22);
+        soundBox.SetBounds(15, 468, 440, 22);
         soundBox.Checked = current.PlaySounds;
 
         pointerBox.Text = "Hide the mouse pointer in the video";
-        pointerBox.SetBounds(15, 459, 440, 22);
+        pointerBox.SetBounds(15, 494, 440, 22);
         pointerBox.Checked = !current.ShowPointer;
 
-        AddLabel("Region selector:", 488, 110);
+        AddLabel("Region selector:", 523, 110);
         crosshairBox.Text = "Crosshair";
-        crosshairBox.SetBounds(130, 485, 95, 22);
+        crosshairBox.SetBounds(130, 520, 95, 22);
         crosshairBox.Checked = current.SelectorCrosshair;
         magnifierBox.Text = "Magnifier";
-        magnifierBox.SetBounds(230, 485, 95, 22);
+        magnifierBox.SetBounds(230, 520, 95, 22);
         magnifierBox.Checked = current.SelectorMagnifier;
         positionBox.Text = "Position";
-        positionBox.SetBounds(330, 485, 95, 22);
+        positionBox.SetBounds(330, 520, 95, 22);
         positionBox.Checked = current.SelectorPosition;
 
         Button save = new Button();
         save.Text = "Save";
-        save.SetBounds(290, 529, 80, 27);
+        save.SetBounds(290, 564, 80, 27);
         save.Click += delegate { OnSave(); };
         Button cancel = new Button();
         cancel.Text = "Cancel";
-        cancel.SetBounds(375, 529, 80, 27);
+        cancel.SetBounds(375, 564, 80, 27);
         cancel.DialogResult = DialogResult.Cancel;
 
         Controls.AddRange(new Control[]
         {
             folderBox, browse, fpsBox, qualityBox, splitBox, winBox, ctrlBox, altBox, shiftBox, keyBox,
-            backendBox, encoderBox, chromaBox, modeBox,
+            backendBox, encoderBox, chromaBox, modeBox, outputBox,
             startupBox, recordBox, copyBox, soundBox, pointerBox, crosshairBox, magnifierBox, positionBox, save, cancel
         });
         // The first control in Controls is on top. AddLabel adds the labels first, so they covered
@@ -1322,6 +1748,7 @@ class SettingsForm : Form
         Result.Encoder = ChoiceValue(encoderBox, EncoderValues);
         Result.ChromaFormat = ChoiceValue(chromaBox, ChromaValues);
         Result.FrameRateMode = ChoiceValue(modeBox, ModeValues);
+        Result.OutputMode = ChoiceValue(outputBox, OutputValues);
         Result.SelectorCrosshair = crosshairBox.Checked;
         Result.SelectorMagnifier = magnifierBox.Checked;
         Result.SelectorPosition = positionBox.Checked;

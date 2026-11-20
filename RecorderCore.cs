@@ -36,6 +36,12 @@ sealed class StoredSettings
     public bool SelectorCrosshair = false;
     public bool SelectorMagnifier = true;
     public bool SelectorPosition = true;
+    // AI capture folder (AI capture brief, Phase 1). "folder" (default, Bran 2026-11-19) or "mp4" (the old output).
+    public string OutputMode = RecorderCore.OutputFolder;
+    public int SettleMs = 400;                 // settled frame: no change for this time
+    public int StillIntervalSeconds = 5;       // a frame at this interval when the screen does not settle
+    public int ScrollPercent = 60;             // scroll-distance rule (condition A, Bran 2026-11-19): start value
+    public int SizeLimit = RecorderCore.DefaultSizeLimit;   // long side in px; index.md warns above it
     // Lines this program does not understand. Written back so another OS can keep its keys.
     public List<string> ExtraLines = new List<string>();
 }
@@ -118,6 +124,8 @@ sealed class CapturePlan
 public struct FfmpegProgress
 {
     public long Frames, Duplicates, Dropped;
+    // time= of the stats line in seconds (the time of the newest packet in the file). -1 when not given.
+    public double TimeSeconds;
 }
 
 // Values for the status line after a recording.
@@ -147,6 +155,32 @@ static class RecorderCore
     public const string ModeChanges = "changes";
     // Phase A (HANDOFF 6.5) used CQ 23 with -preset p4 -rc vbr.
     public const int DefaultNvencCq = 23;
+    public const string OutputFolder = "folder";
+    public const string OutputMp4 = "mp4";
+    // First size limit: Claude scales an image with a long side above 1568 px down (docs/export-frames.md 2.2,
+    // condition G, Bran 2026-11-19). Phase 1 only warns. Phase 4 cuts tiles.
+    public const int DefaultSizeLimit = 1568;
+
+    public static string NormalizeOutputMode(string v)
+    {
+        return v == OutputMp4 ? OutputMp4 : OutputFolder;
+    }
+
+    public static int ClampInt(int v, int min, int max)
+    {
+        return v < min ? min : (v > max ? max : v);
+    }
+
+    // The settled-frame options from the settings.
+    public static SettledOptions SettledOptionsOf(StoredSettings s)
+    {
+        SettledOptions o = new SettledOptions();
+        if (s == null) return o;
+        o.SettleSeconds = ClampInt(s.SettleMs, 50, 10000) / 1000.0;
+        o.StillIntervalSeconds = ClampInt(s.StillIntervalSeconds, 1, 600);
+        o.ScrollFraction = ClampInt(s.ScrollPercent, 10, 95) / 100.0;
+        return o;
+    }
 
     public static string NormalizeBackend(string v)
     {
@@ -355,6 +389,11 @@ static class RecorderCore
         s.ChromaFormat = NormalizeChroma(s.ChromaFormat);
         s.FrameRateMode = NormalizeMode(s.FrameRateMode);
         s.NvencCq = ClampNvencCq(s.NvencCq);
+        s.OutputMode = NormalizeOutputMode(s.OutputMode);
+        s.SettleMs = ClampInt(s.SettleMs, 50, 10000);
+        s.StillIntervalSeconds = ClampInt(s.StillIntervalSeconds, 1, 600);
+        s.ScrollPercent = ClampInt(s.ScrollPercent, 10, 95);
+        s.SizeLimit = ClampInt(s.SizeLimit, 256, 16384);
         NormalizeRegion(ref s.RegionX, ref s.RegionY, ref s.RegionWidth, ref s.RegionHeight);
         NormalizeRegion(ref s.LastRegionX, ref s.LastRegionY, ref s.LastRegionWidth, ref s.LastRegionHeight);
         return s;
@@ -412,6 +451,22 @@ static class RecorderCore
         if (key == "nvenc_cq")
         {
             if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out i)) s.NvencCq = i;
+            return true;
+        }
+        if (key == "output_mode")
+        {
+            if (val == OutputFolder || val == OutputMp4) s.OutputMode = val;
+            return true;
+        }
+        if (key == "settle_ms" || key == "still_interval_s" || key == "scroll_percent" || key == "size_limit")
+        {
+            if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out i))
+            {
+                if (key == "settle_ms") s.SettleMs = i;
+                else if (key == "still_interval_s") s.StillIntervalSeconds = i;
+                else if (key == "scroll_percent") s.ScrollPercent = i;
+                else s.SizeLimit = i;
+            }
             return true;
         }
         if (key == "selector_crosshair") { s.SelectorCrosshair = val == "1"; return true; }
@@ -486,6 +541,11 @@ static class RecorderCore
         Append(sb, "chroma", NormalizeChroma(s.ChromaFormat));
         Append(sb, "frame_rate_mode", NormalizeMode(s.FrameRateMode));
         Append(sb, "nvenc_cq", ClampNvencCq(s.NvencCq).ToString(CultureInfo.InvariantCulture));
+        Append(sb, "output_mode", NormalizeOutputMode(s.OutputMode));
+        Append(sb, "settle_ms", ClampInt(s.SettleMs, 50, 10000).ToString(CultureInfo.InvariantCulture));
+        Append(sb, "still_interval_s", ClampInt(s.StillIntervalSeconds, 1, 600).ToString(CultureInfo.InvariantCulture));
+        Append(sb, "scroll_percent", ClampInt(s.ScrollPercent, 10, 95).ToString(CultureInfo.InvariantCulture));
+        Append(sb, "size_limit", ClampInt(s.SizeLimit, 256, 16384).ToString(CultureInfo.InvariantCulture));
         Append(sb, "selector_crosshair", s.SelectorCrosshair ? "1" : "0");
         Append(sb, "selector_magnifier", s.SelectorMagnifier ? "1" : "0");
         Append(sb, "selector_position", s.SelectorPosition ? "1" : "0");
@@ -532,6 +592,11 @@ static class RecorderCore
         s.ChromaFormat = defaults.ChromaFormat;
         s.FrameRateMode = defaults.FrameRateMode;
         s.NvencCq = defaults.NvencCq;
+        s.OutputMode = defaults.OutputMode;
+        s.SettleMs = defaults.SettleMs;
+        s.StillIntervalSeconds = defaults.StillIntervalSeconds;
+        s.ScrollPercent = defaults.ScrollPercent;
+        s.SizeLimit = defaults.SizeLimit;
         s.SelectorCrosshair = defaults.SelectorCrosshair;
         s.SelectorMagnifier = defaults.SelectorMagnifier;
         s.SelectorPosition = defaults.SelectorPosition;
@@ -832,13 +897,24 @@ static class RecorderCore
     public static string[] BuildCaptureArguments(StoredSettings s, CaptureRegion region,
         IList<MonitorBounds> monitors, DateTime now, bool nvencAvailable)
     {
+        return BuildCaptureArguments(s, region, monitors, now, nvencAvailable, null);
+    }
+
+    // workFile != null: folder mode. FFmpeg records a lossless 4:4:4 work file to that path, with no split.
+    // The pass after the recording (AfterRecording.cs) makes clip.mp4 and the frames from it.
+    // Reason for lossless: NVENC keeps refining a still picture (HANDOFF 6.6), so lossy frames after a scroll
+    // look like changes. A lossless file has no such noise.
+    public static string[] BuildCaptureArguments(StoredSettings s, CaptureRegion region,
+        IList<MonitorBounds> monitors, DateTime now, bool nvencAvailable, string workFile)
+    {
         if (s == null) s = new StoredSettings();
+        bool lossless = workFile != null;
         CapturePlan plan = PlanCapture(s, region, monitors, nvencAvailable);
         double fps = ClampFps(s.Fps);
         int quality = ClampQuality(s.Quality);
         int split = ClampSplitMinutes(s.SplitMinutes);
         bool nvenc = plan.Encoder == EncoderNvenc;
-        bool chroma444 = NormalizeChroma(s.ChromaFormat) == Chroma444;
+        bool chroma444 = lossless || NormalizeChroma(s.ChromaFormat) == Chroma444;
         bool changes = NormalizeMode(s.FrameRateMode) == ModeChanges;
         string pixFmt = chroma444 ? "yuv444p" : "yuv420p";
         string fpsText = fps.ToString("0.###", CultureInfo.InvariantCulture);
@@ -927,7 +1003,41 @@ static class RecorderCore
             a.Add("vfr");
         }
 
-        if (nvenc)
+        if (nvenc && lossless)
+        {
+            a.Add("-c:v");
+            a.Add(EncoderNvenc);
+            a.Add("-preset");
+            a.Add("p4");
+            a.Add("-tune");
+            a.Add("lossless");
+            a.Add("-profile:v");
+            a.Add("high444p");
+            // RGB input (gdigrab, or ddagrab frames on the GPU): keep 4:4:4. In "changes" mode the input is yuv444p.
+            if (!changes)
+            {
+                a.Add("-rgb_mode");
+                a.Add("yuv444");
+            }
+            a.Add("-g");
+            a.Add(gop.ToString(CultureInfo.InvariantCulture));
+        }
+        else if (lossless)
+        {
+            a.Add("-c:v");
+            a.Add(EncoderX264);
+            a.Add("-preset");
+            a.Add("ultrafast");
+            a.Add("-qp");
+            a.Add("0");
+            a.Add("-threads");
+            a.Add(threads.ToString(CultureInfo.InvariantCulture));
+            a.Add("-g");
+            a.Add(gop.ToString(CultureInfo.InvariantCulture));
+            a.Add("-pix_fmt");
+            a.Add("yuv444p");
+        }
+        else if (nvenc)
         {
             // Phase A settings (HANDOFF 6.5). -b:v 0 lets the CQ value control the size.
             a.Add("-c:v");
@@ -982,7 +1092,7 @@ static class RecorderCore
             a.Add("-pix_fmt");
             a.Add(pixFmt);
         }
-        if (split > 0)
+        if (split > 0 && !lossless)
         {
             // The segment muxer only cuts on a keyframe. Force one at each boundary
             // so "every N minutes" is the real cut, not "N minutes plus up to one GOP".
@@ -1018,9 +1128,115 @@ static class RecorderCore
             a.Add("2000000");
             a.Add("-flush_packets");
             a.Add("1");
-            a.Add(CombinePath(folder, "desktop_" + stamp + ".mp4", true));
+            a.Add(lossless ? workFile : CombinePath(folder, "desktop_" + stamp + ".mp4", true));
         }
         return a.ToArray();
+    }
+
+    // Name of the recording folder in folder mode (brief section 6): desktop_yyyy-MM-dd_HH-mm-ss.
+    public static string RecordingFolderName(DateTime start)
+    {
+        return "desktop_" + start.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
+    }
+
+    // The FFmpeg arguments that make clip.mp4 from the lossless work file.
+    // keyframeTimes != null: a keyframe at each time and no other keyframe (condition C, Bran 2026-11-19):
+    // -copyts keeps the time line of the work file, so the times in index.md are the times in clip.mp4.
+    // -force_key_frames gets each time minus 0.01 s, so a rounded time cannot miss its frame.
+    // -g 999999 stops the periodic keyframes. -forced-idr 1 makes each forced keyframe an IDR frame.
+    // x264 also needs scenecut=0, or it adds keyframes at scene cuts.
+    // keyframeTimes == null: a normal clip (fallback when the pass fails, condition D).
+    public static string[] BuildClipArguments(StoredSettings s, string workFile, string clipFile,
+        IList<double> keyframeTimes, double fps, bool nvencAvailable)
+    {
+        if (s == null) s = new StoredSettings();
+        string encoder = ResolveEncoder(s.Encoder, nvencAvailable);
+        bool nvenc = encoder == EncoderNvenc;
+        bool chroma444 = NormalizeChroma(s.ChromaFormat) == Chroma444;
+        int quality = ClampQuality(s.Quality);
+        bool keys = keyframeTimes != null;
+        int gop = keys ? 999999 : Math.Max(2, (int)Math.Round(ClampFps(fps) * 30));
+        List<string> a = new List<string>();
+        a.Add("-hide_banner");
+        a.Add("-loglevel");
+        a.Add("error");
+        a.Add("-y");
+        a.Add("-copyts");
+        a.Add("-i");
+        a.Add(workFile);
+        a.Add("-map");
+        a.Add("0:v:0");
+        a.Add("-fps_mode");
+        a.Add("passthrough");
+        a.Add("-c:v");
+        a.Add(encoder);
+        if (nvenc)
+        {
+            a.Add("-preset");
+            a.Add("p4");
+            a.Add("-rc");
+            a.Add("vbr");
+            a.Add("-cq");
+            a.Add(NvencCqForQuality(s.NvencCq, quality).ToString(CultureInfo.InvariantCulture));
+            a.Add("-b:v");
+            a.Add("0");
+            if (chroma444)
+            {
+                a.Add("-profile:v");
+                a.Add("high444p");
+            }
+        }
+        else
+        {
+            a.Add("-preset");
+            a.Add("veryfast");
+            a.Add("-tune");
+            a.Add("stillimage");
+            a.Add("-crf");
+            a.Add(Crf[quality].ToString(CultureInfo.InvariantCulture));
+            if (keys)
+            {
+                a.Add("-x264-params");
+                a.Add("scenecut=0");
+            }
+        }
+        a.Add("-pix_fmt");
+        a.Add(chroma444 ? "yuv444p" : "yuv420p");
+        a.Add("-g");
+        a.Add(gop.ToString(CultureInfo.InvariantCulture));
+        if (keys && keyframeTimes.Count > 0)
+        {
+            if (nvenc)
+            {
+                a.Add("-forced-idr");
+                a.Add("1");
+            }
+            a.Add("-force_key_frames");
+            a.Add(KeyframeList(keyframeTimes));
+        }
+        a.Add("-movflags");
+        a.Add("+faststart");
+        a.Add(clipFile);
+        return a.ToArray();
+    }
+
+    // "0.59,3.21,..." Each time minus 0.01 s, never below 0, sorted, no copies.
+    public static string KeyframeList(IList<double> times)
+    {
+        List<double> list = new List<double>();
+        foreach (double t in times) list.Add(Math.Max(0, t - 0.01));
+        list.Sort();
+        StringBuilder sb = new StringBuilder();
+        string last = null;
+        foreach (double t in list)
+        {
+            string v = t.ToString("0.000", CultureInfo.InvariantCulture);
+            if (v == last) continue;
+            if (sb.Length > 0) sb.Append(',');
+            sb.Append(v);
+            last = v;
+        }
+        return sb.ToString();
     }
 
     // Reads the output of "ffmpeg -hide_banner -encoders". A line looks like:
@@ -1060,7 +1276,7 @@ static class RecorderCore
         return exit == 0;
     }
 
-    static bool RunFfmpeg(string ffmpegPath, string args, int timeoutMs, out string output, out int exitCode)
+    internal static bool RunFfmpeg(string ffmpegPath, string args, int timeoutMs, out string output, out int exitCode)
     {
         output = "";
         exitCode = -1;
@@ -1114,6 +1330,7 @@ static class RecorderCore
     public static bool TryParseProgress(string line, out FfmpegProgress progress)
     {
         progress = new FfmpegProgress();
+        progress.TimeSeconds = -1;
         if (line == null) return false;
         string t = line.Trim();
         if (!t.StartsWith("frame=", StringComparison.Ordinal)) return false;
@@ -1140,10 +1357,26 @@ static class RecorderCore
                 sawFrame = true;
             }
             else if (key == "dup" && isNumber) progress.Duplicates = n;
+            else if (key == "time") progress.TimeSeconds = ParseClockTime(val);
             else if (key == "drop" && isNumber) progress.Dropped = n;
             i = end;
         }
         return sawFrame;
+    }
+
+    // "00:01:02.50" -> 62.5. Returns -1 for "N/A" or a bad value.
+    public static double ParseClockTime(string val)
+    {
+        if (val == null) return -1;
+        string[] p = val.Split(':');
+        if (p.Length != 3) return -1;
+        int h, m;
+        double s;
+        if (!int.TryParse(p[0].TrimStart('-'), NumberStyles.Integer, CultureInfo.InvariantCulture, out h)
+            || !int.TryParse(p[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out m)
+            || !double.TryParse(p[2], NumberStyles.Float, CultureInfo.InvariantCulture, out s)) return -1;
+        double t = h * 3600 + m * 60 + s;
+        return val.StartsWith("-", StringComparison.Ordinal) ? -t : t;
     }
 
     // The status line after a recording.
