@@ -840,6 +840,17 @@ Install on Bran's PC (2026-11-20, 05:41, Bran: "Yes, install it"):
 - Not checked: that a Claude cloud session accepts the ZIP (Bran must paste it); a paste of 2 files into a cloud session (shows if a value from 2 to 7 has a use); the Settings row at 125%; the ZIP with a note typed after the pass; the README text on GitHub.
 - Do not release before the cloud paste test.
 
+### 7.17 Release cleanup on GitHub (2026-11-20)
+
+- Bran: "update anything out of date on readmes and releases on github. remove all but the recent stable releases for each OS/install type". Bran approved the list: delete the releases, keep the tags.
+- Deleted (with their zip and tar.gz assets): the `desktop-recorder` releases v3.0.0, v2.0.2, v2.0.1, v2.0.0, v1.0.0. Kept: v3.0.1 (Latest, Windows zip and Linux tar.gz) and all 6 tags. `screen-vibe-recorder` v2.1.0 is the only release of that repository and is kept.
+- `desktop-recorder` `main` e126ff9 (pushed): the README says that only the latest release stays and that earlier versions are tags, adds a 3.0.1 test line, and corrects the `screen-vibe-recorder` facts. CHANGELOG link 1.0.0 now points at the tag.
+- v3.0.1 release body: the test line says that the zip exe started on Bran's PC, and a line names the tags. The release body no longer equals the tag message.
+- `screen-vibe-recorder` `main` 9ffb28d (pushed): README and CHANGELOG say that Desktop Recorder has versions up to 3.0.1.
+- Checked: `gh release list` shows v3.0.1 only; `releases/latest` = v3.0.1; the tags exist; the tag and compare links give HTTP 200.
+- Commit 50f880c (7.16) was rebased on top of e126ff9 and is still not pushed, so the GitHub README does not name `clipboard_max_files`. This section is in the same local-only state until the next push.
+- Not checked: the open pull request 1 of `screen-vibe-recorder` (`docs/cleanup-2026-11-16`) is not changed and can now conflict.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.
