@@ -851,6 +851,14 @@ Install on Bran's PC (2026-11-20, 05:41, Bran: "Yes, install it"):
 - Commit 50f880c (7.16) was rebased on top of e126ff9 and is still not pushed, so the GitHub README does not name `clipboard_max_files`. This section is in the same local-only state until the next push.
 - Not checked: the open pull request 1 of `screen-vibe-recorder` (`docs/cleanup-2026-11-16`) is not changed and can now conflict.
 
+Reinstall on Bran's PC (2026-11-21, Bran: "uninstall it from my PC and then install"):
+
+- Removed (Bran approved): the 7.16 test build (SHA-256 7085A9DD4E06E502), `README.txt`, the backups `DesktopRecorder-3.0.0-backup.exe`, `DesktopRecorder-3.0.1-backup.exe` and `README-3.0.0-backup.txt`, the Run entry and the Start Menu shortcut "Screen Vibe Recorder". Kept: the `whisper` folder and the settings files.
+- Installed from the v3.0.1 release zip: `DesktopRecorder.exe` (SHA-256 starts with CD5202653090B3AA, the same as 7.15) and `README.txt` in `%LOCALAPPDATA%\Programs\DesktopRecorder`. New Run entry and Start Menu shortcut point at that exe.
+- Checked: the app runs from that path and responds. No FFmpeg process started.
+- `settings.txt` still has `clipboard_max_files=1` from the 7.16 test. 3.0.1 does not use that key.
+- Not checked: a recording with this exe; a restart of Windows.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.
