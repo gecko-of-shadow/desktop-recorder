@@ -158,4 +158,4 @@ First release, with portable archives for Windows and Ubuntu 24.04. FFmpeg is no
 [2.0.2]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v1.0.0...v2.0.0
-[1.0.0]: https://github.com/gecko-of-shadow/desktop-recorder/releases/tag/v1.0.0
+[1.0.0]: https://github.com/gecko-of-shadow/desktop-recorder/tree/v1.0.0

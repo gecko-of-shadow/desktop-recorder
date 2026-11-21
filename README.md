@@ -36,6 +36,8 @@ Ubuntu 24.04:
 
 Download a portable archive from the [Releases page](https://github.com/gecko-of-shadow/desktop-recorder/releases/latest). Unzip or untar it and run it. Nothing is copied into Program Files, and the Linux archive does not need root.
 
+The Releases page keeps only the latest version. The source of each earlier version stays available as a Git tag (`v1.0.0` to `v3.0.0`). [CHANGELOG.md](CHANGELOG.md) lists the changes in each version.
+
 | Platform | Archive | Start |
 |---|---|---|
 | Windows 10 and 11 (x64) | `desktop-recorder-<version>-windows-x64.zip` | `DesktopRecorder.exe` |
@@ -340,6 +342,8 @@ Version 3.0.0 (folder output, audio, transcript) was tested on the same PC with 
 
 Not tested in 3.0.0: the sync of audio and video, long recordings with a transcript, a busy 60 s or 5 min recording, a real blinking text cursor, `clip.mp4` in a normal video player, Ctrl+V in claude.ai, Gemini or Explorer, Whisper programs other than whisper.cpp, the exe from the release zip (the test PC ran a local build of the same commit), and a PC without an NVIDIA GPU.
 
+Version 3.0.1 (new defaults and index.md warnings): the unit tests passed and the app built on the same PC. The exe from the 3.0.1 release zip started on that PC and did not start a recording. Not tested: a recording with the 3.0.1 exe, and the first start with no settings file.
+
 The test kit is in `test/`: a source text, an auto-scroll page, a frame-counter page, and scripts that count frames and score an AI copy.
 
 ## More documents
@@ -351,4 +355,4 @@ The test kit is in `test/`: a source text, an auto-scroll page, a frame-counter 
 
 ## Related repository
 
-[gecko-of-shadow/screen-vibe-recorder](https://github.com/gecko-of-shadow/screen-vibe-recorder) was made on 2026-11-15 from this repository (its `main` is commit `cb07dff`, between 2.0.0 and 2.0.1). Its branch `linux-port` ports the region selector and the other 2.0 features to Ubuntu 24.04 and is tested on GitHub Actions. That port is not merged into this repository and is not released.
+[gecko-of-shadow/screen-vibe-recorder](https://github.com/gecko-of-shadow/screen-vibe-recorder) was made on 2026-11-15 from this repository, at commit `cb07dff` (between 2.0.0 and 2.0.1). It released Screen Vibe Recorder 2.1.0 on 2026-11-16: Desktop Recorder 2.0.0 plus a "Changes only" mode that keeps one still frame each 60 s. It does not have the Desktop Recorder commits of 2.0.1 to 3.0.1 (folder output, audio, transcript). Its branch `linux-port` ports the region selector and the other 2.0 features to Ubuntu 24.04 and is tested on GitHub Actions. That port is not merged into this repository or into its `main`, and it is not released.
