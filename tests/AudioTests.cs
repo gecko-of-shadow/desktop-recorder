@@ -310,6 +310,14 @@ static class AudioTests
         double[] zeroSize = SpeechCheck.WindowLevels(new MemoryStream(wav));
         Expect(zeroSize != null && zeroSize.Length == 300, "data size 0: read to the end");
         Expect(SpeechCheck.WindowLevels(new MemoryStream(Wav16k(new short[400], false))) == null, "less than half a window: no levels (no check)");
+        // Very quiet real sound (about -80 dBFS, the 14:45 recording 20 dB quieter) has sound. Sparse +-1 LSB noise
+        // (dither, about -95 dBFS) has not.
+        short[] q = new short[4 * 16000];
+        for (int i = 0; i < 2 * 16000; i++) q[i] = (short)rnd.Next(-5, 6);                       // RMS sqrt(10): -80.3 dBFS
+        for (int i = 2 * 16000; i < q.Length; i++) { int r = rnd.Next(10); q[i] = (short)(r < 3 ? (r == 0 ? -1 : 1) : 0); }   // 30% at +-1
+        double[] ql = SpeechCheck.WindowLevels(new MemoryStream(Wav16k(q, false)));
+        Expect(ql[5] >= SpeechCheck.SoundFloorDb && ql[30] < SpeechCheck.SoundFloorDb, "-80 dBFS is sound, sparse 1 LSB noise is not: " + ql[5] + " / " + ql[30]);
+        Expect(SpeechCheck.Keep(Row(0, 2, "Very quiet words."), ql) && !SpeechCheck.Keep(Row(2, 4, "Words on dither."), ql), "quiet words kept, text on dither out");
 
         Expect(SpeechCheck.IsKnownPhrase(" Thank you. ") && SpeechCheck.IsKnownPhrase("THANK YOU!") && SpeechCheck.IsKnownPhrase("Bye-bye.")
             && SpeechCheck.IsKnownPhrase("Thanks for watching!") && SpeechCheck.IsKnownPhrase("ご視聴ありがとうございました"), "known texts");

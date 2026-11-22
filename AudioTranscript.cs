@@ -292,9 +292,11 @@ static class AudioMux
 static class SpeechCheck
 {
     public const double WindowSeconds = 0.1;
-    // A 100 ms window has sound when its RMS level is at or above this level. Real speech in Bran's recording of
-    // 2026-11-22 14:45 was at about -60 dBFS. The silent recordings were digital silence (no sample above 0).
-    public const double SoundFloorDb = -70;
+    // A 100 ms window has sound when its RMS level is at or above this level: 1 LSB of 16-bit audio. The false rows
+    // of Bran's recordings of 2026-11-22 sat on digital silence (all samples 0). Real speech in the recording of 14:45
+    // was at about -60 dBFS. With that audio 10 and 20 dB quieter, Whisper still wrote the conversation; a floor of
+    // -70 dBFS then dropped 6 and 7 real rows, -90 dBFS dropped none (30 dB quieter: 6 of 18 rows).
+    public const double SoundFloorDb = -90;
     // A row is near silence, and is left out, when it has sound in less than this part of its time AND for less than
     // MinSoundSeconds. Both: a long Whisper row can hold a short real sentence (review 2026-11-22: 2.9 s of speech at
     // the end of a 30 s row). The silent test recordings had 0 to 0.9 s of sound (clicks, the stop sound) in 30 s.

@@ -918,7 +918,7 @@ Facts (checked):
 
 Fix: `SpeechCheck` in `AudioTranscript.cs`, called in `AfterRecording.MakeTranscriptCore`.
 
-- It reads the 16 kHz copy (`transcript_16k.wav`, on the time line of the rows) in parts and computes the RMS level of each 100 ms window. Sound = -70 dBFS or louder.
+- It reads the 16 kHz copy (`transcript_16k.wav`, on the time line of the rows) in parts and computes the RMS level of each 100 ms window. Sound = -90 dBFS or louder (an RMS of 1 LSB in 16-bit audio). The first version used -70 dBFS; see the volume check below.
 - Near silence: sound in less than 10% of the row and for less than 1.0 s (window count). Such a row is left out, with any text.
 - A known Whisper text for silence (for example "Thank you.", "Thanks for watching!", "Bye.", "you"; compared without case and punctuation) in a long row (10 s or more, or 80% of the audio or more) needs sound in 50% of its time. A short row with a known text is not checked by this rule.
 - Windows after the end of the audio count as silent (Whisper pads the last 30 s window). A file that is not 16-bit PCM, or with less than 50 ms of audio, is not checked: all rows stay.
@@ -934,7 +934,9 @@ Results (checked; `test\process_clip.cs` with `AUDIO_FILE` = the audio of each c
 | r4 | 1 ("Thank you.") | 0 | 1 | not printed |
 | r5 | 3 (real) | 3 | 0 | - |
 
-The 29 rows of the original r3 transcript (made by the app) also all stay (probe tool on the r3 audio). Unit test: `TestSpeechCheck` and new checks in `TestIndexSection` (`tests/AudioTests.cs`).
+The 29 rows of the original r3 transcript (made by the app) also all stay (probe tool on the r3 audio).
+
+Volume check (checked, after the advisor review): the r3 audio 10, 20 and 30 dB quieter (FFmpeg `volume`), full pass with Whisper. Whisper still wrote 35, 11 and 18 rows. The first floor (-70 dBFS) dropped 6, 7 and 17 of them. With -90 dBFS: 0 of 35 and 0 of 11 dropped (30 dB quieter: 6 of 18, speech at about -90 dBFS, near the 16-bit floor). The false rows of r1, r2 and r4 stay out at every floor from -70 to -95 dBFS (digital silence). Final code: r1 2 out, r2 1 out, r4 1 out, r3 50 of 50, r5 3 of 3. Unit test: `TestSpeechCheck` and new checks in `TestIndexSection` (`tests/AudioTests.cs`).
 
 **Job B: false motion warning.**
 
@@ -986,7 +988,7 @@ Regression checks (checked; `test\settled_render.cs`, lossless NVENC 4:4:4 at 15
 Decisions made without Bran:
 
 1. No VAD and no new whisper-cli option (data above).
-2. The limits -70 dBFS, 10% and 1.0 s, 50% for a known text in a row of 10 s or 80% of the audio, and the phrase list. The phrase list has only texts from arXiv 2501.11378, community reports and this PC. The texts in Japanese, Russian and German come from community reports (not checked).
+2. The limits -90 dBFS, 10% and 1.0 s, 50% for a known text in a row of 10 s or 80% of the audio, and the phrase list. The phrase list has only texts from arXiv 2501.11378, community reports and this PC. The texts in Japanese, Russian and German come from community reports (not checked).
 3. No `transcript.srt` when no row is left (before: an empty file).
 4. `MotionMinSide` = 96 px: about 2.5 times the largest pointer group at 125% (16 to 40 px). The total-area path uses the same value (96 x 96 px).
 5. The frame rules for a moving pointer are not changed (see above).
@@ -1001,7 +1003,7 @@ Not checked:
 - A real video recording (no such file on the PC). The motion rule was checked with synthetic video only.
 - The Mono build and the GitHub CI (no Mono on this PC).
 - Seen, not changed: the stop sound of the app is in the audio of each recording when `play_sounds=1` (the last 0.5 s of r1 and r2).
-- Files: `DesktopRecorder-zip.exe` (rebuilt with the final code, SHA-256 starts with E329542808838706, not committed) in the repository folder. Scratch files in `%TEMP%\svr-job-7-19` (copies of the recordings, test videos, the VAD model, logs; not deleted).
+- Files: `DesktopRecorder-zip.exe` (rebuilt with the final code, SHA-256 starts with 0B77F8654024C9AD, not committed) in the repository folder. Scratch files in `%TEMP%\svr-job-7-19` (copies of the recordings, test videos, the VAD model, logs; not deleted).
 
 ## 8. Rules for the agent
 
