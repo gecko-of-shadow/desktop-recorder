@@ -1005,6 +1005,13 @@ Not checked:
 - Seen, not changed: the stop sound of the app is in the audio of each recording when `play_sounds=1` (the last 0.5 s of r1 and r2).
 - Files: `DesktopRecorder-zip.exe` (rebuilt with the final code, SHA-256 starts with 0B77F8654024C9AD, not committed) in the repository folder. Scratch files in `%TEMP%\svr-job-7-19` (copies of the recordings, test videos, the VAD model, logs; not deleted).
 
+Next steps for Bran:
+
+1. Pointer: `settings.txt` has `show_pointer=1` now (7.15 recorded 0, and decision 9 says hidden by default). The false warning is gone, but a moving pointer still keeps the screen from settling, so rows can still say "screen still changing" and changes during pointer moves get a frame only at the next stop or 5 s sample. Choose: turn "Hide the mouse pointer" on again, or ask for a frame-rule change that ignores the pointer.
+2. Record about 20 s of a real video or stream with the test build and check that `index.md` has the motion note. The motion rule saw only synthetic video.
+3. Make one real recording with silent audio and one with speech, and check the transcript section.
+4. Decide about push, merge and release of `zip-only` (7.18 and 7.19).
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.
