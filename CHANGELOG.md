@@ -6,13 +6,23 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- Windows: new setting "Folder mode: copy one ZIP above this many files (1 = always)" (`clipboard_max_files`, default 20). When `index.md` and the frames are more files than this number, the clipboard holds one ZIP of the folder instead of the files. The text message for the AI stays on the clipboard. A note typed after the ZIP was made goes into the ZIP too. Reason: a Claude cloud session refused pastes of 8 and 12 files.
+- Windows, folder mode: the output of a recording is one ZIP file only (Bran, 2026-11-22). After the frame pass, the app always makes the ZIP next to where the recording folder was. The clipboard holds the ZIP as a file and the text message for the AI. It never holds the loose files. Then the app deletes the recording folder. When the frame pass fails, the folder stays (it holds the lossless work file), and the app still makes and copies the ZIP.
+- A note typed in the note box after the ZIP is made goes into `index.md`, and the app makes the ZIP again (same path). The folder is deleted only when the note box is closed and the ZIP is done.
+- Tray: "Open last recording folder" is now "Show last ZIP in Explorer". "Copy ZIP of last recording" copies the existing ZIP and does not make it again.
+- The AI message on the clipboard and the instruction at the top of `index.md` now describe a ZIP, not a folder.
+- The ZIP stores PNG and MP4 files without compression (they are compressed already) and compresses the text files. The ZIP format is the same.
+- Exit waits for the ZIP and the deletion of the folder.
+- "MP4 only" mode is not changed.
+
+### Removed
+
+- Windows: the setting "Folder mode: copy one ZIP above this many files" (`clipboard_max_files`), which was never released. A settings file that has the key still loads with no error. The next Save does not write it.
 
 ### Notes
 
-- Tested on one PC: unit tests, the app build, and one recording with the value 1 (the clipboard held the ZIP and the AI message). Not tested: that a Claude cloud session or a chat app accepts the ZIP, the Settings row at 125%, and the ZIP with a late note.
+- Tested on one PC: unit tests, the app build, and the ZIP file made from a test folder. Not tested: a real recording with this build, the note box with a late note, a paste of the ZIP into a chat app or a Claude cloud session, and the Settings window at 125%.
 
 ## [3.0.1] - 2026-11-20
 

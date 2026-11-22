@@ -19,9 +19,9 @@ Windows:
 - **GPU capture and encode.** `ddagrab` capture and `h264_nvenc` encode by default. The program uses `gdigrab` and `libx264` when the GPU path is not available.
 - **"Changes only" mode** (default). Frames that do not change are dropped. A still screen costs almost nothing.
 - **Status line** after each recording: the frame count, the `clip.mp4` size and the time until the files are ready (folder mode), or real frames, duplicates, dropped frames and file size ("MP4 only").
-- **Folder for an AI** (default, new in 3.0.0). Each recording gives a folder with `frames\001.png` and so on, `index.md` and `clip.mp4`. See [Recording folder](#recording-folder-windows). "MP4 only" gives one MP4 file, as in version 2.0.2.
+- **Folder for an AI** (default, new in 3.0.0). Each recording gives one ZIP file. It holds a folder with `frames\001.png` and so on, `index.md` and `clip.mp4`. See [Recording folder](#recording-folder-windows). "MP4 only" gives one MP4 file, as in version 2.0.2.
 - **System audio and transcript** (optional, off by default, new in 3.0.0). The sound of the PC goes into the video. When a local Whisper program is present, `index.md` gets a transcript. See [Audio and transcript](#audio-and-transcript-windows).
-- The finished recording (`index.md` and the frames, or the video) goes on the **clipboard**. Press Ctrl+V to paste it into a chat or a folder.
+- The finished recording goes on the **clipboard**: one ZIP file in folder mode, or the video in "MP4 only" mode. Press Ctrl+V to paste it into a chat or a folder.
 - **Per-monitor DPI aware.** All positions and sizes are physical pixels.
 - FFmpeg stops when the program stops, also after a crash.
 - Start and stop sounds, an option to hide the mouse pointer, start with Windows, split long recordings into parts.
@@ -73,8 +73,8 @@ When the recording stops:
 
 - In folder mode, a small note box opens. Type one line for the AI and press Enter, or press Esc. The note goes into `index.md` as "Note from Bran:" (into `note.txt` if the frame pass fails). The program does not wait for the note. "MP4 only" mode has no note box.
 - The program makes the frames, `index.md` and `clip.mp4` in the background. When this work is done, the status line in the tray menu ends with "Ready ... s after Stop."
-- `index.md` and the PNG frames go on the clipboard as files, together with a text message for the AI that has the folder path. Ctrl+V in a chat app attaches the files. Ctrl+V in a terminal pastes the text. `clip.mp4` is not on the clipboard, because some chat apps refuse video. In "MP4 only" mode, the video file goes on the clipboard. The setting "Copy the recording (folder or video) to the clipboard when it stops" turns off the whole clipboard copy: the files and the message.
-- Ctrl+V into the Claude desktop chat is tested. Other chat apps are not tested. Some chat apps take only about 20 files in one message, so a recording with many frames may not fit. A Claude cloud session in the Claude desktop app refused pastes of 8 and 12 files (its limit is not documented). Then set "Folder mode: copy one ZIP above this many files" to a lower number, or 1 for always a ZIP, or use "Copy ZIP of last recording". Not tested: that a chat app or a cloud session accepts the ZIP.
+- In folder mode, the output is one ZIP file only. The ZIP is next to where the recording folder was, and it has the same name as the folder (`desktop_<date>_<time>.zip`). The ZIP holds one folder with `index.md`, `frames\`, `clip.mp4` and, when the program made them, `transcript.srt` and `note.txt`. The clipboard holds the ZIP as a file, together with a text message for the AI that has the path of the ZIP. It never holds the loose files. Ctrl+V in a chat app attaches the ZIP. Ctrl+V in a terminal pastes the text. When the ZIP is made, the program deletes the recording folder. In "MP4 only" mode, the video file goes on the clipboard. The setting "Copy the recording (ZIP or video) to the clipboard when it stops" turns off the whole clipboard copy: the ZIP and the message. The ZIP is still made.
+- A paste of the loose files into the Claude desktop chat was tested before this change (version 3.0.1 and earlier put the files on the clipboard). A Claude cloud session refused pastes of 8 and 12 files, and that is why the output is one ZIP now. Not tested: that a chat app or a cloud session accepts the ZIP.
 - The tray menu shows a status line. Folder mode example: "Last recording: Frames: 5. clip.mp4: 0.12 MB. Ready 3.1 s after Stop." With audio, the line also gives the transcript result. "MP4 only" example: "Last recording: Real frames: 83 of 83. Duplicates: 0. Dropped: 0. File size: 0.05 MB."
 
 The recording area is a fixed rectangle. If a window moves during the recording, the area does not move with it.
@@ -82,7 +82,7 @@ The recording area is a fixed rectangle. If a window moves during the recording,
 Other controls:
 
 - A short sound plays when the recording starts and when it stops.
-- Right-click the tray icon for: Select region and record (or Stop recording), Open recordings folder, Open last recording folder, Copy ZIP of last recording, Settings, Exit.
+- Right-click the tray icon for: Select region and record (or Stop recording), Open recordings folder, Show last ZIP in Explorer, Copy ZIP of last recording, Settings, Exit.
 - Double-click the tray icon to open Settings.
 - Exit stops a running recording. The program then stays in the tray until the files of the last recording are made. The tray shows "Finishing the last recording, then the app closes...".
 
@@ -121,8 +121,7 @@ The size label shows the size in physical pixels. The program makes the width an
 | Output | Folder for AI | Folder for AI (frames, `index.md`, `clip.mp4`), or MP4 only. See [Recording folder](#recording-folder-windows). |
 | Start Desktop Recorder when Windows starts | Off | Adds one entry for your user account only. |
 | Start recording (saved region) when Desktop Recorder starts | Off | On records the last selected area as soon as the app starts, without the selector. With no saved area, or an area that is not on the screen now, it records the full desktop. |
-| Copy the recording (folder or video) to the clipboard when it stops | On | |
-| Folder mode: copy one ZIP above this many files (1 = always) | 20 | Key `clipboard_max_files`. When `index.md` and the frames are more files than this number, the clipboard holds one ZIP of the folder (as "Copy ZIP of last recording" makes it) instead of the files. 1 always copies the ZIP. |
+| Copy the recording (ZIP or video) to the clipboard when it stops | On | In folder mode: the ZIP and the text message. |
 | Play a sound when recording starts and stops | On | Two rising tones for start, two falling tones for stop. |
 | Hide the mouse pointer in the video | On | Off shows the pointer in the video and in the frames. See [Good to know](#good-to-know). |
 | Record the sound of the PC, and make a transcript if Whisper is installed | Off | See [Audio and transcript](#audio-and-transcript-windows). |
@@ -176,7 +175,7 @@ A lower number gives a sharper picture and a larger file. The AI read test read 
 
 ## Recording folder (Windows)
 
-This is the default output since version 3.0.0.
+This is the default output since version 3.0.0. In the next version (not released yet), the app makes one ZIP of this folder after the frame pass, and then deletes the folder. The structure below is the structure inside the ZIP. The folder stays only when the frame pass fails.
 
 ```
 desktop_2026-11-19_13-01-41\
@@ -191,11 +190,11 @@ desktop_2026-11-19_13-01-41\
 - During a long scroll, the program writes a frame each time the content moved 60% of the scrolled area, so no text is lost between two frames. When the screen changes without a stop, it writes a frame every 5 seconds.
 - **`index.md`** starts with an instruction for the AI: the files are one screen recording, and they are context for your message. Then it has the start time with the UTC offset of the PC, your note, the length, the region size, the frame count, and one row for each frame: the time, the window title and what changed. It warns when the frames and `index.md` together are more than 20 files (some chat apps take only 20 files in one message), when the long side is above 2576 px, and when a frame has more than 3.75 million pixels. Current Claude models read images up to these sizes without making them smaller. Older Claude models make images with a long side above 1568 px smaller.
 - **`clip.mp4`** is the video for people. Each frame in `frames\` is a keyframe of `clip.mp4`, at the time that `index.md` gives. The clip has no other keyframes.
-- **Copy ZIP of last recording** (tray menu) makes `<folder>.zip` next to the folder and puts it on the clipboard. It replaces an older ZIP with that name. The ZIP leaves out the work file and the WAV files.
+- **Show last ZIP in Explorer** (tray menu) opens Explorer with the ZIP selected. **Copy ZIP of last recording** puts the existing ZIP on the clipboard. It does not make the ZIP again, because the folder is gone. Both items are off when the ZIP is not there. The ZIP leaves out the work file and the WAV files. It stores the PNG and MP4 files without compression (they are compressed already) and compresses the text files. The ZIP format is the normal Deflate format.
 
 How it works: FFmpeg records a lossless 4:4:4 work file. After Stop, a background pass reads the work file, writes the frames, the index and the clip, and then deletes the work file. A recording in this mode is not split into parts. The Quality and Color detail settings apply only to `clip.mp4`. The work file and the PNG frames are always lossless.
 
-If the pass fails, the work file stays and the program writes a normal `clip.mp4`. Your note then goes into `note.txt`, because there is no `index.md`. The clipboard holds the files that exist (or the folder, when there are none) and a message for the AI that says the pass failed.
+If the pass fails, the work file stays and the program writes a normal `clip.mp4`. Your note then goes into `note.txt`, because there is no `index.md`. The program still makes the ZIP and puts it on the clipboard with a message for the AI that says the pass failed. In this one case the program keeps the recording folder, because it holds the lossless work file.
 
 These settings have no control in the Settings window. Change them in `settings.txt`: `settle_ms` (400), `still_interval_s` (5), `scroll_percent` (60), `size_limit` (2576). A `size_limit=1568` from version 3.0.0 (the old default) is read as 2576.
 
@@ -214,7 +213,7 @@ New in 3.0.0. Tested on one Windows 11 PC: the audio capture, and a transcript w
 - Whisper can run for at most 2 minutes plus 3 times the recording length (at most 1 hour). If it takes longer, or if the audio is silent, `index.md` gives the reason that there is no transcript.
 - If the audio cannot go into the video, it stays as a WAV file: `audio_system.wav` in the recording folder, or `desktop_<time>.wav` next to the MP4 files.
 - Settings without a control (edit `settings.txt`): `whisper_path` (a full path to the program), `whisper_model` (whisper.cpp: the model file; other programs: a model name), `whisper_language` (`auto`, or a code such as `en`).
-- The transcript runs before the folder goes on the clipboard, so "Ready ... s after Stop" is longer.
+- The transcript runs before the ZIP goes on the clipboard, so "Ready ... s after Stop" is longer.
 
 ## Choose a frame rate
 
@@ -281,7 +280,7 @@ The app manifest (`DesktopRecorder.manifest`) makes the program per-monitor DPI 
 To run the unit tests on Windows, build them:
 
 ```
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /out:"$env:TEMP\CoreTests.exe" tests\CoreTests.cs tests\AiCaptureTests.cs tests\AudioTests.cs RecorderCore.cs RecordingSession.cs SettledFrames.cs AudioTranscript.cs
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /out:"$env:TEMP\CoreTests.exe" /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll tests\CoreTests.cs tests\AiCaptureTests.cs tests\AudioTests.cs RecorderCore.cs RecordingSession.cs SettledFrames.cs AudioTranscript.cs AfterRecording.cs
 ```
 
 Then run them. The tests write `ok` when all checks pass:

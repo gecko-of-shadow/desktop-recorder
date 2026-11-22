@@ -272,7 +272,7 @@ static class AudioTests
 
     static void TestAiMessage()
     {
-        string f = @"C:\rec\desktop_2026-11-20_10-00-00";
+        string f = @"C:\rec\desktop_2026-11-20_10-00-00.zip";
         string both = RecordingIndex.AiMessage(f, true, true, true);
         Expect(both.IndexOf("4. Read the section \"Audio and transcript\"", StringComparison.Ordinal) >= 0, "transcript step");
         Expect(both.IndexOf("clip.mp4 also has the sound", StringComparison.Ordinal) >= 0, "audio line");

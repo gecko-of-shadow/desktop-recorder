@@ -32,7 +32,7 @@ static class AiCaptureTests
         TestPendingThenScroll();
         TestScrollTurnsBack();
         TestAiMessage();
-        TestClipboardFiles();
+        TestZipOnly();
         TestVideoIsNotScroll();
         TestNoisyShiftIsNotScroll();
         TestScrollStillFound();
@@ -52,29 +52,54 @@ static class AiCaptureTests
         Expect(bad.IndexOf("failed", StringComparison.Ordinal) >= 0 && bad.IndexOf("note.txt", StringComparison.Ordinal) >= 0, "failed message");
     }
 
-    static void TestClipboardFiles()
+    // Folder mode gives one ZIP only (Bran, 2026-11-22).
+    static void TestZipOnly()
     {
-        string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dr-clip-" + Guid.NewGuid().ToString("N"));
+        // The folder is deleted only when the ZIP is done and good, the pass is good, and the note box is closed.
+        Expect(RecordingIndex.CanDeleteFolder(true, true, true, 0, false, false), "cleanup: all good");
+        Expect(!RecordingIndex.CanDeleteFolder(false, true, true, 0, false, false), "cleanup: pass not done");
+        Expect(!RecordingIndex.CanDeleteFolder(true, false, true, 0, false, false), "cleanup: failed pass keeps the work file");
+        Expect(!RecordingIndex.CanDeleteFolder(true, true, false, 0, false, false), "cleanup: no ZIP");
+        Expect(!RecordingIndex.CanDeleteFolder(true, true, true, 1, false, false), "cleanup: a ZIP is still made (note)");
+        Expect(!RecordingIndex.CanDeleteFolder(true, true, true, 0, true, false), "cleanup: the last ZIP failed");
+        Expect(!RecordingIndex.CanDeleteFolder(true, true, true, 0, false, true), "cleanup: note box open");
+
+        // The messages describe a ZIP, not a folder.
+        string zip = @"C:\rec\desktop_2026-11-22_10-00-00.zip";
+        string ok = RecordingIndex.AiMessage(zip, true);
+        Expect(ok.IndexOf("ZIP", StringComparison.Ordinal) >= 0 && ok.IndexOf(zip + "\r\n", StringComparison.Ordinal) >= 0, "message names the ZIP");
+        Expect(ok.IndexOf("in this folder", StringComparison.Ordinal) < 0, "message does not say folder for the recording");
+        Expect(RecordingIndex.AiNote.IndexOf("ZIP", StringComparison.Ordinal) >= 0, "index.md note names the ZIP");
+        Expect(RecordingIndex.AiMessage(zip, false).IndexOf("the ZIP has no frames", StringComparison.Ordinal) >= 0, "failed message names the ZIP");
+
+        // MakeZip: PNG and MP4 are stored, text is compressed, work files and WAV files are left out.
+        string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dr-zip-" + Guid.NewGuid().ToString("N"));
+        string folder = System.IO.Path.Combine(root, "desktop_test");
         try
         {
-            System.IO.Directory.CreateDirectory(System.IO.Path.Combine(root, "frames"));
-            // No index.md and no frames (the pass failed): the folder only.
-            List<string> none = RecordingIndex.ClipboardFiles(root);
-            Expect(none.Count == 1 && none[0] == root, "clipboard: the folder when there are no files");
-            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "index.md"), "x");
-            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "clip.mp4"), "x");
-            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "frames", "002.png"), "x");
-            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "frames", "001.png"), "x");
-            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "frames", "notes.txt"), "x");
-            List<string> files = RecordingIndex.ClipboardFiles(root);
-            Expect(files.Count == 3
-                && System.IO.Path.GetFileName(files[0]) == "index.md"
-                && System.IO.Path.GetFileName(files[1]) == "001.png"
-                && System.IO.Path.GetFileName(files[2]) == "002.png", "clipboard: index.md, then the frames in order, no video");
-            // clipboard_max_files: the files up to the limit, one ZIP above it. 1 = always a ZIP.
-            Expect(!RecordingIndex.ClipboardUsesZip(20, 20) && RecordingIndex.ClipboardUsesZip(21, 20), "clipboard: ZIP only above the limit");
-            Expect(!RecordingIndex.ClipboardUsesZip(5, 7) && RecordingIndex.ClipboardUsesZip(8, 7), "clipboard: limit 7");
-            Expect(RecordingIndex.ClipboardUsesZip(1, 1) && RecordingIndex.ClipboardUsesZip(2, 1), "clipboard: limit 1 is always a ZIP");
+            System.IO.Directory.CreateDirectory(System.IO.Path.Combine(folder, "frames"));
+            byte[] data = new byte[20000];
+            System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "index.md"), new string('a', 20000));
+            System.IO.File.WriteAllBytes(System.IO.Path.Combine(folder, "clip.mp4"), data);
+            System.IO.File.WriteAllBytes(System.IO.Path.Combine(folder, "frames", "001.png"), data);
+            System.IO.File.WriteAllBytes(System.IO.Path.Combine(folder, "work_lossless.mp4"), data);
+            System.IO.File.WriteAllBytes(System.IO.Path.Combine(folder, "audio_system.wav"), data);
+            string made = AfterRecording.MakeZip(folder);
+            Expect(made == folder + ".zip" && System.IO.File.Exists(made), "ZIP is next to the folder");
+            using (System.IO.Compression.ZipArchive z = System.IO.Compression.ZipFile.OpenRead(made))
+            {
+                Expect(z.Entries.Count == 3, "ZIP has 3 entries");
+                foreach (System.IO.Compression.ZipArchiveEntry e in z.Entries)
+                {
+                    if (e.FullName.EndsWith(".png") || e.FullName.EndsWith(".mp4"))
+                        Expect(e.CompressedLength >= e.Length, "stored without compression: " + e.FullName);
+                    else
+                        Expect(e.CompressedLength < e.Length / 4, "text is compressed: " + e.FullName);
+                    Expect(e.FullName.StartsWith("desktop_test/", StringComparison.Ordinal), "entry is in the folder: " + e.FullName);
+                }
+            }
+            // A second ZIP replaces the first one at the same path.
+            Expect(AfterRecording.MakeZip(folder) == made, "the ZIP path stays the same");
         }
         finally { try { System.IO.Directory.Delete(root, true); } catch (Exception) { } }
     }
@@ -89,13 +114,11 @@ static class AiCaptureTests
         Expect(p.OutputMode == RecorderCore.OutputMp4, "output mp4");
         Expect(p.SettleMs == 300 && p.StillIntervalSeconds == 7 && p.SizeLimit == 2000, "ints");
         Expect(p.ScrollPercent == 95, "scroll clamp");
-        Expect(d.ClipboardMaxFiles == 20, "clipboard_max_files default");
-        Expect(p.ClipboardMaxFiles == 20, "clipboard_max_files missing keeps default");
-        StoredSettings z = RecorderCore.ParseSettings("clipboard_max_files=1\r\n", d);
-        Expect(z.ClipboardMaxFiles == 1, "clipboard_max_files 1");
-        Expect(RecorderCore.ParseSettings(RecorderCore.SerializeSettings(z), new StoredSettings()).ClipboardMaxFiles == 1, "clipboard_max_files round trip");
-        Expect(RecorderCore.ParseSettings("clipboard_max_files=0\r\n", d).ClipboardMaxFiles == 1, "clipboard_max_files clamp low");
-        Expect(RecorderCore.ParseSettings("clipboard_max_files=x\r\n", d).ClipboardMaxFiles == 20, "clipboard_max_files bad keeps default");
+        // clipboard_max_files was removed on 2026-11-22. An old file with the key loads with no error, and Save drops it.
+        StoredSettings z = RecorderCore.ParseSettings("clipboard_max_files=1\r\nsettle_ms=300\r\n", d);
+        Expect(z.SettleMs == 300, "old clipboard_max_files key does not stop the load");
+        Expect(RecorderCore.SerializeSettings(z).IndexOf("clipboard_max_files", StringComparison.Ordinal) < 0, "clipboard_max_files is not written");
+        Expect(RecorderCore.ParseSettings("clipboard_max_files=x\r\n", d).OutputMode == RecorderCore.OutputFolder, "bad old clipboard_max_files value is ignored");
         StoredSettings q = RecorderCore.ParseSettings(RecorderCore.SerializeSettings(p), new StoredSettings());
         Expect(q.OutputMode == RecorderCore.OutputMp4 && q.SettleMs == 300 && q.ScrollPercent == 95, "round trip");
         StoredSettings bad = RecorderCore.ParseSettings("output_mode=zip\r\n", d);

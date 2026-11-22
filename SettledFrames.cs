@@ -848,68 +848,46 @@ static class RecordingIndex
 
     // The instruction at the top of index.md, for an AI that gets the files without a text message.
     public const string AiNote =
-        "For the AI that reads this file: this file and the PNG images that come with it are one screen recording that Bran made. "
+        "For the AI that reads this file: this file is in a ZIP file. The ZIP is one screen recording that Bran made. "
+        + "It holds this file, the PNG images in the frames folder, and clip.mp4. "
         + "They are context for Bran's message. Read this file first. Then look at each image: image 001.png is frame 001 in the table, and so on. "
         + "Read the text on the screen in each image. Then do what Bran's message asks. "
         + "If Bran's message has no question, tell him in a few lines what the recording shows, and ask what he wants.\n";
 
-    // Files for the clipboard (Bran, 2026-11-20): index.md and the PNG frames, not the folder.
-    // A chat app cannot take a folder: the Claude desktop app made a file of 0 bytes from it.
-    // clip.mp4 is not in the list, because Claude chat refuses video.
-    // When the folder has no index.md and no frames (the pass failed), the list has the folder only.
-    public static List<string> ClipboardFiles(string folder)
+    // True when the recording folder may be deleted (Bran, 2026-11-22). Folder mode gives one ZIP.
+    // The folder stays when the pass failed (it holds the lossless work file), when a ZIP is not made or not done
+    // (a note makes the ZIP again), when the last ZIP failed, and while the note box is open.
+    public static bool CanDeleteFolder(bool passDone, bool passOk, bool zipExists, int zipPending, bool zipFailed, bool noteOpen)
     {
-        List<string> files = new List<string>();
-        try
-        {
-            string index = System.IO.Path.Combine(folder, "index.md");
-            if (System.IO.File.Exists(index)) files.Add(index);
-            string frames = System.IO.Path.Combine(folder, "frames");
-            if (System.IO.Directory.Exists(frames))
-            {
-                string[] png = System.IO.Directory.GetFiles(frames, "*.png");
-                Array.Sort(png, StringComparer.OrdinalIgnoreCase);
-                files.AddRange(png);
-            }
-        }
-        catch (System.IO.IOException) { files.Clear(); }
-        catch (UnauthorizedAccessException) { files.Clear(); }
-        if (files.Count == 0) files.Add(folder);
-        return files;
+        return passDone && passOk && zipExists && zipPending == 0 && !zipFailed && !noteOpen;
     }
 
-    // True when the clipboard holds one ZIP instead of the files (setting clipboard_max_files).
-    // A Claude cloud session refused 8 and 12 files, and the desktop chat took 5 (Bran, 2026-11-20).
-    // maxFiles 1 means always a ZIP, also when the pass failed and the list has the folder only.
-    public static bool ClipboardUsesZip(int fileCount, int maxFiles)
+    // Text for the clipboard: a message for the AI and the path of the ZIP (Bran, 2026-11-22).
+    // Folder mode gives one ZIP. The ZIP has one folder, and that folder has index.md, frames and clip.mp4.
+    public static string AiMessage(string zip, bool passOk)
     {
-        return maxFiles <= 1 || fileCount > maxFiles;
-    }
-
-    // Text for the clipboard: a message for the AI and the folder path (Bran, 2026-11-19).
-    public static string AiMessage(string folder, bool passOk)
-    {
-        return AiMessage(folder, passOk, false, false);
+        return AiMessage(zip, passOk, false, false);
     }
 
     // audio: clip.mp4 has the system audio. transcript: index.md has a transcript section.
-    public static string AiMessage(string folder, bool passOk, bool audio, bool transcript)
+    public static string AiMessage(string zip, bool passOk, bool audio, bool transcript)
     {
         string nl = "\r\n";
-        string head = "Read my screen recording in this folder:" + nl + folder + nl + nl;
+        string head = "Read my screen recording in this ZIP file:" + nl + zip + nl + nl
+            + "Unpack the ZIP first if you cannot read inside it. It has one folder." + nl;
         string sound = audio
             ? "clip.mp4 also has the sound of the PC. If you can hear the audio of a video, listen to it." + nl : "";
         if (passOk)
             return head
                 + "1. Read index.md first. It gives the start time, my note, and one row for each frame: the time, the window title and what changed." + nl
-                + "2. Look at the PNG files in the frames folder. Each file is one settled frame at full resolution. The file names match the rows in index.md." + nl
+                + "2. Look at the PNG files in the frames folder of the ZIP. Each file is one settled frame at full resolution. The file names match the rows in index.md." + nl
                 + "3. Use clip.mp4 only for the motion between the frames. Its keyframes are at the times in index.md." + nl
                 + (transcript ? "4. Read the section \"Audio and transcript\" at the end of index.md. It has the words that were spoken, with times on the time line of clip.mp4." + nl : "")
                 + sound;
         return head
-            + "The frame pass failed, so the folder has no frames and no index.md." + nl
+            + "The frame pass failed, so the ZIP has no frames and no index.md." + nl
             + "1. Watch clip.mp4." + nl
-            + "2. If note.txt is in the folder, read it. It has my note." + nl
+            + "2. If note.txt is in the ZIP, read it. It has my note." + nl
             + sound;
     }
 
@@ -996,7 +974,7 @@ static class RecordingIndex
           .Append(height.ToString(CultureInfo.InvariantCulture)).Append('\n');
         sb.Append("Frames: ").Append(frames.Count.ToString(CultureInfo.InvariantCulture)).Append('\n');
         sb.Append("Times are seconds on the time line of clip.mp4. Each frame in the table is a keyframe of clip.mp4.\n");
-        // The clipboard holds index.md and every frame (ClipboardFiles), so the file count is frames + 1.
+        // After the ZIP is unpacked, the folder holds index.md and every frame, so the file count is frames + 1.
         if (frames.Count + 1 > FileWarningLimit)
             sb.Append("Warning: ").Append(frames.Count.ToString(CultureInfo.InvariantCulture))
               .Append(" frames and index.md are more than ").Append(FileWarningLimit.ToString(CultureInfo.InvariantCulture))

@@ -21,9 +21,9 @@ mouse button, or click a window. The recording starts at once. A red frame
 and a Stop button show around the recorded area. They are not in the
 video. Press Win+Shift+D again, or click Stop, to stop.
 
-Each recording gives a folder with index.md, frames\001.png and so on,
-and clip.mp4. index.md and the frames go on the clipboard. Press Ctrl+V
-in an AI chat to attach them. Settings has "MP4 only" for one video file.
+Each recording gives one ZIP file with index.md, frames\001.png and so
+on, and clip.mp4. The ZIP goes on the clipboard. Press Ctrl+V in an AI
+chat to attach it. Settings has "MP4 only" for one video file.
 
 An NVIDIA GPU encodes the video when the PC has one. Without it, the
 program encodes on the CPU. Settings has a check box to record the sound of

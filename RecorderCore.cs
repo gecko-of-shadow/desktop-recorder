@@ -42,8 +42,6 @@ sealed class StoredSettings
     public int StillIntervalSeconds = 5;       // a frame at this interval when the screen does not settle
     public int ScrollPercent = 60;             // scroll-distance rule (condition A, Bran 2026-11-19): start value
     public int SizeLimit = RecorderCore.DefaultSizeLimit;   // long side in px; index.md warns above it
-    // Folder mode: above this many files (index.md + frames), the clipboard holds one ZIP instead of the files.
-    public int ClipboardMaxFiles = RecorderCore.DefaultClipboardMaxFiles;
     // Audio and transcript (docs/audio-transcript.md). Off by default (Bran, 2026-11-20): the PC almost always
     // plays some sound, so the app does not detect audio by itself. Same key as the Linux build.
     public bool RecordAudio = false;
@@ -172,8 +170,6 @@ static class RecorderCore
     public const int DefaultSizeLimit = 2576;
     // The old default. Every 3.0.0 settings file has size_limit=1568, so a load reads that value as the new default.
     public const int OldDefaultSizeLimit = 1568;
-    // The Claude chat takes 20 files in one message (help center, checked 2026-11-20). 1 = always a ZIP.
-    public const int DefaultClipboardMaxFiles = 20;
     public const long DefaultPixelLimit = 3750000;
 
     public static string NormalizeOutputMode(string v)
@@ -409,7 +405,6 @@ static class RecorderCore
         s.StillIntervalSeconds = ClampInt(s.StillIntervalSeconds, 1, 600);
         s.ScrollPercent = ClampInt(s.ScrollPercent, 10, 95);
         s.SizeLimit = ClampInt(s.SizeLimit, 256, 16384);
-        s.ClipboardMaxFiles = ClampInt(s.ClipboardMaxFiles, 1, 1000);
         NormalizeRegion(ref s.RegionX, ref s.RegionY, ref s.RegionWidth, ref s.RegionHeight);
         NormalizeRegion(ref s.LastRegionX, ref s.LastRegionY, ref s.LastRegionWidth, ref s.LastRegionHeight);
         return s;
@@ -485,11 +480,9 @@ static class RecorderCore
             }
             return true;
         }
-        if (key == "clipboard_max_files")
-        {
-            if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out i)) s.ClipboardMaxFiles = i;
-            return true;
-        }
+        // Removed on 2026-11-22: folder mode always gives one ZIP. An old settings file can still have this key.
+        // The key is read and dropped. The next Save does not write it.
+        if (key == "clipboard_max_files") return true;
         if (key == "record_audio") { s.RecordAudio = val == "1"; return true; }
         if (key == "whisper_path")
         {
@@ -592,7 +585,6 @@ static class RecorderCore
         Append(sb, "still_interval_s", ClampInt(s.StillIntervalSeconds, 1, 600).ToString(CultureInfo.InvariantCulture));
         Append(sb, "scroll_percent", ClampInt(s.ScrollPercent, 10, 95).ToString(CultureInfo.InvariantCulture));
         Append(sb, "size_limit", ClampInt(s.SizeLimit, 256, 16384).ToString(CultureInfo.InvariantCulture));
-        Append(sb, "clipboard_max_files", ClampInt(s.ClipboardMaxFiles, 1, 1000).ToString(CultureInfo.InvariantCulture));
         Append(sb, "record_audio", s.RecordAudio ? "1" : "0");
         Append(sb, "whisper_path", s.WhisperPath ?? "");
         Append(sb, "whisper_model", s.WhisperModel ?? "");
@@ -648,7 +640,6 @@ static class RecorderCore
         s.StillIntervalSeconds = defaults.StillIntervalSeconds;
         s.ScrollPercent = defaults.ScrollPercent;
         s.SizeLimit = defaults.SizeLimit;
-        s.ClipboardMaxFiles = defaults.ClipboardMaxFiles;
         s.RecordAudio = defaults.RecordAudio;
         s.WhisperPath = defaults.WhisperPath;
         s.WhisperModel = defaults.WhisperModel;

@@ -504,6 +504,7 @@ Not checked: look-alike changes in a real screen capture (the states were drawn 
 | New defaults and index.md warnings | Done (7.13, 7.14). |
 | Release v3.0.1 | Done (7.15). The exe from the zip is not run on a PC. |
 | ZIP on the clipboard (7.16) | Code done, test build installed. Cloud paste test open. Not released. |
+| One ZIP only in folder mode (7.18) | Code, unit tests and a ZIP check done on branch `zip-only`. Not installed, not pushed, not released. No real recording and no paste test yet. Replaces 7.16. |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -858,6 +859,38 @@ Reinstall on Bran's PC (2026-11-21, Bran: "uninstall it from my PC and then inst
 - Checked: the app runs from that path and responds. No FFmpeg process started.
 - `settings.txt` still has `clipboard_max_files=1` from the 7.16 test. 3.0.1 does not use that key.
 - Not checked: a recording with this exe; a restart of Windows.
+
+### 7.18 One ZIP only in folder mode (2026-11-22, branch `zip-only`, not pushed, not released)
+
+- Bran decided on 2026-11-22: in folder mode, the output of a recording is one ZIP file. This replaces 7.16 (`clipboard_max_files`) and the file drop of 7.9.
+- Flow after the frame pass (`OnPassDone` in `DesktopRecorder.cs`): the app always makes the ZIP (`AfterRecording.MakeZip`, on a background thread). The ZIP is next to where the folder was, with the name `<folder>.zip`. The clipboard holds the ZIP as a file drop and the AI text message. It never holds the loose files. Then the app deletes the recording folder.
+- Pass failed: the folder stays (it holds the lossless work file). The app still makes and copies the ZIP. The ZIP has `clip.mp4` and `note.txt`, not the work file.
+- Note box: a note that Bran saves after the ZIP is made goes into `index.md` (or `note.txt`), and the app makes the ZIP again at the same path. The folder is deleted only when the note box is closed (saved or closed) and no ZIP is waiting. The rule is `RecordingIndex.CanDeleteFolder` (unit tested). Job state: `PassJob.Zip`, `ZipError`, `ZipPending`, `NoteOpen`.
+- The folder is not deleted when a ZIP call failed. The balloon says so. When the delete itself fails, the ZIP stays and the balloon names the error.
+- Exit waits for the ZIP and the delete (`passesRunning`, `ExitIfDone`).
+- `clipboard_max_files` is removed: code, Settings row (the rows below moved up by 26 px, the dialog is 26 px shorter), tests, README. `RecorderCore.cs` reads the old key and drops it, so an old `settings.txt` loads with no error. The next Save does not write it. Bran's `settings.txt` still has `clipboard_max_files=1` until he saves. `RecordingIndex.ClipboardFiles` and `ClipboardUsesZip` are removed.
+- Tray: "Show last ZIP in Explorer" (`explorer.exe /select,"path"`) replaces "Open last recording folder". "Copy ZIP of last recording" copies the existing ZIP and does not make it again. Both are off when the ZIP file is not there.
+- `RecordingIndex.AiMessage` and `AiNote` describe a ZIP. The message now has the path of the ZIP and the line "Unpack the ZIP first if you cannot read inside it."
+- `MakeZip`: PNG and MP4 entries use `CompressionLevel.NoCompression`. Other files use `Optimal`. The format is the same ZIP. Note: .NET Framework writes a "stored" entry as a Deflate stream of uncompressed blocks (method 8, size + 5 bytes), not as ZIP method 0. Readers open it as usual.
+- "MP4 only" mode is not changed.
+- The unit-test build and `run-tests.sh` now include `AfterRecording.cs` and the two compression references, because the tests call `MakeZip`.
+
+Checked on Bran's PC (2026-11-22):
+
+- The app builds with the `csc.exe` command of `build.cmd` (`/out:DesktopRecorder-zip.exe`; CS0649 warnings only). The running app was not stopped. The build was not installed.
+- Unit tests: `ok`. New tests: `TestZipOnly` (the cleanup rule for 7 cases, the ZIP texts, `MakeZip` entries, compression and the same path on a second call) and the old-key checks in `TestSettingsKeys`.
+- `test\process_clip.cs` on a synthetic lossless work file (3 still scenes, NVENC, 640x480, 15 fps) with `NOTE_ZIP=1`: `ok=True`, 3 frames, 3 keyframes. `System.IO.Compression` read the ZIP: `desktop_test/clip.mp4`, `index.md`, `frames/001.png` to `003.png`, no work file. Python `zipfile` read it too (`testzip` found no error). The PNG and MP4 entries are 5 bytes larger than the files (stored blocks). `index.md` is 1003 bytes, 520 compressed.
+
+Not checked:
+
+- A real recording with this build. The flow in `DesktopRecorder.cs` (ZIP, clipboard, delete of the folder, the note box, Exit) has no automatic test. Only `CanDeleteFolder` has a unit test.
+- The note box with a note saved after the ZIP (second ZIP, then delete), a note saved while the first ZIP is made, a closed box with no note, and Exit while the note box is open. In the last case the ZIP exists and the folder stays (the cleanup waits for the box).
+- A pass that failed in the app, and the ZIP of that case.
+- A real paste of the ZIP into the Claude desktop chat, a Claude cloud session, claude.ai, Gemini or Explorer. This was the reason for the change. It is still unknown if a cloud session takes one ZIP.
+- The Settings window at 125% (rows moved), the tray items and the balloons.
+- The Mono build and the GitHub CI with `AfterRecording.cs` in `run-tests.sh` (compiles under `csc.exe` only; the whole app compiled under Mono in 7.7).
+- The file-count warning in `index.md` (more than 20 files) is not changed. It now describes the files after the ZIP is unpacked. Bran can decide if it is still useful.
+- `DesktopRecorder-zip.exe` is in the repository folder (not committed). Test files from the check are in `%TEMP%\zip-only-test` (not deleted).
 
 ## 8. Rules for the agent
 

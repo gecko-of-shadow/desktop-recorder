@@ -68,7 +68,6 @@ class Settings
     public int StillIntervalSeconds = 5;
     public int ScrollPercent = 60;
     public int SizeLimit = RecorderCore.DefaultSizeLimit;
-    public int ClipboardMaxFiles = RecorderCore.DefaultClipboardMaxFiles;
     // Audio and transcript (docs/audio-transcript.md). See StoredSettings.
     public bool RecordAudio = false;
     public string WhisperPath = "";
@@ -130,7 +129,6 @@ class Settings
         stored.StillIntervalSeconds = StillIntervalSeconds;
         stored.ScrollPercent = ScrollPercent;
         stored.SizeLimit = SizeLimit;
-        stored.ClipboardMaxFiles = ClipboardMaxFiles;
         stored.RecordAudio = RecordAudio;
         stored.WhisperPath = WhisperPath;
         stored.WhisperModel = WhisperModel;
@@ -172,7 +170,6 @@ class Settings
         StillIntervalSeconds = stored.StillIntervalSeconds;
         ScrollPercent = stored.ScrollPercent;
         SizeLimit = stored.SizeLimit;
-        ClipboardMaxFiles = stored.ClipboardMaxFiles;
         RecordAudio = stored.RecordAudio;
         WhisperPath = stored.WhisperPath ?? "";
         WhisperModel = stored.WhisperModel ?? "";
@@ -655,7 +652,7 @@ class TrayApp : ApplicationContext
     readonly List<KeyValuePair<double, string>> titleSamples = new List<KeyValuePair<double, string>>();
     readonly System.Windows.Forms.Timer titleTimer = new System.Windows.Forms.Timer();
     PassJob lastJob;                        // the last recording in folder mode
-    readonly MenuItem openLastItem = new MenuItem("Open last recording folder");
+    readonly MenuItem openLastItem = new MenuItem("Show last ZIP in Explorer");
     readonly MenuItem zipItem = new MenuItem("Copy ZIP of last recording");
     Icon currentIcon;
     IntPtr currentIconHandle = IntPtr.Zero;
@@ -1237,16 +1234,28 @@ class TrayApp : ApplicationContext
                 : r.Ok ? " No transcript: " + (r.TranscriptNote ?? "") + "." : "";
         if (r.MotionNote != null) text += " The screen did not settle (moving content): the frames are samples.";
         if (job.Problem != null) text = job.Problem + "\n" + text;
-        List<string> files = RecordingIndex.ClipboardFiles(job.Input.Folder);
-        bool useZip = settings.CopyToClipboard && Directory.Exists(job.Input.Folder)
-            && RecordingIndex.ClipboardUsesZip(files.Count, settings.ClipboardMaxFiles);
-        if (!useZip)
+        // Folder mode gives one ZIP only (Bran, 2026-11-22). The ZIP is made on a background thread.
+        // Exit waits for it (passesRunning). The folder is deleted when the ZIP is done and the note box is closed.
+        job.ZipPending++;
+        MakeZipAsync(job, delegate(string error)
         {
-            FinishPass(job, fromStop, r, text, files, null, null);
-            return;
-        }
-        // The ZIP is made on a background thread. Exit waits for it (passesRunning).
-        job.UsesZip = true;
+            FinishPass(job, fromStop, r, text, error);
+            TryCleanup(job);
+        });
+    }
+
+    // Only one ZIP at a time: MakeZip uses one temporary file next to the folder.
+    static readonly object zipLock = new object();
+
+    static string MakeZipLocked(string folder)
+    {
+        lock (zipLock) return AfterRecording.MakeZip(folder);
+    }
+
+    // Makes the ZIP of the job folder on a background thread. done runs on the UI thread with the error text (null = good).
+    // The caller has counted job.ZipPending. This method counts passesRunning, so Exit waits.
+    void MakeZipAsync(PassJob job, Action<string> done)
+    {
         passesRunning++;
         Refresh();
         System.Threading.ThreadPool.QueueUserWorkItem(delegate
@@ -1259,58 +1268,100 @@ class TrayApp : ApplicationContext
                 ui.BeginInvoke((MethodInvoker)delegate
                 {
                     passesRunning--;
-                    FinishPass(job, fromStop, r, text, files, zip, error);
+                    job.ZipPending--;
+                    if (error == null) job.Zip = zip; else job.ZipError = error;
+                    done(error);
                     Refresh();
+                    ExitIfDone();
                 });
             }
             catch (InvalidOperationException) { }
         });
     }
 
-    // Only one ZIP at a time: MakeZip uses one temporary file next to the folder.
-    static readonly object zipLock = new object();
-
-    static string MakeZipLocked(string folder)
+    void ExitIfDone()
     {
-        lock (zipLock) return AfterRecording.MakeZip(folder);
+        if (quitRequested && passesRunning == 0 && !stopping) ExitNow();
     }
 
-    // UI thread. zip: the ZIP for the clipboard, or null for the files. zipError: the ZIP failed.
-    void FinishPass(PassJob job, Stopwatch fromStop, AfterRecordingResult r, string text, List<string> files, string zip, string zipError)
+    // The folder is deleted only when all of this is true (Bran, 2026-11-22):
+    // the pass is done and good (a failed pass keeps the work file), the ZIP is made with no error and no ZIP is
+    // waiting (a note makes the ZIP again), and the note box is closed.
+    void TryCleanup(PassJob job)
+    {
+        if (job.Cleaning || job.Cleaned || job.Result == null) return;
+        bool zipExists = false;
+        try { zipExists = job.Zip != null && File.Exists(job.Zip); }
+        catch (Exception) { }
+        if (!RecordingIndex.CanDeleteFolder(job.Done, job.Result.Ok, zipExists, job.ZipPending, job.ZipError != null, job.NoteOpen)) return;
+        string folder = job.Input.Folder;
+        job.Cleaning = true;
+        passesRunning++;
+        Refresh();
+        System.Threading.ThreadPool.QueueUserWorkItem(delegate
+        {
+            string error = null;
+            try { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+            catch (Exception e) { error = e.Message; }
+            try
+            {
+                ui.BeginInvoke((MethodInvoker)delegate
+                {
+                    passesRunning--;
+                    job.Cleaning = false;
+                    if (error == null) job.Cleaned = true;
+                    else tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("The ZIP is ready, but the folder was not deleted: " + error), ToolTipIcon.Warning);
+                    UpdateLastMenu();
+                    Refresh();
+                    ExitIfDone();
+                });
+            }
+            catch (InvalidOperationException) { }
+        });
+    }
+
+    // The tray items work on the ZIP of the last recording.
+    void UpdateLastMenu()
+    {
+        bool has = false;
+        try { has = lastJob != null && lastJob.Zip != null && File.Exists(lastJob.Zip); }
+        catch (Exception) { }
+        openLastItem.Enabled = has;
+        zipItem.Enabled = has;
+    }
+
+    // UI thread. zipError: the ZIP failed (the folder stays, the clipboard gets no files).
+    void FinishPass(PassJob job, Stopwatch fromStop, AfterRecordingResult r, string text, string zipError)
     {
         string balloonText = text;
         bool copied = false;
-        if (zipError != null) balloonText += "\nCould not make the ZIP, so the clipboard has the files: " + zipError;
-        if (settings.CopyToClipboard && Directory.Exists(job.Input.Folder))
+        string zip = job.Zip;
+        if (zipError != null) balloonText += "\nCould not make the ZIP. The folder stays: " + zipError;
+        if (settings.CopyToClipboard && zipError == null && zip != null)
         {
             try
             {
-                // Two formats: a text paste (Claude Code, terminal) gets the message with the path,
-                // and a file paste (chat app, Explorer) gets index.md and the PNG frames, or one ZIP.
+                // Two formats: a text paste (Claude Code, terminal) gets the message with the path of the ZIP,
+                // and a file paste (chat app, Explorer) gets the ZIP. Never the loose files.
                 System.Collections.Specialized.StringCollection list = new System.Collections.Specialized.StringCollection();
-                if (zip != null) list.Add(zip);
-                else list.AddRange(files.ToArray());
+                list.Add(zip);
                 DataObject data = new DataObject();
                 data.SetFileDropList(list);
-                data.SetText(RecordingIndex.AiMessage(job.Input.Folder, r.Ok, r.AudioInClip, r.HasTranscript), TextDataFormat.UnicodeText);
+                data.SetText(RecordingIndex.AiMessage(zip, r.Ok, r.AudioInClip, r.HasTranscript), TextDataFormat.UnicodeText);
                 Clipboard.SetDataObject(data, true);
                 copied = true;
             }
-            catch (Exception e) { balloonText += "\nCould not copy the files to the clipboard: " + e.Message; }
+            catch (Exception e) { balloonText += "\nCould not copy the ZIP to the clipboard: " + e.Message; }
         }
         // Condition D (Bran, 2026-11-19): the time from Stop to "clipboard ready".
         job.SecondsFromStop = fromStop.Elapsed.TotalSeconds;
         string ready = " Ready " + job.SecondsFromStop.ToString("0.0", CultureInfo.InvariantCulture) + " s after Stop.";
         statsItem.Text = "Last recording: " + Shorten(text.Replace("\n", " ") + ready);
         statsItem.Visible = true;
-        openLastItem.Enabled = Directory.Exists(job.Input.Folder);
-        zipItem.Enabled = openLastItem.Enabled;
-        string copiedText = zip != null ? "AI message and ZIP copied. Press Ctrl+V to paste.\n"
-            : "AI message, index.md and frames copied. Press Ctrl+V to paste.\n";
+        UpdateLastMenu();
         tray.ShowBalloonTip(5000, "Desktop Recorder",
-            Shorten((copied ? copiedText : "Recording stopped.\n") + balloonText + ready),
-            r.Ok ? ToolTipIcon.Info : ToolTipIcon.Warning);
-        if (quitRequested && passesRunning == 0 && !stopping) ExitNow();
+            Shorten((copied ? "AI message and ZIP copied. Press Ctrl+V to paste.\n" : "Recording stopped.\n") + balloonText + ready),
+            r.Ok && zipError == null ? ToolTipIcon.Info : ToolTipIcon.Warning);
     }
 
     void ShowNoteBox(PassJob job)
@@ -1327,69 +1378,71 @@ class TrayApp : ApplicationContext
                     try
                     {
                         string where = AfterRecording.SaveNote(job.Input, job.Result, note);
-                        // The clipboard holds the path of the ZIP. Make it again, so that it has the note.
-                        if (job.UsesZip)
-                            System.Threading.ThreadPool.QueueUserWorkItem(delegate { try { MakeZipLocked(job.Input.Folder); } catch (Exception) { } });
+                        // The ZIP path stays the same. Make the ZIP again, so that it has the note.
+                        // The folder is deleted after this ZIP (TryCleanup).
+                        job.ZipPending++;
+                        MakeZipAsync(job, delegate(string error)
+                        {
+                            if (error != null)
+                                tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("Cannot make the ZIP again, so it has no note. The folder stays: " + error), ToolTipIcon.Warning);
+                            TryCleanup(job);
+                        });
                         if (!job.Result.Ok)
                             tray.ShowBalloonTip(4000, "Desktop Recorder", Shorten("The frame pass failed, so the note is in " + where), ToolTipIcon.Info);
                     }
                     catch (Exception e) { tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("Cannot save the note: " + e.Message), ToolTipIcon.Warning); }
                 }
             };
+            // The folder stays while the note box is open. Saved or closed, the box then lets the cleanup run.
+            job.NoteOpen = true;
+            form.FormClosed += delegate
+            {
+                job.NoteOpen = false;
+                TryCleanup(job);
+            };
             form.Show();
             form.Activate();
         }
-        catch (Exception) { }
+        catch (Exception) { job.NoteOpen = false; }
         finally { NativeMethods.RestoreThreadDpiContext(oldDpi); }
     }
 
+    // Opens Explorer with the ZIP of the last recording selected.
     void OpenLastFolder()
     {
-        if (lastJob == null) return;
+        if (lastJob == null || lastJob.Zip == null) return;
         try
         {
-            Process started = Process.Start("explorer.exe", RecorderCore.QuoteWindowsArgument(lastJob.Input.Folder));
+            if (!File.Exists(lastJob.Zip)) { MessageBox.Show("The ZIP is not there any more:\n" + lastJob.Zip, "Desktop Recorder"); return; }
+            Process started = Process.Start("explorer.exe", "/select,\"" + lastJob.Zip + "\"");
             if (started != null) started.Dispose();
         }
         catch (Exception e) { MessageBox.Show(e.Message, "Desktop Recorder"); }
     }
 
-    // Makes the ZIP of the last folder on a background thread, then puts it on the clipboard.
+    // Puts the existing ZIP of the last recording on the clipboard. It does not make the ZIP again:
+    // the folder is gone after the first ZIP.
     void CopyZip()
     {
-        if (lastJob == null) return;
-        string folder = lastJob.Input.Folder;
-        zipItem.Enabled = false;
-        System.Threading.ThreadPool.QueueUserWorkItem(delegate
+        if (lastJob == null || lastJob.Zip == null) return;
+        string zip = lastJob.Zip;
+        if (!File.Exists(zip))
         {
-            string zip = null, error = null;
-            try { zip = MakeZipLocked(folder); }
-            catch (Exception e) { error = e.Message; }
-            try
-            {
-                ui.BeginInvoke((MethodInvoker)delegate
-                {
-                    zipItem.Enabled = true;
-                    if (error != null)
-                    {
-                        tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("Cannot make the ZIP: " + error), ToolTipIcon.Warning);
-                        return;
-                    }
-                    try
-                    {
-                        System.Collections.Specialized.StringCollection list = new System.Collections.Specialized.StringCollection();
-                        list.Add(zip);
-                        Clipboard.SetFileDropList(list);
-                        tray.ShowBalloonTip(4000, "Desktop Recorder", Shorten("ZIP copied. Press Ctrl+V to paste it.\n" + zip), ToolTipIcon.Info);
-                    }
-                    catch (Exception e)
-                    {
-                        tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("ZIP made, but not copied: " + e.Message + "\n" + zip), ToolTipIcon.Warning);
-                    }
-                });
-            }
-            catch (InvalidOperationException) { }
-        });
+            tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("The ZIP is not there any more: " + zip), ToolTipIcon.Warning);
+            UpdateLastMenu();
+            return;
+        }
+        try
+        {
+            System.Collections.Specialized.StringCollection list = new System.Collections.Specialized.StringCollection();
+            list.Add(zip);
+            Clipboard.SetFileDropList(list);
+            tray.ShowBalloonTip(4000, "Desktop Recorder", Shorten("ZIP copied. Press Ctrl+V to paste it.\n" + zip), ToolTipIcon.Info);
+        }
+        catch (Exception e)
+        {
+            tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("The ZIP was not copied: " + e.Message + "\n" + zip), ToolTipIcon.Warning);
+        }
     }
 
     // After FFmpeg ended: the status line and the clipboard.
@@ -1686,7 +1739,12 @@ sealed class PassJob
     public string Note;              // null = no note (yet)
     public string Problem;           // why the recording ended, when FFmpeg stopped by itself
     public double SecondsFromStop;   // Stop to "clipboard ready"
-    public bool UsesZip;   // UI thread: the clipboard gets (or has) a ZIP, not the files
+    // UI thread only:
+    public string Zip;               // path of the ZIP (next to the folder), null until the first ZIP is made
+    public string ZipError;          // the last ZIP failed: the folder stays
+    public int ZipPending;           // ZIP calls that are not done (the first one, and one for each note)
+    public bool NoteOpen;            // the note box is open: the folder stays
+    public bool Cleaning, Cleaned;   // the folder is being deleted, or is deleted
     public bool NoNoteBox;           // Quit: no note box
 }
 
@@ -1779,7 +1837,6 @@ class SettingsForm : Form
     readonly CheckBox startupBox = new CheckBox();
     readonly CheckBox recordBox = new CheckBox();
     readonly CheckBox copyBox = new CheckBox();
-    readonly NumericUpDown zipBox = new NumericUpDown();
     readonly CheckBox soundBox = new CheckBox();
     readonly CheckBox pointerBox = new CheckBox();
     readonly CheckBox audioBox = new CheckBox();
@@ -1817,7 +1874,7 @@ class SettingsForm : Form
         MinimizeBox = false;
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(470, 660);
+        ClientSize = new Size(470, 634);
         Font = SystemFonts.MessageBoxFont;
 
         AddLabel("Save recordings to:", 15);
@@ -1885,55 +1942,48 @@ class SettingsForm : Form
         recordBox.SetBounds(15, 416, 440, 22);
         recordBox.Checked = current.RecordOnLaunch;
 
-        copyBox.Text = "Copy the recording (folder or video) to the clipboard when it stops";
+        copyBox.Text = "Copy the recording (ZIP or video) to the clipboard when it stops";
         copyBox.SetBounds(15, 442, 440, 22);
         copyBox.Checked = current.CopyToClipboard;
 
-        // Folder mode (Bran, 2026-11-20): a Claude cloud session refused 8 and 12 files. 1 = always a ZIP.
-        AddLabel("Folder mode: copy one ZIP above this many files (1 = always):", 471);
-        zipBox.SetBounds(360, 468, 95, 23);
-        zipBox.Minimum = 1;
-        zipBox.Maximum = 1000;
-        zipBox.Value = RecorderCore.ClampInt(current.ClipboardMaxFiles, 1, 1000);
-
         soundBox.Text = "Play a sound when recording starts and stops";
-        soundBox.SetBounds(15, 498, 440, 22);
+        soundBox.SetBounds(15, 472, 440, 22);
         soundBox.Checked = current.PlaySounds;
 
         pointerBox.Text = "Hide the mouse pointer in the video";
-        pointerBox.SetBounds(15, 524, 440, 22);
+        pointerBox.SetBounds(15, 498, 440, 22);
         pointerBox.Checked = !current.ShowPointer;
 
         // Off by default (Bran, 2026-11-20). Whisper is optional: without it there is audio but no transcript.
         audioBox.Text = "Record the sound of the PC, and make a transcript if Whisper is installed";
-        audioBox.SetBounds(15, 550, 440, 22);
+        audioBox.SetBounds(15, 524, 440, 22);
         audioBox.Checked = current.RecordAudio;
 
-        AddLabel("Region selector:", 579, 110);
+        AddLabel("Region selector:", 553, 110);
         crosshairBox.Text = "Crosshair";
-        crosshairBox.SetBounds(130, 576, 95, 22);
+        crosshairBox.SetBounds(130, 550, 95, 22);
         crosshairBox.Checked = current.SelectorCrosshair;
         magnifierBox.Text = "Magnifier";
-        magnifierBox.SetBounds(230, 576, 95, 22);
+        magnifierBox.SetBounds(230, 550, 95, 22);
         magnifierBox.Checked = current.SelectorMagnifier;
         positionBox.Text = "Position";
-        positionBox.SetBounds(330, 576, 95, 22);
+        positionBox.SetBounds(330, 550, 95, 22);
         positionBox.Checked = current.SelectorPosition;
 
         Button save = new Button();
         save.Text = "Save";
-        save.SetBounds(290, 620, 80, 27);
+        save.SetBounds(290, 594, 80, 27);
         save.Click += delegate { OnSave(); };
         Button cancel = new Button();
         cancel.Text = "Cancel";
-        cancel.SetBounds(375, 620, 80, 27);
+        cancel.SetBounds(375, 594, 80, 27);
         cancel.DialogResult = DialogResult.Cancel;
 
         Controls.AddRange(new Control[]
         {
             folderBox, browse, fpsBox, qualityBox, splitBox, winBox, ctrlBox, altBox, shiftBox, keyBox,
             backendBox, encoderBox, chromaBox, modeBox, outputBox,
-            startupBox, recordBox, copyBox, zipBox, soundBox, pointerBox, audioBox, crosshairBox, magnifierBox, positionBox, save, cancel
+            startupBox, recordBox, copyBox, soundBox, pointerBox, audioBox, crosshairBox, magnifierBox, positionBox, save, cancel
         });
         // The first control in Controls is on top. AddLabel adds the labels first, so they covered
         // the input fields (the fps value, the start of each list, the Win check box) at 125% on
@@ -2029,7 +2079,6 @@ class SettingsForm : Form
         Result.SplitMinutes = (int)splitBox.Value;
         Result.RecordOnLaunch = recordBox.Checked;
         Result.CopyToClipboard = copyBox.Checked;
-        Result.ClipboardMaxFiles = (int)zipBox.Value;
         Result.PlaySounds = soundBox.Checked;
         Result.ShowPointer = !pointerBox.Checked;
         Result.RecordAudio = audioBox.Checked;

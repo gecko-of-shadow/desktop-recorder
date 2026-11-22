@@ -306,7 +306,10 @@ static class AfterRecording
                 if (name.Equals(AudioMux.AudioFileName, StringComparison.OrdinalIgnoreCase)
                     || name.Equals(AudioMux.TranscriptWavName, StringComparison.OrdinalIgnoreCase)) continue;
                 string rel = file.Substring(full.Length).TrimStart('\\', '/').Replace('\\', '/');
-                archive.CreateEntryFromFile(file, root + "/" + rel, CompressionLevel.Optimal);
+                // PNG and MP4 are compressed already (Bran, 2026-11-22): store them. Text gets Deflate.
+                string ext = Path.GetExtension(file);
+                bool packed = ext.Equals(".png", StringComparison.OrdinalIgnoreCase) || ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase);
+                archive.CreateEntryFromFile(file, root + "/" + rel, packed ? CompressionLevel.NoCompression : CompressionLevel.Optimal);
             }
         }
         if (File.Exists(zip)) File.Delete(zip);
