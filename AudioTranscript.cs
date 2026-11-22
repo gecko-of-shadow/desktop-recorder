@@ -284,6 +284,227 @@ static class AudioMux
     }
 }
 
+// Sound in the time of each transcript row (2026-11-22). Whisper writes text such as "Thank you." on silent or
+// almost silent audio (the most common output on non-speech audio, arXiv 2501.11378). On Bran's PC, whisper-cli
+// options did not stop it: -sns, -lpt 0 and -nth 0.1 kept the rows. Silero VAD (--vad) at threshold 0.5 removed them,
+// but also most of the quiet real speech of a test recording (6 of about 30 rows); at 0.2 and 0.05 the false rows
+// came back. Thus the app measures the 16 kHz copy itself: a row with almost no sound in its time is left out.
+static class SpeechCheck
+{
+    public const double WindowSeconds = 0.1;
+    // A 100 ms window has sound when its RMS level is at or above this level. Real speech in Bran's recording of
+    // 2026-11-22 14:45 was at about -60 dBFS. The silent recordings were digital silence (no sample above 0).
+    public const double SoundFloorDb = -70;
+    // A row is near silence, and is left out, when it has sound in less than this part of its time AND for less than
+    // MinSoundSeconds. Both: a long Whisper row can hold a short real sentence (review 2026-11-22: 2.9 s of speech at
+    // the end of a 30 s row). The silent test recordings had 0 to 0.9 s of sound (clicks, the stop sound) in 30 s.
+    public const double MinSoundShare = 0.1;
+    public const double MinSoundSeconds = 1.0;
+    // A known Whisper text for non-speech audio (KnownPhrases) in a long row needs sound in this part of its time.
+    // On silence, Whisper writes such a text over its full 30 s window (0 to 30 s, 30 to 60 s on this PC). A real,
+    // short "Thanks." gets a short row, so a short row is not checked by this rule.
+    public const double PhraseSoundShare = 0.5;
+    // Long = at least this many seconds, or at least PhraseLongPart of the audio (a short recording).
+    public const double PhraseLongSeconds = 10;
+    public const double PhraseLongPart = 0.8;
+
+    // Normalized: lower case, letters and digits only, one space between words. Sources: arXiv 2501.11378 (the most
+    // common outputs on non-speech audio), community reports, and this PC ("Thank you." and "Bye." on the silent
+    // test recordings). The texts in other languages come from community reports (not checked on this PC).
+    static readonly string[] KnownPhrases =
+    {
+        "thank you", "thank you very much", "thanks", "thank you for watching", "thanks for watching",
+        "thank you for listening", "please subscribe", "like and subscribe", "bye", "bye bye", "you",
+        "subtitles by the amara org community",
+        "ご視聴ありがとうございました", "продолжение следует", "untertitel der amara org community"
+    };
+
+    // The RMS level (dBFS) of each 100 ms window of a 16-bit PCM WAV file, all channels together. Digital silence
+    // gives double.NegativeInfinity. Null when the file is not 16-bit PCM. The file is read in parts: a long
+    // recording needs no large buffer.
+    public static double[] WindowLevels(string path)
+    {
+        using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            return WindowLevels(fs);
+    }
+
+    public static double[] WindowLevels(Stream s)
+    {
+        byte[] head = new byte[12];
+        if (!ReadFull(s, head, 12) || Ascii(head, 0) != "RIFF" || Ascii(head, 8) != "WAVE") return null;
+        int channels = 0, rate = 0, bits = 0;
+        bool pcm = false;
+        byte[] chunk = new byte[8];
+        while (ReadFull(s, chunk, 8))
+        {
+            string id = Ascii(chunk, 0);
+            long size = BitConverter.ToUInt32(chunk, 4);
+            if (id == "fmt ")
+            {
+                byte[] fmt = new byte[Math.Max(16, (int)Math.Min(size, 64))];
+                if (size < 16 || !ReadFull(s, fmt, (int)Math.Min(size, 64))) return null;
+                if (size > 64) Skip(s, size - 64);
+                int tag = BitConverter.ToUInt16(fmt, 0);
+                channels = BitConverter.ToUInt16(fmt, 2);
+                rate = (int)BitConverter.ToUInt32(fmt, 4);
+                bits = BitConverter.ToUInt16(fmt, 14);
+                if (tag == 0xFFFE && size >= 26) tag = BitConverter.ToUInt16(fmt, 24);   // WAVE_FORMAT_EXTENSIBLE
+                pcm = tag == 1;
+                if ((size & 1) == 1) Skip(s, 1);
+            }
+            else if (id == "data")
+            {
+                if (!pcm || bits != 16 || channels < 1 || rate < 1000) return null;
+                // FFmpeg writes the real size when it can seek. 0 or 0xFFFFFFFF: read to the end of the file.
+                long bytes = size == 0 || size == 0xFFFFFFFFL ? long.MaxValue : size;
+                return Levels(s, bytes, channels, rate);
+            }
+            else Skip(s, size + (size & 1));
+        }
+        return null;
+    }
+
+    static double[] Levels(Stream s, long bytes, int channels, int rate)
+    {
+        long perWindow = (long)Math.Round(rate * WindowSeconds) * channels;
+        List<double> levels = new List<double>();
+        byte[] buffer = new byte[65536];
+        double sum = 0;
+        long n = 0;
+        int carry = -1;   // the low byte of a sample that is split between two reads
+        while (bytes > 0)
+        {
+            int read = s.Read(buffer, 0, (int)Math.Min(buffer.Length, bytes));
+            if (read <= 0) break;
+            bytes -= read;
+            int i = 0;
+            if (carry >= 0 && read > 0)
+            {
+                short v = (short)(carry | (buffer[0] << 8));
+                sum += (double)v * v; n++;
+                if (n == perWindow) { levels.Add(Db(sum, n)); sum = 0; n = 0; }
+                carry = -1;
+                i = 1;
+            }
+            for (; i + 1 < read; i += 2)
+            {
+                short v = (short)(buffer[i] | (buffer[i + 1] << 8));
+                sum += (double)v * v;
+                n++;
+                if (n == perWindow) { levels.Add(Db(sum, n)); sum = 0; n = 0; }
+            }
+            if (i < read) carry = buffer[i];
+        }
+        if (n > perWindow / 2) levels.Add(Db(sum, n));   // the last part window, when it is long enough
+        // No full window: no check (an empty array would make every row silent).
+        return levels.Count == 0 ? null : levels.ToArray();
+    }
+
+    static double Db(double sumSquares, long n)
+    {
+        if (sumSquares <= 0 || n <= 0) return double.NegativeInfinity;
+        return 20 * Math.Log10(Math.Sqrt(sumSquares / n) / 32768.0);
+    }
+
+    // The part of the windows from start to end (seconds) that have sound. The windows after the end of the audio
+    // count as silent: Whisper pads the last 30 s window, so a row can go past the end (seen: 0 to 30 s in an 18 s
+    // recording). A row shorter than one window uses the window at its start.
+    public static double SoundShare(double[] levels, double start, double end)
+    {
+        int sound, windows;
+        CountSound(levels, start, end, out sound, out windows);
+        return levels == null ? 1 : sound / (double)windows;
+    }
+
+    static void CountSound(double[] levels, double start, double end, out int sound, out int windows)
+    {
+        int first = (int)Math.Floor(Math.Max(0, start) / WindowSeconds + 1e-9);
+        int last = (int)Math.Ceiling(Math.Max(start, end) / WindowSeconds - 1e-9) - 1;
+        if (last < first) last = first;
+        sound = 0;
+        windows = last - first + 1;
+        if (levels == null) return;
+        for (int i = first; i <= last; i++)
+            if (i < levels.Length && levels[i] >= SoundFloorDb) sound++;
+    }
+
+    public static bool IsKnownPhrase(string text)
+    {
+        string t = Normalize(text);
+        foreach (string p in KnownPhrases) if (t == p) return true;
+        return false;
+    }
+
+    internal static string Normalize(string text)
+    {
+        StringBuilder sb = new StringBuilder();
+        bool space = false;
+        foreach (char c in (text ?? "").ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(c)) { if (space && sb.Length > 0) sb.Append(' '); sb.Append(c); space = false; }
+            else space = true;
+        }
+        return sb.ToString();
+    }
+
+    // True when the row is kept: it is not near silence, and a known non-speech text in a long row has enough sound.
+    public static bool Keep(TranscriptSegment row, double[] levels)
+    {
+        if (levels == null) return true;
+        int sound, windows;
+        CountSound(levels, row.Start, row.End, out sound, out windows);
+        double share = sound / (double)windows;
+        if (share < MinSoundShare && sound * WindowSeconds < MinSoundSeconds - 1e-9) return false;
+        if (!IsKnownPhrase(row.Text)) return true;
+        double length = windows * WindowSeconds;
+        bool longRow = length >= PhraseLongSeconds - 1e-9 || length >= PhraseLongPart * levels.Length * WindowSeconds - 1e-9;
+        return !(longRow && share < PhraseSoundShare);
+    }
+
+    // The rows to keep. dropped: the number of rows that are left out.
+    public static List<TranscriptSegment> Filter(IList<TranscriptSegment> rows, double[] levels, out int dropped)
+    {
+        List<TranscriptSegment> kept = new List<TranscriptSegment>();
+        dropped = 0;
+        foreach (TranscriptSegment r in rows)
+        {
+            if (Keep(r, levels)) kept.Add(r);
+            else dropped++;
+        }
+        return kept;
+    }
+
+    static bool ReadFull(Stream s, byte[] b, int count)
+    {
+        int at = 0;
+        while (at < count)
+        {
+            int n = s.Read(b, at, count - at);
+            if (n <= 0) return false;
+            at += n;
+        }
+        return true;
+    }
+
+    static void Skip(Stream s, long count)
+    {
+        if (count <= 0) return;
+        if (s.CanSeek) { s.Seek(count, SeekOrigin.Current); return; }
+        byte[] b = new byte[4096];
+        while (count > 0)
+        {
+            int n = s.Read(b, 0, (int)Math.Min(b.Length, count));
+            if (n <= 0) return;
+            count -= n;
+        }
+    }
+
+    static string Ascii(byte[] b, int at)
+    {
+        return new string(new char[] { (char)b[at], (char)b[at + 1], (char)b[at + 2], (char)b[at + 3] });
+    }
+}
+
 // A Whisper program that the app found.
 sealed class WhisperTool
 {
@@ -554,6 +775,12 @@ static class Transcript
     // segments == null: no transcript; note says why.
     public static string IndexSection(bool audioInClip, IList<TranscriptSegment> segments, string toolText, string note)
     {
+        return IndexSection(audioInClip, segments, toolText, note, 0);
+    }
+
+    // dropped: the rows that SpeechCheck left out (Whisper wrote them on silent or almost silent audio).
+    public static string IndexSection(bool audioInClip, IList<TranscriptSegment> segments, string toolText, string note, int dropped)
+    {
         StringBuilder sb = new StringBuilder();
         sb.Append("\n## Audio and transcript\n");
         sb.Append(audioInClip ? "clip.mp4 has the system audio (the sound that the PC played).\n"
@@ -565,11 +792,15 @@ static class Transcript
         }
         sb.Append("Transcript: ").Append(RecordingIndex.Cell(toolText ?? "Whisper"))
           .Append(". A machine transcript: some words can be wrong. Times are seconds on the time line of clip.mp4.\n");
+        string left = dropped <= 0 ? ""
+            : "The app left out " + (dropped == 1 ? "1 row" : dropped.ToString(CultureInfo.InvariantCulture) + " rows")
+              + " that Whisper wrote: the audio was silent or almost silent in that time. Whisper writes text such as \"Thank you.\" on silence.\n";
         if (segments.Count == 0)
         {
-            sb.Append("Whisper found no speech.\n");
+            sb.Append(dropped > 0 ? "No speech was found. " + left : "Whisper found no speech.\n");
             return sb.ToString();
         }
+        sb.Append(left);
         sb.Append('\n');
         sb.Append("| Start | End | Text |\n");
         sb.Append("|---|---|---|\n");

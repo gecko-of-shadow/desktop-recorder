@@ -25,6 +25,7 @@ static class AudioTests
         TestClipArgsWithAudio();
         TestSrt();
         TestIndexSection();
+        TestSpeechCheck();
         TestFindWhisper();
         TestWhisperArguments();
         TestAiMessage();
@@ -188,6 +189,141 @@ static class AudioTests
         Expect(none.IndexOf("No transcript: no Whisper program was found.", StringComparison.Ordinal) >= 0 && none.IndexOf("| Start", StringComparison.Ordinal) < 0, "no transcript");
         Expect(Transcript.IndexSection(false, null, null, "x").IndexOf("not in clip.mp4", StringComparison.Ordinal) >= 0, "audio not in clip");
         Expect(Transcript.IndexSection(true, new List<TranscriptSegment>(), "t", null).IndexOf("no speech", StringComparison.Ordinal) >= 0, "no speech");
+        // Rows that SpeechCheck left out (2026-11-22).
+        string allOut = Transcript.IndexSection(true, new List<TranscriptSegment>(), "t", null, 2);
+        Expect(allOut.IndexOf("No speech was found. The app left out 2 rows that Whisper wrote: the audio was silent or almost silent in that time.", StringComparison.Ordinal) >= 0
+            && allOut.IndexOf("| Start", StringComparison.Ordinal) < 0, "all rows left out: no speech, no table: " + allOut);
+        string partOut = Transcript.IndexSection(true, segs, "t", null, 1);
+        Expect(partOut.IndexOf("The app left out 1 row that Whisper wrote", StringComparison.Ordinal) >= 0
+            && partOut.IndexOf("| 0.6 s | 2.0 s |", StringComparison.Ordinal) > partOut.IndexOf("left out", StringComparison.Ordinal), "1 row left out, table stays");
+        Expect(md.IndexOf("left out", StringComparison.Ordinal) < 0, "no left-out line when nothing is left out");
+    }
+
+    // A 16 kHz mono 16-bit WAV: FFmpeg puts a LIST chunk before the data chunk, so the test does too.
+    static byte[] Wav16k(short[] samples, bool listChunk)
+    {
+        MemoryStream m = new MemoryStream();
+        BinaryWriter w = new BinaryWriter(m);
+        byte[] list = listChunk ? new byte[] { (byte)'I', (byte)'N', (byte)'F', (byte)'O', (byte)'I', (byte)'S', (byte)'F', (byte)'T', 3, 0, 0, 0, (byte)'a', (byte)'b', 0, 0 } : new byte[0];
+        int dataBytes = samples.Length * 2;
+        w.Write(new char[] { 'R', 'I', 'F', 'F' }); w.Write(4 + 24 + (listChunk ? 8 + list.Length : 0) + 8 + dataBytes);
+        w.Write(new char[] { 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' }); w.Write(16);
+        w.Write((short)1); w.Write((short)1); w.Write(16000); w.Write(32000); w.Write((short)2); w.Write((short)16);
+        if (listChunk) { w.Write(new char[] { 'L', 'I', 'S', 'T' }); w.Write(list.Length); w.Write(list); }
+        w.Write(new char[] { 'd', 'a', 't', 'a' }); w.Write(dataBytes);
+        foreach (short s in samples) w.Write(s);
+        w.Flush();
+        return m.ToArray();
+    }
+
+    // A stream that gives 1 to 3 bytes for each Read and cannot seek.
+    sealed class TrickleStream : Stream
+    {
+        readonly byte[] data;
+        int pos, step;
+        public TrickleStream(byte[] d) { data = d; }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int n = Math.Min(Math.Min(count, 1 + step++ % 3), data.Length - pos);
+            Buffer.BlockCopy(data, pos, buffer, offset, n);
+            pos += n;
+            return n;
+        }
+        public override bool CanRead { get { return true; } }
+        public override bool CanSeek { get { return false; } }
+        public override bool CanWrite { get { return false; } }
+        public override long Length { get { return data.Length; } }
+        public override long Position { get { return pos; } set { throw new NotSupportedException(); } }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) { throw new NotSupportedException(); }
+        public override void SetLength(long value) { throw new NotSupportedException(); }
+        public override void Write(byte[] buffer, int offset, int count) { throw new NotSupportedException(); }
+    }
+
+    static TranscriptSegment Row(double start, double end, string text)
+    {
+        TranscriptSegment s = new TranscriptSegment();
+        s.Start = start; s.End = end; s.Text = text;
+        return s;
+    }
+
+    // Whisper writes "Thank you." on silence (Bran's recordings of 2026-11-22). SpeechCheck leaves such rows out,
+    // and keeps quiet real speech (about -60 dBFS in the recording of 14:45).
+    static void TestSpeechCheck()
+    {
+        // 0 to 20 s: digital silence with two clicks of 0.2 s (at 5 s and 12 s). 20 to 30 s: steady sound at -60 dBFS.
+        short[] a = new short[30 * 16000];
+        Random rnd = new Random(7);
+        for (int i = 0; i < 3200; i++) { a[5 * 16000 + i] = (short)(i % 2 == 0 ? 8000 : -8000); a[12 * 16000 + i] = (short)(i % 2 == 0 ? 8000 : -8000); }
+        for (int i = 20 * 16000; i < a.Length; i++) a[i] = (short)rnd.Next(-57, 58);   // uniform noise: RMS 57 / sqrt(3) = -60 dBFS
+        double[] levels = SpeechCheck.WindowLevels(new MemoryStream(Wav16k(a, true)));
+        Expect(levels != null && levels.Length == 300, "levels: 300 windows of 100 ms, got " + (levels == null ? "null" : levels.Length.ToString()));
+        if (levels == null || levels.Length != 300) return;
+        Expect(double.IsNegativeInfinity(levels[0]) && double.IsNegativeInfinity(levels[199]), "digital silence has no level");
+        Expect(Math.Abs(levels[50] - 20 * Math.Log10(8000 / 32768.0)) < 0.1, "click level: " + levels[50]);
+        Expect(Math.Abs(levels[250] + 60) < 1.5, "steady sound near -60 dBFS: " + levels[250]);
+        Expect(SpeechCheck.WindowLevels(new MemoryStream(Wav16k(a, false))).Length == 300, "levels without a LIST chunk");
+        // A float WAV is not read: all rows stay.
+        MemoryStream f = new MemoryStream(Wav16k(new short[1600], false));
+        byte[] fb = f.ToArray();
+        fb[20] = 3;   // format tag 3 = IEEE float
+        Expect(SpeechCheck.WindowLevels(new MemoryStream(fb)) == null && SpeechCheck.Keep(Row(0, 30, "Thank you."), null), "float WAV: no check, row kept");
+
+        Expect(Math.Abs(SpeechCheck.SoundShare(levels, 0, 20) - 0.02) < 1e-9, "share of 0 to 20 s: 4 of 200 windows");
+        Expect(SpeechCheck.SoundShare(levels, 20, 30) == 1, "share of 20 to 30 s");
+        Expect(Math.Abs(SpeechCheck.SoundShare(levels, 25, 40) - 50 / 150.0) < 1e-9, "after the end of the audio counts as silence");
+        Expect(SpeechCheck.SoundShare(levels, 5.05, 5.05) == 1, "a row shorter than one window uses the window at its start");
+
+        // Silence (and silence with clicks): left out, with any text.
+        Expect(!SpeechCheck.Keep(Row(0, 20, "Thank you."), levels), "Thank you. on silence with clicks: out");
+        Expect(!SpeechCheck.Keep(Row(0, 20, "Some other words here."), levels), "any text on almost silent audio: out");
+        Expect(!SpeechCheck.Keep(Row(13, 19, "Hello there."), levels), "text on digital silence: out");
+        // Quiet real sound: kept, also "Thank you.".
+        Expect(SpeechCheck.Keep(Row(20, 30, "Thank you."), levels), "Thank you. on steady sound: kept");
+        Expect(SpeechCheck.Keep(Row(21, 23.5, "So Peter, what was your first thought?"), levels), "quiet speech: kept");
+        // Past the end of the audio: a known text needs half of its time with sound.
+        Expect(!SpeechCheck.Keep(Row(25, 40, "Thank you."), levels), "known text past the end: out");
+        Expect(SpeechCheck.Keep(Row(25, 40, "And so we went home."), levels), "other text past the end: kept (share 0.33)");
+        // A short row on a short sound stays, also with a known text: a real "Thanks." is short (review 2026-11-22).
+        Expect(SpeechCheck.Keep(Row(5.0, 5.2, "Thanks."), levels) && SpeechCheck.Keep(Row(5.0, 5.2, "Yes."), levels), "short row on a short sound: kept");
+        // Near silence needs both: sound in less than 10% of the row and for less than 1.0 s.
+        Expect(SpeechCheck.Keep(Row(18.5, 20.2, "Words at the end."), levels) && !SpeechCheck.Keep(Row(17, 20.1, "Words at the end."), levels),
+            "share limit 0.1: 2 of 17 windows kept, 1 of 31 out: " + SpeechCheck.SoundShare(levels, 18.5, 20.2) + " / " + SpeechCheck.SoundShare(levels, 17, 20.1));
+        Expect(SpeechCheck.Keep(Row(0, 21.0, "A long row with a short real sentence at its end."), levels),
+            "long row with 1.4 s of sound at its end (share 0.067): kept");
+        Expect(!SpeechCheck.Keep(Row(0, 20.3, "A long row with clicks."), levels), "long row with 0.7 s of sound (share 0.034): out");
+        // A known text over most of a short recording: on silence, Whisper writes it over all of the audio.
+        double[] shortAudio = new double[30];
+        for (int i = 0; i < 30; i++) shortAudio[i] = i >= 25 ? -20 : double.NegativeInfinity;   // 3 s, the stop sound at the end
+        Expect(!SpeechCheck.Keep(Row(0, 3.0, "Thank you."), shortAudio) && SpeechCheck.Keep(Row(0, 3.0, "We are done here."), shortAudio),
+            "short recording: known text over all of it is out, other text stays (share 0.17)");
+        Expect(SpeechCheck.Keep(Row(2.5, 3.0, "Thank you."), shortAudio), "short recording: short known row on sound stays");
+        // The parser joins samples that are split between reads, and reads to the end for a data size of 0.
+        byte[] wav = Wav16k(a, true);
+        double[] trickle = SpeechCheck.WindowLevels(new TrickleStream(wav));
+        bool same = trickle != null && trickle.Length == levels.Length;
+        for (int i = 0; same && i < levels.Length; i++) same = trickle[i].Equals(levels[i]);
+        Expect(same, "levels from 1 to 3 bytes for each read");
+        int dataAt = -1;
+        for (int i = 12; i + 4 <= wav.Length; i++) if (wav[i] == 'd' && wav[i + 1] == 'a' && wav[i + 2] == 't' && wav[i + 3] == 'a') { dataAt = i; break; }
+        wav[dataAt + 4] = 0; wav[dataAt + 5] = 0; wav[dataAt + 6] = 0; wav[dataAt + 7] = 0;
+        double[] zeroSize = SpeechCheck.WindowLevels(new MemoryStream(wav));
+        Expect(zeroSize != null && zeroSize.Length == 300, "data size 0: read to the end");
+        Expect(SpeechCheck.WindowLevels(new MemoryStream(Wav16k(new short[400], false))) == null, "less than half a window: no levels (no check)");
+
+        Expect(SpeechCheck.IsKnownPhrase(" Thank you. ") && SpeechCheck.IsKnownPhrase("THANK YOU!") && SpeechCheck.IsKnownPhrase("Bye-bye.")
+            && SpeechCheck.IsKnownPhrase("Thanks for watching!") && SpeechCheck.IsKnownPhrase("ご視聴ありがとうございました"), "known texts");
+        Expect(!SpeechCheck.IsKnownPhrase("Thank you for the help.") && !SpeechCheck.IsKnownPhrase("") && !SpeechCheck.IsKnownPhrase(null), "not known texts");
+
+        List<TranscriptSegment> rows = new List<TranscriptSegment>();
+        rows.Add(Row(0, 20, "Thank you."));
+        rows.Add(Row(20, 25, "Real words."));
+        rows.Add(Row(25, 40, "Thank you."));
+        int dropped;
+        List<TranscriptSegment> kept = SpeechCheck.Filter(rows, levels, out dropped);
+        Expect(dropped == 2 && kept.Count == 1 && kept[0].Text == "Real words.", "filter: 1 kept, 2 left out");
+        kept = SpeechCheck.Filter(rows, null, out dropped);
+        Expect(dropped == 0 && kept.Count == 3, "filter without levels keeps all rows");
     }
 
     static string TempDir()

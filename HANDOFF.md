@@ -505,6 +505,7 @@ Not checked: look-alike changes in a real screen capture (the states were drawn 
 | Release v3.0.1 | Done (7.15). The exe from the zip is not run on a PC. |
 | ZIP on the clipboard (7.16) | Code done, test build installed. Cloud paste test open. Not released. |
 | One ZIP only in folder mode (7.18) | Code, unit tests and a ZIP check done on branch `zip-only`. Not installed, not pushed, not released. No real recording and no paste test yet. Replaces 7.16. |
+| False transcript rows, pointer motion warning, file-count text (7.19) | Code, unit tests and offline tests on three real recordings done on branch `zip-only`. Not installed, not pushed, not released. No real recording with this build yet. |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -891,6 +892,116 @@ Not checked:
 - The Mono build and the GitHub CI with `AfterRecording.cs` in `run-tests.sh` (compiles under `csc.exe` only; the whole app compiled under Mono in 7.7).
 - The file-count warning in `index.md` (more than 20 files) is not changed. It now describes the files after the ZIP is unpacked. Bran can decide if it is still useful.
 - `DesktopRecorder-zip.exe` is in the repository folder (not committed). Test files from the check are in `%TEMP%\zip-only-test` (not deleted).
+
+### 7.19 False transcript rows, pointer motion warning, file-count text (2026-11-22, branch `zip-only`, not pushed, not released)
+
+Job from Bran (headless agent run): job A (false transcript rows), job B (false "the picture changed during 81%" warning), job C (file-count warning for a ZIP).
+
+Test data: three real recordings by Bran, copied to `%TEMP%\svr-job-7-19` (the originals in `C:\Users\Bran\Recordings` are not changed):
+
+- r1 = `desktop_2026-11-22_14-16-55` (57.3 s, Claude Console in Chrome).
+- r2 = `desktop_2026-11-22_14-29-27` (18.1 s, PowerShell and the Claude app).
+- r3 = `desktop_2026-11-22_14-45-44` (126.9 s, Claude Console in Chrome, quiet speech from a video in the audio).
+- Extra (after the review): r4 = `desktop_2026-11-22_14-24-54` (15.0 s, Claude Code in a terminal, a "Thank you." row and "92%") and r5 = `desktop_2026-11-22_15-05-23` (34.3 s, Claude Console, real speech and "89%").
+
+The lossless work files and the original WAV files are gone. All pass runs used the lossy `clip.mp4` and its AAC audio.
+
+**Job A: false transcript rows.**
+
+Facts (checked):
+
+- The audio of r1 and r2 is digital silence, except the stop sound of the app in the last 0.5 s and a few clicks in r2 (10.5 s, 15.5 to 16.5 s). whisper-cli with the app arguments wrote "Thank you." from 0 to 30 s and from 30 to 60 s (r1), and from 0 to 30 s (r2, an 18.1 s recording).
+- r3 has real speech at about -60 dBFS RMS (0.5 s windows) and clicks at -14 dBFS peak. Whisper wrote a coherent conversation (29 rows in the app, 50 rows in a new run). r3 has no "Thank you." row: only r1 and r2 show the fault.
+- The peak check of 3.0.0 (`AudioTake.SilentPeak`) did not stop Whisper: the stop sound has a peak of -21 dBFS.
+- whisper-cli options (the build in `%LOCALAPPDATA%\Programs\DesktopRecorder\whisper`; `--help` lists VAD options): `-sns`, `-lpt 0`, `-nth 0.3 -lpt 0` and `-nth 0.1 -lpt 0` kept the "Thank you." rows on r1 and r2.
+- Silero VAD: model `ggml-silero-v6.2.0.bin` from Hugging Face `ggml-org/whisper-vad` (SHA-256 equal to the value of the site), in the scratch folder only, not installed. `--vad` at threshold 0.5 removed the false rows, but r3 kept only 6 of about 30 real rows. At 0.2 and 0.05, r3 kept 23 and 24 rows, but r1 and r2 got "Thank you." and "Bye." again, on the stop sound and on the clicks.
+
+Fix: `SpeechCheck` in `AudioTranscript.cs`, called in `AfterRecording.MakeTranscriptCore`.
+
+- It reads the 16 kHz copy (`transcript_16k.wav`, on the time line of the rows) in parts and computes the RMS level of each 100 ms window. Sound = -70 dBFS or louder.
+- Near silence: sound in less than 10% of the row and for less than 1.0 s (window count). Such a row is left out, with any text.
+- A known Whisper text for silence (for example "Thank you.", "Thanks for watching!", "Bye.", "you"; compared without case and punctuation) in a long row (10 s or more, or 80% of the audio or more) needs sound in 50% of its time. A short row with a known text is not checked by this rule.
+- Windows after the end of the audio count as silent (Whisper pads the last 30 s window). A file that is not 16-bit PCM, or with less than 50 ms of audio, is not checked: all rows stay.
+- `index.md` says: "The app left out N rows that Whisper wrote: the audio was silent or almost silent in that time. Whisper writes text such as "Thank you." on silence." When no row is left, the section starts with "No speech was found.", and the folder (thus the ZIP) has no `transcript.srt`. The tray status line then says "No transcript: no speech was found." (before: "No transcript: ." for an empty transcript).
+
+Results (checked; `test\process_clip.cs` with `AUDIO_FILE` = the audio of each clip as a 48 kHz float WAV, and the installed whisper-cli and model):
+
+| Recording | Rows from Whisper | Kept | Left out | Sound of the left-out rows |
+|---|---|---|---|---|
+| r1 | 2 ("Thank you.", 0 to 30 s and 30 to 60 s) | 0 | 2 | share 0.000 and 0.010 (0 s and 0.3 s) |
+| r2 | 1 ("Thank you.", 0 to 30 s) | 0 | 1 | share 0.030 (0.9 s) |
+| r3 | 50 (real, quiet) | 50 | 0 | - (each row: share 0.5 or more) |
+| r4 | 1 ("Thank you.") | 0 | 1 | not printed |
+| r5 | 3 (real) | 3 | 0 | - |
+
+The 29 rows of the original r3 transcript (made by the app) also all stay (probe tool on the r3 audio). Unit test: `TestSpeechCheck` and new checks in `TestIndexSection` (`tests/AudioTests.cs`).
+
+**Job B: false motion warning.**
+
+Cause (checked):
+
+- Bran's `settings.txt` has `show_pointer=1`. The pointer is in the video: a crop of r1 from 0.47 to 0.6 s shows the hand pointer at three places, and a menu item with a hover color.
+- In "changes" mode each pointer move keeps a frame (15 fps). The old rule counted each frame pair with any change (3 px in one 8 x 8 block) that was not a scroll as motion.
+- On the lossy clips, the old rule counted 628, 201 and 1538 motion pairs. In most of these pairs, the largest group of changed blocks (blocks that touch) had a short side of 16 to 32 px. Only 23, 46 and 84 pairs had a group with a short side of 96 px or more (1.5 s, 3.6 s and 6.2 s).
+- Encoder noise is not the cause: the app ran the pass on the lossless work file and wrote 81%, 81% and 86%.
+
+Fix: `SettledOptions.MotionMinSide` (96) and `SettledFrameFinder.LargeGroups` in `SettledFrames.cs`.
+
+- A frame pair counts as moving content only when one group of changed 8 x 8 blocks has a short side of 96 px or more, or when all changed blocks together cover 96 x 96 px or more (144 blocks; many small moving parts, for example a dark video; added after the review). When the region is small, the limit is half the short side of the region (the unit tests use 96 x 120 frames: 48 px).
+- The area in the warning is now the box of the large groups (or of all groups, when only the total is large), not of all changes (before: the pointer path made it the full screen).
+- The frame rules are not changed. A moving pointer still keeps the screen from settling, so the rows can still say "screen still changing" (the 5 s samples).
+
+Results (checked; HEAD and the final code on the same clips):
+
+| Recording | App, lossless (before) | HEAD, lossy clip | Final, lossy clip | Frames HEAD / final |
+|---|---|---|---|---|
+| r1 | 81%, 21 frames | 84% | 11.7% (no warning) | 20 / 20 |
+| r2 | 81%, 7 frames | 88% | 25.5% (no warning) | 6 / 6 |
+| r3 | 86%, 37 frames | 88% | 10.7% (no warning) | 36 / 36 |
+| r4 | 92%, 5 frames | 94% | 20.1% (no warning) | 5 / 5 |
+| r5 | 89%, 10 frames | 90% | 9.6% (no warning) | 9 / 9 |
+
+- The PNG files of HEAD and final are equal (MD5) in all five. `index.md` of r1 to r3 differs only in the motion warning (removed) and the file-count text (job C).
+- The final values are the moving seconds / length (for example 6.69 / 57.3 s). Before the total-area path they were 2.7%, 19.9% and 4.9% (r1 to r3). The extra pairs are probably hover effects, page changes and encoder noise of the lossy clip (not checked one by one).
+- Analysis time (first version of the fix, no debug output): HEAD / new 4.38 / 4.40 s, 1.82 / 1.89 s, 12.31 / 11.24 s. Not measured again after the total-area path (one counter more in the same loop).
+
+Regression checks (checked; `test\settled_render.cs`, lossless NVENC 4:4:4 at 15 fps, "fixed" and "changes" gave the same results):
+
+- 7.5 tests: status line 6 frames (0, 8.0, 18.0, 29.5, 41.0, 52.3 s), blinking caret 1 frame, look-alike 15 of 15, scroll 0 px missed (10 frames), pages 0 px missed (11 frames). Same as 7.5.
+- New scenario `pointer` (26 s, the pointer moves with 3 stops of 1 s, status change at 12.8 s): no motion note, 9 frames, a settled frame at 12.8 s.
+- New scenario `player` (480 x 270 video area): motion note 97% (86% before the total-area path), area x 400, y 296, 488 x 280 px. The 8 px extra width probably comes from 3 extra bytes in the pipe of the renderer (FFmpeg: "Packet too small (3)" in every render, also before this job). Not checked, not changed.
+- 7.7 tests (FFmpeg lavfi, 26 s, NVENC lossless): motion note for `testsrc2` 320 x 240 and 1280 x 720, `mandelbrot`, `life` 320 x 240 and 640 x 480 (all 100% with the final code). No note for `cellauto` (a scroll). Same as 7.7.
+- Unit tests `TestPointerIsNotMotion` (96 x 120 and 640 x 360 frames) and `TestManySmallPartsAreMotion` (60 moving parts of 8 x 8 px on a dark 640 x 360 picture). Mutation checks: with `MotionMinSide = 8`, the 3 pointer checks fail (pointer 9.4 s and 9.1 s of motion; the video area included the pointer path). Without the total-area path, the many-parts check fails (0.20 s of motion).
+
+**Independent review (a code-reviewer agent, before the commit).** No critical fault. Confirmed: the WAV parser (stereo, odd chunk sizes, data size 0, 0xFFFFFFFF and too large, reads of 1 to 3 bytes), the window index, the callers, `LargeGroups` order and box, no frame-rule change, C# 5 syntax. Findings and changes:
+
+1. A long row with a short real sentence (2.9 s of speech at the end of 0 to 30 s) was dropped by the share rule alone. Changed: near silence needs a share below 10% and less than 1.0 s of sound.
+2. A short real "Thanks." (0.4 s) was dropped by the 0.5 s minimum for known texts. That minimum only guarded a pattern seen with VAD ("Bye." on the stop sound), and the app does not use VAD. Changed: no minimum; the known-text rule applies only to long rows (Whisper writes such text over its full 30 s window on silence).
+3. Real video with only small changed groups could lose the motion note. Changed: the total-area path (see above). No real video recording was on this PC (the YouTube and Twitch files of 7.7 are not in `C:\Users\Bran\Recordings`).
+4. Parser paths without tests. Added: reads of 1 to 3 bytes, data size 0, less than half a window.
+5. An empty level array dropped all rows. Changed: no full window gives no check.
+
+**Job C: file-count warning.** New text: "Warning: the ZIP has 21 frame images. With index.md, that is 22 files. A chat app that unpacks the ZIP can limit the number of images that it reads. Some chat apps accept only 20 files in one message." The limit stays: frames + 1 > 20. `TestIndex` checks 19, 20 and 21 frames.
+
+Decisions made without Bran:
+
+1. No VAD and no new whisper-cli option (data above).
+2. The limits -70 dBFS, 10% and 1.0 s, 50% for a known text in a row of 10 s or 80% of the audio, and the phrase list. The phrase list has only texts from arXiv 2501.11378, community reports and this PC. The texts in Japanese, Russian and German come from community reports (not checked).
+3. No `transcript.srt` when no row is left (before: an empty file).
+4. `MotionMinSide` = 96 px: about 2.5 times the largest pointer group at 125% (16 to 40 px). The total-area path uses the same value (96 x 96 px).
+5. The frame rules for a moving pointer are not changed (see above).
+
+Not checked:
+
+- A real recording with this build. The job said not to stop the running app. The pass ran offline with `test\process_clip.cs`, which calls the same `AfterRecording.Run`.
+- The lossless work files and the original WAV files of the three recordings (gone).
+- Real speech with long digital silence inside one row (for example Windows speech, HANDOFF 7.10: one row of 10.8 s). The 10% and 1.0 s limits are for such rows.
+- Known limits: a real utterance of less than 1 s in a row more than 10 times longer, with digital silence around it, is left out. A real known text (for example "Thank you.") in a long row with less than 50% sound is left out. A false "Thank you." on steady faint noise (no silence) stays.
+- Higher DPI or a larger pointer size. A small video area (short side under 96 px, and less than 96 x 96 px of changed blocks) no longer gives the motion note.
+- A real video recording (no such file on the PC). The motion rule was checked with synthetic video only.
+- The Mono build and the GitHub CI (no Mono on this PC).
+- Seen, not changed: the stop sound of the app is in the audio of each recording when `play_sounds=1` (the last 0.5 s of r1 and r2).
+- Files: `DesktopRecorder-zip.exe` (rebuilt with the final code, SHA-256 starts with E329542808838706, not committed) in the repository folder. Scratch files in `%TEMP%\svr-job-7-19` (copies of the recordings, test videos, the VAD model, logs; not deleted).
 
 ## 8. Rules for the agent
 

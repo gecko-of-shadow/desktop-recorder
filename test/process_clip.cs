@@ -83,7 +83,7 @@ static class ProcessClip
         foreach (string w in r.Warnings) Console.WriteLine("warning=" + w);
         if (r.AudioRecorded)
             Console.WriteLine("audio_in_clip=" + r.AudioInClip + " audio_shift=" + r.AudioShift.ToString("0.000", CultureInfo.InvariantCulture)
-                + " transcript=" + (r.Transcript == null ? "none (" + r.TranscriptNote + ")" : r.Transcript.Count + " segments")
+                + " transcript=" + (r.Transcript == null ? "none (" + r.TranscriptNote + ")" : r.Transcript.Count + " segments, " + r.TranscriptRowsDropped + " left out")
                 + " transcript_s=" + r.TranscriptSeconds.ToString("0.00", CultureInfo.InvariantCulture));
         if (Environment.GetEnvironmentVariable("NOTE_ZIP") == "1")
         {

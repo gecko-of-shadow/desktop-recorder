@@ -15,6 +15,12 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 - The ZIP stores PNG and MP4 files without compression (they are compressed already) and compresses the text files. The ZIP format is the same.
 - Exit waits for the ZIP and the deletion of the folder.
 - "MP4 only" mode is not changed.
+- Windows, folder mode: the file-count warning in `index.md` now describes the ZIP. It gives the number of frame images and of files (with `index.md`), and says that a chat app that unpacks the ZIP can limit the number of images that it reads. The limit stays at 20 files.
+
+### Fixed
+
+- Windows, transcript: the app leaves out rows that Whisper wrote on silent or almost silent audio, for example "Thank you." (seen in three recordings by Bran on 2026-11-22). The app measures the sound in the time of each row: a row with sound in less than 10% of its time and for less than 1 s is left out, and a known Whisper text for silence in a long row (10 s or more, or most of a short recording) needs sound in half of its time. `index.md` gives the number of rows that the app left out. When no row is left, it says "No speech was found", and the folder has no `transcript.srt`. The whisper.cpp options for silence did not stop these rows on the test PC, and Silero VAD also removed quiet real speech, so the app does not use them.
+- Windows, folder mode: a moving mouse pointer no longer gives the warning "the picture changed during N% of the recording". Only a frame pair with a large change counts as moving content: 96 px or more on the short side of one connected changed area (half the short side of the region, when the region is smaller), or many small changed parts that together cover 96 x 96 px or more. The area in the warning now covers only that moving content. The frame rules are not changed.
 
 ### Removed
 
@@ -23,6 +29,7 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 ### Notes
 
 - Tested on one PC: unit tests, the app build, and the ZIP file made from a test folder. Not tested: a real recording with this build, the note box with a late note, a paste of the ZIP into a chat app or a Claude cloud session, and the Settings window at 125%.
+- Transcript and motion fixes: tested offline on the same PC with the `clip.mp4` files of three real recordings and with synthetic test videos (HANDOFF 7.19). Not tested: a real recording with this build.
 
 ## [3.0.1] - 2026-11-20
 

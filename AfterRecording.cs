@@ -64,6 +64,7 @@ sealed class AfterRecordingResult
     public string TranscriptNote;
     public string TranscriptTool;
     public double TranscriptSeconds;
+    public int TranscriptRowsDropped;            // rows that Whisper wrote on silent or almost silent audio (SpeechCheck)
     public bool HasTranscript { get { return Transcript != null && Transcript.Count > 0; } }
 }
 
@@ -194,12 +195,22 @@ static class AfterRecording
             return;
         }
         List<TranscriptSegment> segments = Transcript.ParseSrt(File.ReadAllText(srt, Encoding.UTF8));
-        RecorderCore.AtomicWrite(Path.Combine(input.Folder, AudioMux.TranscriptFileName), Transcript.FormatSrt(segments));
+        // Whisper writes text such as "Thank you." on silence (Bran's recordings of 2026-11-22). The 16 kHz copy is on
+        // the time line of the rows: a row with almost no sound in its time is left out (SpeechCheck).
+        double[] levels = null;
+        try { levels = SpeechCheck.WindowLevels(wav); } catch (Exception) { levels = null; }
+        int dropped;
+        segments = SpeechCheck.Filter(segments, levels, out dropped);
+        r.TranscriptRowsDropped = dropped;
+        // No rows: no transcript.srt (an empty file helps nobody).
+        if (segments.Count > 0)
+            RecorderCore.AtomicWrite(Path.Combine(input.Folder, AudioMux.TranscriptFileName), Transcript.FormatSrt(segments));
         if (!string.Equals(Path.GetFileName(srt), AudioMux.TranscriptFileName, StringComparison.OrdinalIgnoreCase))
         {
             try { File.Delete(srt); } catch (Exception) { }
         }
         r.Transcript = segments;
+        if (segments.Count == 0) r.TranscriptNote = "no speech was found";
         string lang = string.IsNullOrEmpty(input.WhisperLanguage) ? "auto" : input.WhisperLanguage;
         r.TranscriptTool = input.Whisper.Describe() + ", language " + lang;
     }
@@ -268,7 +279,7 @@ static class AfterRecording
             r.Frames, input.Titles, input.SizeLimit, r.Warnings, r.FirstTime);
         if (r.AudioRecorded)
             text += Transcript.IndexSection(r.AudioInClip, r.Transcript, r.TranscriptTool,
-                r.Transcript == null ? (r.TranscriptNote ?? "the transcript was not made yet") : null);
+                r.Transcript == null ? (r.TranscriptNote ?? "the transcript was not made yet") : null, r.TranscriptRowsDropped);
         RecorderCore.AtomicWrite(r.IndexPath, text);
     }
 

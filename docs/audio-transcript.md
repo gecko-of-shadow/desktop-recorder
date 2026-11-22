@@ -116,6 +116,7 @@ desktop_2026-11-20_10-00-00\
 - The input is a 16 kHz mono 16-bit WAV that FFmpeg makes with the same align filter as the clip. Thus the SRT times are on the time line of `clip.mp4` with no further change.
 - Time limit: 2 min + 3 × the recording length, at most 1 h. Then the app ends Whisper and `index.md` says so.
 - Silent audio (peak below 0.0005, about −66 dBFS) gets no transcript. Reason: Whisper often invents text such as "Thank you." on silence (known Whisper behavior, not tested here).
+- Since 2026-11-22 (HANDOFF 7.19): the app also checks each transcript row against the 16 kHz copy (`SpeechCheck` in `AudioTranscript.cs`). A row with sound (−70 dBFS or louder, 100 ms parts) in less than 10% of its time and for less than 1 s is left out. A known Whisper text for silence in a long row (10 s or more, or 80% of the audio) needs sound in half of its time. Reason: three recordings by Bran had "Thank you." rows on digital silence with a few clicks and the stop sound, so the peak check did not stop Whisper.
 - Checked on Linux with two fake programs (Python scripts that take the same arguments): whisper.cpp form and openai form, the language and model options, a program that fails (exit code 3), a missing program, a missing `whisper_path`, and silent audio. In each case the pass was `ok` and `index.md` gave the reason.
 - UNVERIFIED: a real Whisper program. The argument names come from the documentation of each program as I know it; they were not run in this session. Run the test in section 9.
 

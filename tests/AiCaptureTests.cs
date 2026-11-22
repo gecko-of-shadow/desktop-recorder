@@ -37,6 +37,8 @@ static class AiCaptureTests
         TestNoisyShiftIsNotScroll();
         TestScrollStillFound();
         TestMotionReport();
+        TestPointerIsNotMotion();
+        TestManySmallPartsAreMotion();
         TestSmallScrollText();
         return failures;
     }
@@ -560,6 +562,104 @@ static class AiCaptureTests
         Expect(scroll.MotionReport(10) == null, "no motion note for a scroll (moving " + scroll.MovingSeconds.ToString("0.0") + " s)");
     }
 
+    // A mouse pointer, 10 x 16 px: a dark outline with a white inside, as the Windows arrow.
+    static void Pointer(byte[] f, int fw, int fh, int x0, int y0)
+    {
+        for (int y = 0; y < 16; y++)
+            for (int x = 0; x <= Math.Min(9, y * 10 / 16); x++)
+            {
+                int px = x0 + x, py = y0 + y;
+                if (px < 0 || py < 0 || px >= fw || py >= fh) continue;
+                bool edge = x == 0 || x == Math.Min(9, y * 10 / 16) || y == 15;
+                int i = (py * fw + px) * 3;
+                byte v = edge ? (byte)0 : (byte)255;
+                f[i] = v; f[i + 1] = v; f[i + 2] = v;
+            }
+    }
+
+    // "Text" page of any size: dark marks on some rows.
+    static byte[] BigPage(int fw, int fh)
+    {
+        byte[] f = new byte[fw * fh * 3];
+        for (int i = 0; i < f.Length; i++) f[i] = 250;
+        for (int y = 10; y < fh - 10; y += 14)
+            for (int x = 10; x < fw - 10; x++)
+                if (((x * 7 + y * 13) % 11) < 4) for (int dy = 0; dy < 3; dy++) { int i = ((y + dy) * fw + x) * 3; f[i] = 30; f[i + 1] = 30; f[i + 2] = 30; }
+        return f;
+    }
+
+    // A moving mouse pointer is not moving content: Bran's recordings of 2026-11-22 (pointer shown, still pages) got
+    // "the picture changed during 81%". A video area is moving content, and the note gives its area only.
+    static void TestPointerIsNotMotion()
+    {
+        // 96 x 120 frames: the limit is half the short side of the region (48 px). Slow and fast pointer moves.
+        SettledFrameFinder small = Finder();
+        byte[] page = Page(4);
+        for (int i = 0; i < 12 * 15; i++)
+        {
+            double t = i / 15.0;
+            byte[] fr = (byte[])page.Clone();
+            double speed = i < 90 ? 1.0 : 4.0;
+            Pointer(fr, W, H, (int)(40 + 35 * Math.Sin(t * 2.1 * speed)), (int)(50 + 45 * Math.Cos(t * 1.3 * speed)));
+            small.Feed(fr, t);
+        }
+        small.Finish(12);
+        Expect(small.MotionReport(12) == null && small.MovingSeconds < 0.5, "moving pointer is not motion (moving " + small.MovingSeconds.ToString("0.00") + " s)");
+
+        // 640 x 360 frames: the limit is 96 px. The pointer moves all the time; a 200 x 120 video plays in the second test.
+        const int BW = 640, BH = 360;
+        byte[] big = BigPage(BW, BH);
+        Random rnd = new Random(11);
+        for (int run = 0; run < 2; run++)
+        {
+            bool video = run == 1;
+            SettledFrameFinder f = new SettledFrameFinder(BW, BH, new SettledOptions());
+            for (int i = 0; i < 10 * 15; i++)
+            {
+                double t = i / 15.0;
+                byte[] fr = (byte[])big.Clone();
+                if (video)
+                    for (int y = 150; y < 270; y++)
+                        for (int x = 300; x < 500; x++) { int k = (y * BW + x) * 3; fr[k] = (byte)rnd.Next(256); fr[k + 1] = (byte)rnd.Next(256); fr[k + 2] = (byte)rnd.Next(256); }
+                // Fast at the start (separate old and new pointer), then slow (they touch).
+                double speed = i < 60 ? 3.0 : 0.5;
+                Pointer(fr, BW, BH, (int)(120 + 100 * Math.Sin(t * 1.7 * speed)), (int)(180 + 150 * Math.Cos(t * 1.1 * speed)));
+                f.Feed(fr, t);
+            }
+            f.Finish(10);
+            string note = f.MotionReport(10);
+            if (!video) Expect(note == null && f.MovingSeconds < 0.5, "640 x 360: moving pointer is not motion (moving " + f.MovingSeconds.ToString("0.00") + " s)");
+            else Expect(note != null && note.IndexOf("(area x 296, y 144, 208 x 128 px)", StringComparison.Ordinal) >= 0,
+                "640 x 360: video is motion, area of the video only: " + note);
+        }
+    }
+
+    // Many small moving parts (a dark video with sparks or stars) are moving content, although each group of changed
+    // blocks is small: all groups together cover more than 96 x 96 px (review 2026-11-22).
+    static void TestManySmallPartsAreMotion()
+    {
+        const int BW = 640, BH = 360, Parts = 60;
+        Random rnd = new Random(23);
+        int[] px = new int[Parts], py = new int[Parts];
+        for (int k = 0; k < Parts; k++) { px[k] = rnd.Next(BW - 8); py[k] = rnd.Next(BH - 8); }
+        SettledFrameFinder f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        for (int i = 0; i < 10 * 15; i++)
+        {
+            byte[] fr = new byte[BW * BH * 3];
+            for (int j = 0; j < fr.Length; j++) fr[j] = 16;
+            for (int k = 0; k < Parts; k++)
+            {
+                px[k] = Math.Max(0, Math.Min(BW - 8, px[k] + rnd.Next(-12, 13)));
+                py[k] = Math.Max(0, Math.Min(BH - 8, py[k] + rnd.Next(-12, 13)));
+                for (int y = py[k]; y < py[k] + 8; y++)
+                    for (int x = px[k]; x < px[k] + 8; x++) { int q = (y * BW + x) * 3; fr[q] = 230; fr[q + 1] = 230; fr[q + 2] = 200; }
+            }
+            f.Feed(fr, i / 15.0);
+        }
+        f.Finish(10);
+        Expect(f.MotionReport(10) != null, "many small moving parts are motion (moving " + f.MovingSeconds.ToString("0.00") + " s)");
+    }
+
     // A few pixels of "scroll" in a changing screen (video) are not named; a real scroll is (2026-11-20).
     static void TestSmallScrollText()
     {
@@ -606,7 +706,7 @@ static class AiCaptureTests
         Expect(md.IndexOf("Note from Bran: look at usage by bot\n", StringComparison.Ordinal) >= 0, "note");
         Expect(md.IndexOf("Length: 119.5 s\n", StringComparison.Ordinal) >= 0 && md.IndexOf("Region: 1302 x 960\n", StringComparison.Ordinal) >= 0, "length and region");
         Expect(md.IndexOf("Frames: 21\n", StringComparison.Ordinal) >= 0, "frame count");
-        Expect(md.IndexOf("Warning: 21 frames and index.md are more than 20 files", StringComparison.Ordinal) >= 0, "file count warning at 21 frames");
+        Expect(md.IndexOf("Warning: the ZIP has 21 frame images. With index.md, that is 22 files. A chat app that unpacks the ZIP can limit the number of images that it reads. Some chat apps accept only 20 files in one message.\n", StringComparison.Ordinal) >= 0, "file count warning at 21 frames");
         Expect(md.IndexOf("more than 2576 px", StringComparison.Ordinal) < 0 && md.IndexOf("million pixels", StringComparison.Ordinal) < 0, "no size warning at 1302");
         Expect(md.IndexOf("| 001 | 1.6 s | Grok Bot | first frame |", StringComparison.Ordinal) >= 0, "first row");
         Expect(md.IndexOf("| 005 | 5.6 s | Grok Bot \\| Settings | new window content |", StringComparison.Ordinal) >= 0, "title change row and pipe escape");
@@ -619,8 +719,8 @@ static class AiCaptureTests
             && shifted.IndexOf("| 004 | 4.6 s | Grok Bot |", StringComparison.Ordinal) >= 0, "title shift by the first frame time");
         string big = RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 2), t, 2576, null);
         Expect(big.IndexOf("Warning:", StringComparison.Ordinal) < 0, "no warning at 1920 x 1080 and 2 frames");
-        Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 19), t, 2576, null).IndexOf("files in one message", StringComparison.Ordinal) < 0, "no file warning at 19 frames");
-        Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 20), t, 2576, null).IndexOf("Warning: 20 frames and index.md are more than 20 files", StringComparison.Ordinal) >= 0, "file warning at 20 frames");
+        Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 19), t, 2576, null).IndexOf("files in one message", StringComparison.Ordinal) < 0, "no file warning at 19 frames (20 files)");
+        Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 1920, 1080, frames.GetRange(0, 20), t, 2576, null).IndexOf("Warning: the ZIP has 20 frame images. With index.md, that is 21 files.", StringComparison.Ordinal) >= 0, "file warning at 20 frames (21 files)");
         Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 3840, 1080, frames.GetRange(0, 2), t, 2576, null).IndexOf("more than 2576 px", StringComparison.Ordinal) >= 0, "size warning at 3840");
         Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 2560, 1600, frames.GetRange(0, 2), t, 2576, null).IndexOf("more than 3.75 million pixels", StringComparison.Ordinal) >= 0, "pixel warning at 2560 x 1600");
         Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 2560, 1440, frames.GetRange(0, 2), t, 2576, null).IndexOf("Warning:", StringComparison.Ordinal) < 0, "no warning at 2560 x 1440");

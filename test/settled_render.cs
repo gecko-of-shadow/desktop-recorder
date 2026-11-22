@@ -9,6 +9,9 @@
 //   lookalike  15 one-character changes (x.y x,y O 0 l 1 I rn m a:b a;b a'b a`b - _), holds 700 to 1700 ms.
 //   scroll   100 numbered lines under a static header and footer. Smooth scroll at 900 px/s, with pauses.
 //   pages    5 settings pages. Each page shows 2 s, scrolls 1 s, shows 2 s.
+//   pointer  26 s chat page with a moving mouse pointer (stops 1 s at 6, 12.5 and 19 s). The status changes at 12.8 s.
+//            The pointer must not give the motion note (2026-11-22).
+//   player   26 s page with a 480 x 270 video area that changes in each frame. It must give the motion note.
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -51,6 +54,8 @@ static class SettledRender
                 else if (scenario == "caret") Caret(g, font, t, 60, 300);
                 else if (scenario == "lookalike") Lookalike(g, font, t);
                 else if (scenario == "scroll") Scroll(g, font, big, t);
+                else if (scenario == "pointer") PointerPage(g, font, big, t);
+                else if (scenario == "player") Player(g, font, t);
                 else Pages(g, font, big, t);
                 BitmapData d = bmp.LockBits(new Rectangle(0, 0, W, H), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
                 for (int y = 0; y < H; y++) Marshal.Copy(new IntPtr(d.Scan0.ToInt64() + (long)y * d.Stride), buffer, y * W * 3, W * 3);
@@ -114,6 +119,38 @@ static class SettledRender
         g.DrawString("Static header", big, Brushes.Black, 40, 20);
         g.FillRectangle(Brushes.LightGray, 0, bottom, W, H - bottom);
         g.DrawString("Static footer", big, Brushes.Black, 40, bottom + 20);
+    }
+
+    static void PointerPage(Graphics g, Font font, Font big, double t)
+    {
+        for (int k = 0; k < 30; k++) g.DrawString("Chat line " + (k + 1) + ": the bot answers with some text to read, value " + (k * 37 % 101), font, Brushes.Black, 40, 40 + k * 22);
+        g.DrawString("Status: " + (t < 12.8 ? "Reading the files" : "Writing the report"), big, Brushes.DarkBlue, 40, 720);
+        // The pointer stops for 1 s at 6, 12.5 and 19 s. Else it moves on a curve at 300 to 1500 px/s.
+        double m = t;
+        foreach (double stop in new double[] { 6, 12.5, 19 }) if (t > stop) m -= Math.Min(1, t - stop);
+        int x = (int)(650 + 500 * Math.Sin(m * 1.9)), y = (int)(480 + 380 * Math.Sin(m * 1.3 + 0.7));
+        // Arrow pointer, 15 x 24 px (the Windows arrow at 125 %): white with a black edge.
+        Point[] arrow = { new Point(x, y), new Point(x, y + 21), new Point(x + 5, y + 16), new Point(x + 9, y + 24),
+            new Point(x + 12, y + 23), new Point(x + 8, y + 15), new Point(x + 15, y + 15) };
+        g.FillPolygon(Brushes.White, arrow);
+        g.DrawPolygon(Pens.Black, arrow);
+    }
+
+    static void Player(Graphics g, Font font, double t)
+    {
+        for (int k = 0; k < 10; k++) g.DrawString("Video page line " + (k + 1) + ": a title, a channel name and some comments", font, Brushes.Black, 40, 40 + k * 22);
+        Rectangle area = new Rectangle(400, 300, 480, 270);
+        int r = (int)(128 + 120 * Math.Sin(t * 5)), gr = (int)(128 + 120 * Math.Sin(t * 4 + 2)), b = (int)(128 + 120 * Math.Sin(t * 3 + 4));
+        using (SolidBrush back = new SolidBrush(Color.FromArgb(r, gr, b))) g.FillRectangle(back, area);
+        g.SetClip(area);
+        for (int k = 0; k < 6; k++)
+        {
+            int cx = area.X + (int)((Math.Sin(t * (1.1 + k * 0.3) + k) * 0.5 + 0.5) * area.Width);
+            int cy = area.Y + (int)((Math.Cos(t * (0.9 + k * 0.4) + k) * 0.5 + 0.5) * area.Height);
+            g.FillEllipse(k % 2 == 0 ? Brushes.White : Brushes.Black, cx - 30, cy - 30, 60, 60);
+        }
+        g.ResetClip();
+        g.DrawString("Comments below the video", font, Brushes.Black, 40, 640);
     }
 
     static void Pages(Graphics g, Font font, Font big, double t)

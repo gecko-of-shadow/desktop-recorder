@@ -44,6 +44,12 @@ sealed class SettledOptions
     // least this part of a recording of MotionMinSeconds or more. Bran's Twitch recording: 25.9 s, no settled frame.
     public double MotionFraction = 0.7;
     public double MotionMinSeconds = 8;
+    // A frame pair counts as moving content only when one group of changed 8 x 8 blocks (blocks that touch) has a
+    // short side of this many px or more, or of half the short side of the region when the region is smaller, or
+    // when all changed blocks together cover that size squared (see LargeGroups).
+    // Reason: a moving mouse pointer gave "the picture changed during 81%" on still pages (Bran's recordings of
+    // 2026-11-22, pointer shown). The largest group of most of those pairs had a short side of 16 to 40 px at 125%.
+    public int MotionMinSide = 96;
 }
 
 // Kinds of written frames. The index text comes from RecordingIndex.Describe.
@@ -197,6 +203,11 @@ sealed class SettledFrameFinder
         TCompare.Start();
         Change d = Compare(prev, frame, time, true);
         TCompare.Stop();
+        // Moving content needs a large group of changed blocks (MotionMinSide). Found here: the next Compare
+        // changes blockCounts. Only frame pairs near in time can count as motion (see below).
+        int gx0 = 0, gy0 = 0, gx1 = -1, gy1 = -1;
+        bool largeGroup = d.Pixels >= o.MinChangedPixels && time - prevTime <= o.SettleSeconds + 1e-9
+            && LargeGroups(Math.Max(8, Math.Min(o.MotionMinSide, Math.Min(width, height) / 2)), out gx0, out gy0, out gx1, out gy1);
         bool stateIsStill = time - stateStart >= o.SettleSeconds - 1e-9;
         if (!stateHandled && stateIsStill)
         {
@@ -240,15 +251,19 @@ sealed class SettledFrameFinder
             }
             scrollSinceWritten += dy;
             totalScroll += dy;
-            // Moving content: a change that is not a scroll, close in time to the frame before. In "changes" mode a
-            // still screen keeps 1 frame each second, so a gap longer than SettleSeconds is still time, not motion.
-            if (dy == 0 && time - prevTime <= o.SettleSeconds + 1e-9)
+            // Moving content: a large change that is not a scroll, close in time to the frame before. In "changes" mode
+            // a still screen keeps 1 frame each second, so a gap longer than SettleSeconds is still time, not motion.
+            // A moving pointer, a caret or a spinner gives only small groups: no motion (2026-11-22).
+            if (dy == 0 && largeGroup)
             {
                 movingSeconds += time - prevTime;
-                if (d.X0 < moveX0) moveX0 = d.X0;
-                if (d.Y0 < moveY0) moveY0 = d.Y0;
-                if (d.X1 > moveX1) moveX1 = d.X1;
-                if (d.Y1 > moveY1) moveY1 = d.Y1;
+                if (Debug != null) Debug("motion t=" + time.ToString("0.000", CultureInfo.InvariantCulture)
+                    + " dt=" + (time - prevTime).ToString("0.000", CultureInfo.InvariantCulture)
+                    + " px=" + d.Pixels + " area=" + gx0 + "," + gy0 + "," + (gx1 - gx0 + 1) + "x" + (gy1 - gy0 + 1));
+                if (gx0 < moveX0) moveX0 = gx0;
+                if (gy0 < moveY0) moveY0 = gy0;
+                if (gx1 > moveX1) moveX1 = gx1;
+                if (gy1 > moveY1) moveY1 = gy1;
             }
             if (IsSmall(d)) RegisterSmall(d, time);
             Buffer.BlockCopy(frame, 0, stateFrame, 0, width * height * 3);
@@ -535,6 +550,64 @@ sealed class SettledFrameFinder
                 blockCounts[blockRow + (x >> 3)]++;
             }
         }
+    }
+
+    int[] groupMark, groupQueue;
+
+    // Groups of changed 8 x 8 blocks of the last Compare (the blocks of a group touch at a side or at a corner).
+    // True for moving content: a group has a short side of minSide px or more, or all changed blocks together cover
+    // minSide x minSide px or more (many small moving parts, for example a dark video; review 2026-11-22). A moving
+    // pointer gives 1 to 3 small groups. x0 to y1: the box (px, inclusive) around the large groups, or around all
+    // groups when only the total is large. Call it right after Compare: the next Compare changes blockCounts.
+    bool LargeGroups(int minSide, out int x0Large, out int y0Large, out int x1Large, out int y1Large)
+    {
+        x0Large = int.MaxValue; y0Large = int.MaxValue; x1Large = -1; y1Large = -1;
+        int ax0 = int.MaxValue, ay0 = int.MaxValue, ax1 = -1, ay1 = -1;
+        long blocks = 0;
+        int bw = (width + 7) / 8, bh = (height + 7) / 8, n = bw * bh;
+        int minBlock = Math.Max(1, o.BlockMinPixels);
+        if (groupMark == null || groupMark.Length != n) { groupMark = new int[n]; groupQueue = new int[n]; }
+        else Array.Clear(groupMark, 0, n);
+        for (int start = 0; start < n; start++)
+        {
+            if (groupMark[start] != 0 || blockCounts[start] < minBlock) continue;
+            int head = 0, tail = 0;
+            groupQueue[tail++] = start;
+            groupMark[start] = 1;
+            int x0 = int.MaxValue, y0 = int.MaxValue, x1 = -1, y1 = -1;
+            while (head < tail)
+            {
+                int c = groupQueue[head++];
+                int cx = c % bw, cy = c / bw;
+                if (cx < x0) x0 = cx;
+                if (cx > x1) x1 = cx;
+                if (cy < y0) y0 = cy;
+                if (cy > y1) y1 = cy;
+                for (int ny = Math.Max(0, cy - 1); ny <= Math.Min(bh - 1, cy + 1); ny++)
+                    for (int nx = Math.Max(0, cx - 1); nx <= Math.Min(bw - 1, cx + 1); nx++)
+                    {
+                        int k = ny * bw + nx;
+                        if (groupMark[k] != 0 || blockCounts[k] < minBlock) continue;
+                        groupMark[k] = 1;
+                        groupQueue[tail++] = k;
+                    }
+            }
+            int px0 = x0 * 8, py0 = y0 * 8, px1 = Math.Min(width, x1 * 8 + 8) - 1, py1 = Math.Min(height, y1 * 8 + 8) - 1;
+            blocks += tail;
+            if (px0 < ax0) ax0 = px0;
+            if (py0 < ay0) ay0 = py0;
+            if (px1 > ax1) ax1 = px1;
+            if (py1 > ay1) ay1 = py1;
+            if (Math.Min(px1 - px0 + 1, py1 - py0 + 1) < minSide) continue;
+            if (px0 < x0Large) x0Large = px0;
+            if (py0 < y0Large) y0Large = py0;
+            if (px1 > x1Large) x1Large = px1;
+            if (py1 > y1Large) y1Large = py1;
+        }
+        if (x1Large >= 0) return true;
+        if (blocks * 64 < (long)minSide * minSide) return false;
+        x0Large = ax0; y0Large = ay0; x1Large = ax1; y1Large = ay1;
+        return true;
     }
 
     bool RowEqual(byte[] a, byte[] b, int start, int end)
@@ -974,12 +1047,13 @@ static class RecordingIndex
           .Append(height.ToString(CultureInfo.InvariantCulture)).Append('\n');
         sb.Append("Frames: ").Append(frames.Count.ToString(CultureInfo.InvariantCulture)).Append('\n');
         sb.Append("Times are seconds on the time line of clip.mp4. Each frame in the table is a keyframe of clip.mp4.\n");
-        // After the ZIP is unpacked, the folder holds index.md and every frame, so the file count is frames + 1.
+        // Folder mode gives one ZIP (Bran, 2026-11-22). A chat app that unpacks it gets index.md and every frame:
+        // frames + 1 files. The limit stays at 20 files (the Claude chat limit in one message, HANDOFF 7.9).
         if (frames.Count + 1 > FileWarningLimit)
-            sb.Append("Warning: ").Append(frames.Count.ToString(CultureInfo.InvariantCulture))
-              .Append(" frames and index.md are more than ").Append(FileWarningLimit.ToString(CultureInfo.InvariantCulture))
-              .Append(" files. Some AI chat apps accept only ").Append(FileWarningLimit.ToString(CultureInfo.InvariantCulture))
-              .Append(" files in one message.\n");
+            sb.Append("Warning: the ZIP has ").Append(frames.Count.ToString(CultureInfo.InvariantCulture))
+              .Append(" frame images. With index.md, that is ").Append((frames.Count + 1).ToString(CultureInfo.InvariantCulture))
+              .Append(" files. A chat app that unpacks the ZIP can limit the number of images that it reads. Some chat apps accept only ")
+              .Append(FileWarningLimit.ToString(CultureInfo.InvariantCulture)).Append(" files in one message.\n");
         if (sizeLimit > 0 && Math.Max(width, height) > sizeLimit)
             sb.Append("Warning: the long side of each frame is more than ").Append(sizeLimit.ToString(CultureInfo.InvariantCulture))
               .Append(" px. Some AI apps make such images smaller before they read them.\n");
