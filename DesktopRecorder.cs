@@ -622,9 +622,10 @@ class TrayApp : ApplicationContext
     readonly NotifyIcon tray = new NotifyIcon();
     readonly Recorder recorder = new Recorder();
     readonly Control ui = new Control();
-    readonly MenuItem statusItem = new MenuItem("Not recording");
-    readonly MenuItem statsItem = new MenuItem("");
-    readonly MenuItem toggleItem = new MenuItem("Select region and record");
+    readonly TrayMenu menu = new TrayMenu();
+    string lastResult;              // "Last recording: ..." in the tray menu, or null
+    bool lastZipAvailable;          // the ZIP of the last recording is there
+    readonly System.Windows.Forms.Timer clockTimer = new System.Windows.Forms.Timer();   // the time in the menu
     Settings settings = Settings.Load();
     SettingsForm openForm;
     RecordingFrame frame;
@@ -645,8 +646,6 @@ class TrayApp : ApplicationContext
     readonly List<KeyValuePair<double, string>> titleSamples = new List<KeyValuePair<double, string>>();
     readonly System.Windows.Forms.Timer titleTimer = new System.Windows.Forms.Timer();
     PassJob lastJob;                        // the last recording in folder mode
-    readonly MenuItem openLastItem = new MenuItem("Show last ZIP in Explorer");
-    readonly MenuItem zipItem = new MenuItem("Copy ZIP of last recording");
     Icon currentIcon;
     IntPtr currentIconHandle = IntPtr.Zero;
 
@@ -655,27 +654,35 @@ class TrayApp : ApplicationContext
         IntPtr unused = ui.Handle; // makes the window that lets worker threads call the UI thread
         RegisterHotkeys();
 
-        statusItem.Enabled = false;
-        statsItem.Enabled = false;
-        statsItem.Visible = false;
-        toggleItem.Click += delegate { Toggle(); };
-        MenuItem folderItem = new MenuItem("Open recordings folder");
-        folderItem.Click += delegate { OpenFolder(); };
-        openLastItem.Click += delegate { OpenLastFolder(); };
-        zipItem.Click += delegate { CopyZip(); };
-        openLastItem.Enabled = false;
-        zipItem.Enabled = false;
         titleTimer.Interval = 250;
         titleTimer.Tick += delegate { SampleTitle(); };
-        MenuItem settingsItem = new MenuItem("Settings...");
-        settingsItem.Click += delegate { ShowSettings(); };
-        MenuItem exitItem = new MenuItem("Exit");
-        exitItem.Click += delegate { Quit(); };
-        tray.ContextMenu = new ContextMenu(new MenuItem[]
+        // The tray menu (TrayMenu.cs). Each command does what the old menu item did.
+        menu.Command += delegate(TrayCommand command)
         {
-            statusItem, statsItem, new MenuItem("-"), toggleItem, folderItem, openLastItem, zipItem, settingsItem,
-            new MenuItem("-"), exitItem
-        });
+            switch (command)
+            {
+                case TrayCommand.Record: Toggle(); break;
+                case TrayCommand.OpenFolder: OpenFolder(); break;
+                case TrayCommand.ShowLastZip: OpenLastFolder(); break;
+                case TrayCommand.CopyLastZip: CopyZip(); break;
+                case TrayCommand.Settings: ShowSettings(); break;
+                default: Quit(); break;
+            }
+        };
+        // Scale and theme before the menu opens: the right button down comes before the button up that opens it.
+        tray.MouseDown += delegate(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right) return;
+            menu.ApplyLook(NativeMethods.GetScaleForPoint(Cursor.Position));
+            UpdateMenu();
+        };
+        // The menu window is made now: per-monitor DPI aware (the process default), and its size is known
+        // before the first open.
+        menu.ApplyLook(NativeMethods.GetScaleForPoint(Cursor.Position));
+        menu.CreateWindow();
+        tray.ContextMenuStrip = menu.Strip;
+        clockTimer.Interval = 1000;
+        clockTimer.Tick += delegate { menu.UpdateClock(MenuState()); };
         tray.DoubleClick += delegate { ShowSettings(); };
         tray.Visible = true;
 
@@ -973,8 +980,8 @@ class TrayApp : ApplicationContext
         string text;
         try { text = RecorderCore.FormatStats(recorder.LastStats()); }
         catch (Exception) { text = "No stats."; }
-        statsItem.Text = "Last recording: " + text;
-        statsItem.Visible = true;
+        lastResult = "Last recording: " + text;
+        UpdateMenu();
         return text;
     }
 
@@ -1319,8 +1326,8 @@ class TrayApp : ApplicationContext
         bool has = false;
         try { has = lastJob != null && lastJob.Zip != null && File.Exists(lastJob.Zip); }
         catch (Exception) { }
-        openLastItem.Enabled = has;
-        zipItem.Enabled = has;
+        lastZipAvailable = has;
+        UpdateMenu();
     }
 
     // UI thread. zipError: the ZIP failed (the folder stays, the clipboard gets no files).
@@ -1349,8 +1356,7 @@ class TrayApp : ApplicationContext
         // Condition D (Bran, 2026-11-19): the time from Stop to "clipboard ready".
         job.SecondsFromStop = fromStop.Elapsed.TotalSeconds;
         string ready = " Ready " + job.SecondsFromStop.ToString("0.0", CultureInfo.InvariantCulture) + " s after Stop.";
-        statsItem.Text = "Last recording: " + Shorten(text.Replace("\n", " ") + ready);
-        statsItem.Visible = true;
+        lastResult = "Last recording: " + Shorten(text.Replace("\n", " ") + ready);
         UpdateLastMenu();
         tray.ShowBalloonTip(5000, "Desktop Recorder",
             Shorten((copied ? "AI message and ZIP copied. Press Ctrl+V to paste.\n" : "Recording stopped.\n") + balloonText + ready),
@@ -1584,12 +1590,11 @@ class TrayApp : ApplicationContext
                 if (!note.CloseForQuit()) waitForNotes = true;
         }
         finally { quitLoop = false; }
-        if (waitForNotes) return;
+        if (waitForNotes) { Refresh(); return; }
         if (recorder.IsRecording && recordingFolder != null && !stopping) StopRecording(false, true);
         if (stopping || passesRunning > 0)
         {
-            statusItem.Text = "Finishing the last recording, then the app closes...";
-            tray.Text = "Desktop Recorder: finishing";
+            Refresh();
             return;
         }
         ExitNow();
@@ -1607,24 +1612,42 @@ class TrayApp : ApplicationContext
         currentIcon = null;
         currentIconHandle = IntPtr.Zero;
         tray.Dispose();
+        clockTimer.Stop();
+        menu.Dispose();
         ExitThread();
+    }
+
+    // The state that the tray menu shows. During a recording: the fps and the region of that recording (a settings
+    // change applies to the next one). One hotkey starts and stops (Bran, 2026-11-14).
+    TrayState MenuState()
+    {
+        TrayState s = new TrayState();
+        s.Phase = TrayModel.PhaseOf(recorder.IsRecording, stopping, passesRunning, quitRequested);
+        s.ElapsedSeconds = (DateTime.Now - recordingStartTime).TotalSeconds;
+        s.Fps = s.Phase == TrayPhase.Recording ? recordingFps : settings.Fps;
+        s.RegionWidth = recordingRegion.Width;
+        s.RegionHeight = recordingRegion.Height;
+        s.HotkeyText = settings.HotkeyText;
+        s.HotkeyActive = hotkey.IsRegistered(SelectHotkeyId);
+        s.HasLastZip = lastZipAvailable;
+        s.LastResult = lastResult;
+        return s;
+    }
+
+    void UpdateMenu()
+    {
+        menu.Update(MenuState());
     }
 
     void Refresh()
     {
         // While FFmpeg finishes the file, show the stopped state: the user already pressed Stop.
         bool on = recorder.IsRecording && !stopping;
-        // During a recording, show the fps of that recording: a settings change applies to the next one.
-        string fpsText = (on ? recordingFps : settings.Fps).ToString("0.###", CultureInfo.InvariantCulture);
-        string where = recordingRegion.IsEmpty ? "whole desktop"
-            : recordingRegion.Width.ToString(CultureInfo.InvariantCulture) + "x"
-              + recordingRegion.Height.ToString(CultureInfo.InvariantCulture) + " region";
-        statusItem.Text = on ? "Recording at " + fpsText + " fps, " + where
-            : passesRunning > 0 ? "Making the frames of the last recording..." : "Not recording";
-        // One hotkey starts and stops (Bran, 2026-11-14).
-        toggleItem.Text = (on ? "Stop recording" : "Select region and record")
-            + (hotkey.IsRegistered(SelectHotkeyId) ? "\t" + settings.HotkeyText : "");
-        tray.Text = on ? "Desktop Recorder: recording" : "Desktop Recorder: stopped";
+        TrayState state = MenuState();
+        menu.Update(state);
+        tray.Text = TrayModel.Tooltip(state);
+        if (state.Phase == TrayPhase.Recording) clockTimer.Start();
+        else clockTimer.Stop();
 
         // Tray icon from Bran's icon set (packaging/icon/tray-icon-set-source.jpg): corner brackets, a ring
         // and a dot. Idle: light blue lines and a small dot. Recording: pink-to-blue brackets and a red dot.

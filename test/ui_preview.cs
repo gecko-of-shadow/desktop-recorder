@@ -303,5 +303,46 @@ static class UiPreview
         }
     }
 
-    static void TrayPreviews(float[] scales) { }
+    static void TrayPreviews(float[] scales)
+    {
+        foreach (float s in scales)
+        {
+            foreach (bool dark in new[] { false, true })
+            {
+                UiPalette p = dark ? UiPalette.DarkPalette() : UiPalette.Light();
+                string theme = dark ? "dark" : "light";
+                using (TrayMenu menu = new TrayMenu())
+                {
+                    menu.ApplyLook(s, p);
+                    menu.CreateWindow();
+                    TrayState idle = MenuState(TrayPhase.Idle);
+                    menu.Update(idle);
+                    Render(menu.Strip, "tray-idle-" + Pct(s) + "-" + theme);
+                    TrayState rec = MenuState(TrayPhase.Recording);
+                    rec.ElapsedSeconds = 83;
+                    rec.RegionWidth = 1880;
+                    rec.RegionHeight = 860;
+                    rec.HasLastZip = true;
+                    rec.LastResult = "Last recording: Frames: 5. clip.mp4: 0.12 MB. Ready 3.1 s after Stop.";
+                    menu.Update(rec);
+                    Render(menu.Strip, "tray-recording-" + Pct(s) + "-" + theme);
+                    TrayState busy = MenuState(TrayPhase.Processing);
+                    busy.HasLastZip = true;
+                    busy.LastResult = rec.LastResult;
+                    menu.Update(busy);
+                    Render(menu.Strip, "tray-processing-" + Pct(s) + "-" + theme);
+                }
+            }
+        }
+    }
+
+    static TrayState MenuState(TrayPhase phase)
+    {
+        TrayState s = new TrayState();
+        s.Phase = phase;
+        s.Fps = 10;
+        s.HotkeyText = "Win+Shift+D";
+        s.HotkeyActive = true;
+        return s;
+    }
 }

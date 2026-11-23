@@ -9,7 +9,7 @@ if not exist "%CSC%" (
   exit /b 1
 )
 
-"%CSC%" /nologo /target:winexe /optimize+ /out:"%~dp0DesktopRecorder.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /win32manifest:"%~dp0DesktopRecorder.manifest" /win32icon:"%~dp0app.ico" "%~dp0RecorderCore.cs" "%~dp0RecordingSession.cs" "%~dp0NativeMethods.cs" "%~dp0RegionSelector.cs" "%~dp0RecordingFrame.cs" "%~dp0SettledFrames.cs" "%~dp0AfterRecording.cs" "%~dp0AudioTranscript.cs" "%~dp0AudioCapture.cs" "%~dp0UiModel.cs" "%~dp0UiTheme.cs" "%~dp0NoteForm.cs" "%~dp0SettingsForm.cs" "%~dp0DesktopRecorder.cs"
+"%CSC%" /nologo /target:winexe /optimize+ /out:"%~dp0DesktopRecorder.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /win32manifest:"%~dp0DesktopRecorder.manifest" /win32icon:"%~dp0app.ico" "%~dp0RecorderCore.cs" "%~dp0RecordingSession.cs" "%~dp0NativeMethods.cs" "%~dp0RegionSelector.cs" "%~dp0RecordingFrame.cs" "%~dp0SettledFrames.cs" "%~dp0AfterRecording.cs" "%~dp0AudioTranscript.cs" "%~dp0AudioCapture.cs" "%~dp0UiModel.cs" "%~dp0UiTheme.cs" "%~dp0NoteForm.cs" "%~dp0SettingsForm.cs" "%~dp0TrayMenu.cs" "%~dp0DesktopRecorder.cs"
 if errorlevel 1 (
   echo Build failed.
   pause

@@ -273,7 +273,7 @@ Exit the running recorder first. If you do not, the build cannot replace the `.e
 Double-click `build.cmd`. It builds `DesktopRecorder.exe` in the repository folder, and installs FFmpeg with winget if FFmpeg is missing. Or run this in PowerShell in the folder:
 
 ```
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /win32manifest:DesktopRecorder.manifest /win32icon:app.ico RecorderCore.cs RecordingSession.cs NativeMethods.cs RegionSelector.cs RecordingFrame.cs SettledFrames.cs AfterRecording.cs AudioTranscript.cs AudioCapture.cs UiModel.cs UiTheme.cs NoteForm.cs SettingsForm.cs DesktopRecorder.cs
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /win32manifest:DesktopRecorder.manifest /win32icon:app.ico RecorderCore.cs RecordingSession.cs NativeMethods.cs RegionSelector.cs RecordingFrame.cs SettledFrames.cs AfterRecording.cs AudioTranscript.cs AudioCapture.cs UiModel.cs UiTheme.cs NoteForm.cs SettingsForm.cs TrayMenu.cs DesktopRecorder.cs
 ```
 
 The app manifest (`DesktopRecorder.manifest`) makes the program per-monitor DPI aware and holds the version number.
