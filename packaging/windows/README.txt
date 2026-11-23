@@ -1,4 +1,4 @@
-Desktop Recorder 3.0.1 for Windows (portable)
+Desktop Recorder 3.1.0 for Windows (portable)
 
 Unzip this folder anywhere and double-click DesktopRecorder.exe.
 Nothing is written to Program Files. Settings stay in
@@ -23,10 +23,11 @@ video. Press Win+Shift+D again, or click Stop, to stop.
 
 Each recording gives one ZIP file with index.md, frames\001.png and so
 on, and clip.mp4. The ZIP goes on the clipboard. Press Ctrl+V in an AI
-chat to attach it. Settings has "MP4 only" for one video file.
+chat to attach it. Wait for "ZIP ready" (a popup and the note
+box show it) before you paste. Settings has "MP4 only" for one video file.
 
 An NVIDIA GPU encodes the video when the PC has one. Without it, the
-program encodes on the CPU. Settings has a check box to record the sound of
+program encodes on the CPU. Settings has a switch to record the sound of
 the PC. With a local Whisper program (whisper.cpp), index.md also gets a
 transcript.
 Recordings go to C:\Users\<you>\Recordings.

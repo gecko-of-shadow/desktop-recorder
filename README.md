@@ -2,7 +2,7 @@
 
 A small tray program that records a part of your screen, so that an AI model can read the text on it. On Windows, one recording gives one folder: the settled frames as PNG files, an `index.md` that describes each frame, and `clip.mp4` for people.
 
-Current version: **3.0.1** (2026-11-20). See [CHANGELOG.md](CHANGELOG.md) for the version history.
+Current version: **3.1.0** (2026-11-22). See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 You select the area with the text. The program records that area at full resolution, so each character stays sharp. A still screen costs almost no space, so the files stay small.
 
@@ -337,7 +337,7 @@ Version 2.0.x was tested on one PC: one 1920x1080 monitor at 125% scale, RTX 406
 - **Pointer.** In "Changes only" mode, a moving mouse pointer on a still screen made the file 18 times larger. With the pointer hidden, the program dropped those frames.
 - **Look-alike changes (2.0.1).** An offline test caught 15 of 15 one-character changes, with 2 font sizes and light and dark themes.
 
-Not tested: PCs with two or more monitors (also `gdigrab` with an area across two monitors), monitors with different scales, the `libx264` fallback in the program, PCs without an NVIDIA GPU, and AI tools other than Claude. In the selector, these keys are not tested: `~`, Shift and Ctrl while you drag, C, M and P.
+Not tested: PCs with two or more monitors (also `gdigrab` with an area across two monitors), monitors with different scales, the `libx264` fallback in the program, PCs without an NVIDIA GPU, and AI tools other than Claude. The selector keys (`~`, Shift and Ctrl while you drag, C, M, P, the arrow keys and Esc) were tested in 3.1.0 (`HANDOFF.md` section 7.22).
 
 Version 3.0.0 (folder output, audio, transcript) was tested on the same PC with Windows 11. `HANDOFF.md` sections 7.5 to 7.10 have the full tables. Summary:
 
@@ -352,12 +352,14 @@ Not tested in 3.0.0: the sync of audio and video, long recordings with a transcr
 
 Version 3.0.1 (new defaults and index.md warnings): the unit tests passed and the app built on the same PC. The exe from the 3.0.1 release zip started on that PC and did not start a recording. Not tested: a recording with the 3.0.1 exe, and the first start with no settings file.
 
-Unreleased (transcript rows on silence, pointer and the motion warning, file-count text; `HANDOFF.md` section 7.19), offline on the same PC with five real recordings by Bran:
+Version 3.1.0, transcript rows on silence, pointer and the motion warning, file-count text (`HANDOFF.md` section 7.19), offline on the same PC with five real recordings by Bran:
 
 - **Transcript.** Three recordings with silent audio got "Thank you." rows from whisper.cpp. The program now leaves out all of them (2 of 2, 1 of 1 and 1 of 1), and `index.md` says "No speech was found". Two recordings with real speech kept all their rows (50 of 50 at about -60 dBFS, and 3 of 3). The quiet speech also kept all its rows when the audio was 10 dB and 20 dB quieter. The whisper.cpp options `-sns`, `-lpt` and `-nth` did not stop the false rows. Silero VAD removed them, but also most of the quiet real speech, so the program does not use VAD.
 - **Motion warning.** The pointer was shown in these recordings, and their `index.md` said "the picture changed during" 81% to 92%. The lossless work files are gone, so the pass ran again on each `clip.mp4`. The motion share fell from 84% to 94% to 10% to 26%: no false warning. The frame count and the PNG files did not change. The offline tests of 3.0.0 gave the same results (status line, blinking cursor, 15 of 15 look-alike changes, scroll 0 px missed), and test videos with real motion (`testsrc2`, `mandelbrot`, `life`, a video area on a page) still get the warning (97% to 100%).
 
-Unreleased (live test of the ZIP-only build: note box, Settings window, tray menu, ZIP indication and the selector keys; `HANDOFF.md` section 7.22), on the same PC with synthetic input and real recordings: every check of the live test plan passed after 8 fixes (tray menu over the taskbar, crosshair on white pages, mixed tray status, two spaces for a line break in the note, a temporary file after a failed ZIP, and others). The full-screen check found no note box and no popup in the video. Not tested: 100% and 150% scale, a paste of the ZIP into a chat app, more monitors.
+Version 3.1.0, live test of the ZIP-only build (note box, Settings window, tray menu, ZIP indication and the selector keys; `HANDOFF.md` section 7.22), on the same PC with synthetic input and real recordings: every check of the live test plan passed after 8 fixes (tray menu over the taskbar, crosshair on white pages, mixed tray status, two spaces for a line break in the note, a temporary file after a failed ZIP, and others). The full-screen check found no note box and no popup in the video. Not tested: 100% and 150% scale, a paste of the ZIP into a chat app, more monitors.
+
+Version 3.1.0, real recordings by Bran with the ZIP-only build (`HANDOFF.md` section 7.23): each recording gave one ZIP and no folder, a note was in the ZIP, a Twitch stream got the motion warning, and the transcript kept real speech with no false rows.
 
 The test kit is in `test/`: a source text, an auto-scroll page, a frame-counter page, and scripts that count frames and score an AI copy.
 

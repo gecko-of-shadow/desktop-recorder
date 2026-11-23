@@ -6,6 +6,8 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-11-22
+
 ### Added
 
 - Windows, folder mode: a "busy, then ready" indication for the ZIP (Bran, 2026-11-22). From Stop until the ZIP is on the clipboard, the tray icon turns, and the tray menu, the tooltip and the note box show "Making the ZIP... (step: frames)" (then transcript, then ZIP). A small popup at the bottom of the screen shows the same when the note box is closed. When the ZIP is ready, the note box and the popup say "ZIP ready: Ctrl+V to paste" with the size, and a short ready sound plays when "Play sounds" is on. A failed ZIP shows the reason. The popup does not take the focus, is not in the video, and closes after 4 s or with a click.
@@ -47,7 +49,10 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 - Live test on one PC (HANDOFF 7.22, synthetic input and real recordings at 125%): the note box, the Settings window, the tray menu, the ZIP indication (tray icon, note box line, popup, sound, wait text), the ZIP-only flow (T1 to T7), MP4-only mode and the selector keys (`~`, Shift, Ctrl, C, M, P, arrow keys, Esc) passed, in light and dark app mode. The note box and the popup were not in the video. Not tested: 100% and 150% scale, a paste of the ZIP into a chat app or a Claude cloud session, more monitors.
 - UI redesign and ZIP indication: also drawn offscreen at 100%, 125% and 150% (HANDOFF 7.20, 7.21).
-- Transcript and motion fixes: tested offline on the same PC with the `clip.mp4` files of three real recordings and with synthetic test videos (HANDOFF 7.19). Not tested: a real recording with this build.
+- Transcript and motion fixes: tested offline on the same PC with the `clip.mp4` files of three real recordings and with synthetic test videos (HANDOFF 7.19).
+- Real recordings by Bran on 2026-11-22 with the ZIP-only build (HANDOFF 7.23): each recording gave one ZIP and no folder, a note was in the ZIP, a Twitch stream got the motion warning, and the transcript kept real speech with no false rows.
+- Quality default: not changed (Balanced). Six more blind AI reads of each quality level showed no read difference larger than the reader spread (HANDOFF 6.11).
+- Ubuntu: no change.
 
 ## [3.0.1] - 2026-11-20
 
@@ -195,7 +200,8 @@ First release, with portable archives for Windows and Ubuntu 24.04. FFmpeg is no
 
 - Not tested: a GNOME Wayland session, real audio samples, and the Windows program on a Windows desktop (the exe was built by GitHub Actions).
 
-[Unreleased]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.0.1...HEAD
+[Unreleased]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.2...v3.0.0
 [2.0.2]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.1...v2.0.2

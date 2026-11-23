@@ -616,6 +616,7 @@ Commands of this run, in order (`quality_reads.py`; the defaults are `--reads 1-
 | README and release notes for v3.0.0 | Done (7.12). |
 | New defaults and index.md warnings | Done (7.13, 7.14). |
 | Release v3.0.1 | Done (7.15). The exe from the zip is not run on a PC. |
+| Release v3.1.0 (7.25) | Prepared on `zip-only`: version, CHANGELOG, README, notes. Not pushed, not tagged. |
 | ZIP on the clipboard (7.16) | Code done, test build installed. Cloud paste test open. Not released. |
 | One ZIP only in folder mode (7.18) | Code, unit tests and a ZIP check done on branch `zip-only`. Not installed, not pushed, not released. No real recording and no paste test yet. Replaces 7.16. |
 | False transcript rows, pointer motion warning, file-count text (7.19) | Code, unit tests and offline tests on three real recordings done on branch `zip-only`. Not installed, not pushed, not released. No real recording with this build yet. |
@@ -1409,6 +1410,58 @@ Seen, not changed:
 - Nothing in the Windows app now reads `region` or `last_region` to start a recording. The selector still writes them (4.1 point 9).
 - `StartRecording` has one caller now. Its `sound`, `balloon` and `note` arguments are always `true`, `true` and `null`.
 - The class comment at the top of `RegionSelector.cs` still names a "last region" from before 2.0.0.
+
+### 7.25 Release v3.1.0: prepared, not published (2026-11-22)
+
+- Bran: "Yes, prep release" (23:17). Done in the Claude Code session on the Max plan, not on the API credit.
+- Version 3.1.0 in `DesktopRecorder.manifest` (3.1.0.0), `README.md`, `packaging/windows/README.txt` and `packaging/linux/README.txt`. CHANGELOG: section [3.1.0] - 2026-11-22 from the Unreleased text, plus the real recordings (7.23) and the quality reads (6.11). README: the 3.1.0 test summary; the selector keys are now tested.
+- Release notes: `release-notes-3.1.0.md` in the repository folder (not in Git; `.git/info/exclude`). The tag message uses this file, and the Release workflow uses the tag message as the release body (7.4).
+- Checked: the app builds with the build.cmd file list and the exe has the manifest version 3.1.0.0; unit tests `ok`; build.yml and release.yml list all source files. `zip-only` is 0 commits behind `main`. Local `main` is 3 commits ahead of `origin/main` (7.16, 7.17 and the reinstall note).
+- Not checked: the Mono build and the GitHub CI with the new files (the Build workflow runs on the push); the exe from the release zip.
+
+Commands for Bran's approval, in order (PowerShell, in the repository folder). Do not run them before Bran says so.
+
+1. Switch to main and fast-forward it to zip-only:
+
+```powershell
+git switch main
+```
+
+```powershell
+git merge --ff-only zip-only
+```
+
+2. Push main, then wait for the Build workflow to pass:
+
+```powershell
+git push origin main
+```
+
+```powershell
+gh run list --workflow build.yml --limit 1
+```
+
+3. Create the annotated tag from the notes file and push it:
+
+```powershell
+git tag -a v3.1.0 --cleanup=verbatim -F release-notes-3.1.0.md
+```
+
+```powershell
+git push origin v3.1.0
+```
+
+4. Check the Release workflow, then the release and its two assets:
+
+```powershell
+gh run list --workflow release.yml --limit 1
+```
+
+```powershell
+gh release view v3.1.0 --json isLatest,isDraft,assets
+```
+
+5. Optional, only with Bran's approval (7.17 keeps only the latest release): delete the v3.0.1 release and keep its tag.
 
 ## 8. Rules for the agent
 
