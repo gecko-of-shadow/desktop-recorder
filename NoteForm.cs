@@ -59,9 +59,8 @@ sealed class NoteForm : Form
         frame.Box.Multiline = true;
         frame.Box.AcceptsReturn = true;   // Enter reaches KeyDown below: Enter saves, Shift+Enter adds a line
         frame.Box.WordWrap = true;
-        frame.Box.ScrollBars = ScrollBars.None;
-        // A scroll bar only when the text is longer than the box (the native bar stays light in dark mode).
-        frame.Box.TextChanged += delegate { UpdateScrollBar(); };
+        // Set once: a change of ScrollBars makes the edit window again (the undo and an IME input are lost).
+        frame.Box.ScrollBars = ScrollBars.Vertical;
         frame.Box.MaxLength = NoteRules.MaxLength;
         frame.Box.AccessibleName = NoteRules.Title;
         frame.Box.AccessibleDescription = NoteRules.Intro + " " + NoteRules.Hint;
@@ -81,7 +80,7 @@ sealed class NoteForm : Form
         answerSave.TabIndex = 3; answerDiscard.TabIndex = 4; answerBack.TabIndex = 5;
         SetMode(false);
         DoLayout();
-        ActiveControl = frame;
+        ActiveControl = frame.Box;
         ResumeLayout(false);
     }
 
@@ -95,15 +94,6 @@ sealed class NoteForm : Form
     }
 
     int S(int epx) { return fonts.S(epx); }
-
-    void UpdateScrollBar()
-    {
-        TextBox box = frame.Box;
-        int lines = box.TextLength == 0 ? 1 : box.GetLineFromCharIndex(box.TextLength) + 1;
-        bool need = lines * box.Font.Height > box.ClientSize.Height;
-        ScrollBars want = need ? ScrollBars.Vertical : ScrollBars.None;
-        if (box.ScrollBars != want) box.ScrollBars = want;
-    }
 
     // All positions come from the scale. The box keeps one size in both modes, so it does not jump.
     void DoLayout()
@@ -176,6 +166,8 @@ sealed class NoteForm : Form
     {
         askedFor = trigger;
         questionDetail.Text = NoteRules.QuestionDetail(trigger);
+        // A screen reader reads the question with the button that gets the focus.
+        answerSave.AccessibleDescription = NoteRules.Question + " " + questionDetail.Text;
         SetMode(true);
         answerSave.Focus();
         if (!Ui.IsForeground(Handle)) Ui.FlashUntilForeground(Handle);
@@ -215,18 +207,22 @@ sealed class NoteForm : Form
         }
     }
 
+    string savedNote;   // the text that Saved got last: the same text is not saved two times
+
     void RaiseSaved()
     {
         string note = NoteRules.Clean(frame.Box.Text);
         Action<string> handler = Saved;
-        if (note != null && handler != null) handler(note);
+        if (note == null || note == savedNote || handler == null) return;
+        savedNote = note;
+        handler(note);
     }
 
     // Exit in the tray menu. True when the box closed at once (no text). False when it asks: the answer then
     // closes the box (Save, Discard) or raises QuitCancelled (Back).
     public bool CloseForQuit()
     {
-        if (IsDisposed || decided) return true;
+        if (IsDisposed) return true;
         NoteCloseAction action = NoteRules.Decide(NoteCloseTrigger.QuitApp, frame.Box.Text);
         if (action == NoteCloseAction.CloseWithoutNote)
         {
@@ -281,11 +277,13 @@ sealed class NoteForm : Form
                 e.Cancel = true;
                 if (!asking) ShowQuestion(trigger);
             }
-            else
+            else if (trigger == NoteCloseTrigger.Shutdown)
             {
+                // Save, but stay undecided: when another program refuses the sign-out, the box stays open and
+                // must ask again for new text (review 2026-11-22).
                 if (action == NoteCloseAction.Save) RaiseSaved();
-                decided = true;
             }
+            else decided = true;
         }
         base.OnFormClosing(e);
     }

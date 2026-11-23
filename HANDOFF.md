@@ -1064,6 +1064,18 @@ Job from Bran (headless agent run). Bran's change at 18:27: code only, no live t
 - The preview found and the agent fixed: the recording name of the note box was never placed (it used `Visible`, which is false before the form shows); the page names were cut in the navigation; two list texts were cut at 100%; the restore check (the preview first used `PerformClick`, which does nothing on a hidden form).
 - Previews looked at by the agent and by a review agent: see the list below.
 
+**Independent review (a code-reviewer agent, in the foreground, 2026-11-22; it got the diff 2669732..HEAD and the PNG files).** No critical fault. It confirmed: the same 19 settings, keys, defaults and ranges; Save does not restart a recording; the note `Saved` and `FormClosed` code keeps `job.NoteOpen`, `TryCleanup` and the second ZIP; the six tray commands call the old methods; Exit waits for passes, ZIPs, cleanup and note boxes; the DPI context of each window; no C# 6 syntax. All 7 findings were checked against the code and accepted:
+
+1. Exit did not stop a running recording while a note box asked. Fixed: Quit stops a folder recording before it asks (as the old code did). `TrayModel.PhaseOf` puts "Recording" before "Closing", so an MP4 recording keeps "Stop recording" in the menu until ExitNow stops it. New unit checks.
+2. A refused sign-out left the box in the "decided" state, so a later X closed it without a question. Fixed: the shutdown path saves but stays undecided; `RaiseSaved` does not save the same text two times; `CloseForQuit` tests only `IsDisposed`.
+3. An open menu could grow when a new state came (NotifyIcon placed it from the old size). Fixed: while the menu is open, only the time changes; the new state applies in `Closed`.
+4. The focus went to the text frame panel, not the text box. Fixed: `ActiveControl = frame.Box`.
+5. The automatic scroll bar changed `ScrollBars`, which makes the edit window again (undo and IME input lost). Fixed: the vertical scroll bar is always there (the native bar is light in dark mode).
+6. A screen reader did not read the question. Fixed: the Save button of the question gets the question as `AccessibleDescription`.
+7. (Older fault, now visible.) The hotkey could start a recording while the app closed; ExitIfDone could then end the app before its pass. Fixed: `SelectAndRecord` does nothing while `quitRequested` is true.
+
+After the fixes (checked): the app builds, unit tests `ok`, the preview checks `preview ok`, the 3 round trips pass, and the note previews are new (scroll bar). Rejected findings: none.
+
 **Offscreen previews (NOT real screenshots).** The preview tool draws each form with `Control.DrawToBitmap` into a PNG file, without showing it. Limits: client area only (the real window adds the Windows title bar and DWM effects: rounded corners, shadow); the tool draws the selected text of each drop-down list itself (`WM_PRINT` skips it); native parts (check marks, list arrows, spin buttons) draw at the DPI of this PC (125%), so they are correct in the 125% files and simulated in the 100% and 150% files.
 
 - Note box: [note-125-light](docs/ui/offscreen-note-125-light.png), [note-125-dark](docs/ui/offscreen-note-125-dark.png), [note-question-125-light](docs/ui/offscreen-note-question-125-light.png), [note-quit-question-125-dark](docs/ui/offscreen-note-quit-question-125-dark.png), [note-100-light](docs/ui/offscreen-note-100-light.png), [note-150-light](docs/ui/offscreen-note-150-light.png).

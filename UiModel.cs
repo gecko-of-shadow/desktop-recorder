@@ -356,10 +356,11 @@ static class TrayModel
 
     public static TrayPhase PhaseOf(bool recording, bool stopping, int passesRunning, bool quitRequested)
     {
-        if (quitRequested) return TrayPhase.Exiting;
         // While FFmpeg finishes the file, the user already pressed Stop: not "recording" any more.
         if (stopping) return TrayPhase.Stopping;
+        // A recording that still runs while Exit waits (MP4 mode, a note box asks) keeps "Stop recording".
         if (recording) return TrayPhase.Recording;
+        if (quitRequested) return TrayPhase.Exiting;
         if (passesRunning > 0) return TrayPhase.Processing;
         return TrayPhase.Idle;
     }

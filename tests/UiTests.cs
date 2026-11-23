@@ -204,6 +204,8 @@ static class UiTests
         Expect(TrayModel.PhaseOf(false, false, 2, false) == TrayPhase.Processing, "phase processing");
         Expect(TrayModel.PhaseOf(true, false, 0, false) == TrayPhase.Recording, "recording while a pass runs");
         Expect(TrayModel.PhaseOf(false, false, 1, true) == TrayPhase.Exiting, "phase exiting");
+        Expect(TrayModel.PhaseOf(false, false, 0, true) == TrayPhase.Exiting, "phase exiting, nothing runs");
+        Expect(TrayModel.PhaseOf(true, false, 0, true) == TrayPhase.Recording, "a running recording keeps Stop while Exit waits");
     }
 
     static TrayState State(TrayPhase phase)

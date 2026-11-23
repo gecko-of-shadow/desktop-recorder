@@ -802,7 +802,8 @@ class TrayApp : ApplicationContext
     // The record hotkey and the first tray item: show the selector, then record the selection.
     void SelectAndRecord()
     {
-        if (selecting || stopping || recorder.IsRecording) return;
+        // No new recording while the app closes: ExitIfDone would end the app before its pass (review 2026-11-22).
+        if (selecting || stopping || recorder.IsRecording || quitRequested) return;
         selecting = true;
         Rectangle? picked;
         RegionSelector.ShowCrosshair = settings.SelectorCrosshair;
@@ -1580,6 +1581,9 @@ class TrayApp : ApplicationContext
         // Folder mode: the pass makes the folder from the work file. Wait for it, so the recording is not lost
         // (review 2026-11-19). The tray shows that the app is finishing. ExitNow runs after the pass.
         quitRequested = true;
+        // Stop a folder recording first, as before (review 2026-11-22): its pass and ZIP then run while a note box
+        // asks. An MP4 recording stops in ExitNow, as before; until then the menu keeps "Stop recording".
+        if (recorder.IsRecording && recordingFolder != null && !stopping) StopRecording(false, true);
         // A note box with text asks Save, Discard or Back first (Bran, 2026-11-22). Back cancels the Exit
         // (QuitCancelled). Save and Discard close the box, and its FormClosed calls Quit again.
         bool waitForNotes = false;
@@ -1591,7 +1595,6 @@ class TrayApp : ApplicationContext
         }
         finally { quitLoop = false; }
         if (waitForNotes) { Refresh(); return; }
-        if (recorder.IsRecording && recordingFolder != null && !stopping) StopRecording(false, true);
         if (stopping || passesRunning > 0)
         {
             Refresh();

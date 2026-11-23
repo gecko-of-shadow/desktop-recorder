@@ -24,6 +24,7 @@ sealed class TrayMenu : IDisposable
     Font bold;
     Bitmap placeholder;
     TrayPhase phase;
+    TrayState pending;   // a state that came while the menu was open
 
     public TrayMenu()
     {
@@ -54,6 +55,14 @@ sealed class TrayMenu : IDisposable
             Strip.Items.Add(item);
         }
         ApplyLook(1f);
+        // An open menu keeps its size: NotifyIcon placed it from that size. A new state applies when it closes.
+        Strip.Closed += delegate
+        {
+            if (pending == null) return;
+            TrayState s = pending;
+            pending = null;
+            Update(s);
+        };
     }
 
     // Sets the scale (the DPI of the monitor where the menu opens) and the theme. Call it before the menu opens.
@@ -110,6 +119,12 @@ sealed class TrayMenu : IDisposable
 
     public void Update(TrayState state)
     {
+        if (Strip.Visible)
+        {
+            pending = state;
+            status.SetTitle(TrayModel.StatusTitle(state));
+            return;
+        }
         phase = state.Phase;
         status.Set(TrayModel.StatusTitle(state), TrayModel.StatusDetail(state), state.LastResult, state.Phase);
         foreach (TrayEntry e in TrayModel.Entries(state))
