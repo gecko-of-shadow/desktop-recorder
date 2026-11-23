@@ -100,6 +100,15 @@ static class UiPreview
                 child.DrawToBitmap(b, new Rectangle(0, 0, child.Width, child.Height));
                 g.DrawImage(b, at);
             }
+            // WM_PRINT does not draw the selected text of a drop-down list. The tool draws it, so the picture
+            // shows if the text fits. (The values themselves are checked by the round trip.)
+            ComboBox combo = child as ComboBox;
+            if (combo != null && combo.SelectedIndex >= 0)
+            {
+                Rectangle text = new Rectangle(at.X + 4, at.Y, child.Width - SystemInformation.VerticalScrollBarWidth - 6, child.Height);
+                TextRenderer.DrawText(g, combo.Items[combo.SelectedIndex].ToString(), combo.Font, text,
+                    combo.Enabled ? Color.FromArgb(27, 27, 27) : Color.Gray, TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+            }
             Point inner = ClientOffset(child);
             Compose(child, g, new Point(at.X + inner.X, at.Y + inner.Y));
         }
@@ -174,6 +183,15 @@ static class UiPreview
             int need = TextRenderer.MeasureText(c.Text.Replace("&", ""), c.Font).Width;
             if (need + 8 > c.Width) Problem(name + ": button text is cut: " + Describe(c));
         }
+        else if (c is NavList)
+        {
+            NavList nav = (NavList)c;
+            foreach (object item in nav.Items)
+            {
+                int need = TextRenderer.MeasureText(item.ToString(), nav.Font).Width + nav.ItemHeight * 3 / 2;
+                if (need > nav.Width) Problem(name + ": page name is cut: \"" + item + "\" needs " + need + " has " + nav.Width);
+            }
+        }
         else if (c is ComboBox)
         {
             ComboBox box = (ComboBox)c;
@@ -197,5 +215,93 @@ static class UiPreview
         return c.GetType().Name + "(" + text + ")";
     }
 
-    static void Previews2(float[] scales) { }
+    static void Previews2(float[] scales)
+    {
+        foreach (float s in scales)
+        {
+            using (SettingsForm f = new SettingsForm(new Settings(), s))
+            {
+                foreach (SettingsPage page in SettingsCatalog.Pages)
+                {
+                    f.PreviewPage(page);
+                    Render(f, "settings-" + page.ToString().ToLowerInvariant() + "-" + Pct(s));
+                }
+                f.PreviewPage(SettingsPage.Hotkey);
+                f.PreviewMessage("For the hotkey, tick at least one of Win, Ctrl and Alt, and pick a key. Shift alone works only with F1 to F12.", true);
+                Render(f, "settings-message-" + Pct(s));
+            }
+        }
+        RoundTrips();
+        TrayPreviews(scales);
+    }
+
+    // Settings to the window and back must give the same settings.txt text (this also catches an inverted switch).
+    static void RoundTrips()
+    {
+        Settings defaults = new Settings();
+        RoundTrip(defaults, defaults, false, "defaults");
+        Settings all = new Settings();
+        all.Folder = @"D:\Rec test";
+        all.Fps = 15;
+        all.Quality = 2;
+        all.SplitMinutes = 5;
+        all.RecordOnLaunch = true;
+        all.CopyToClipboard = false;
+        all.PlaySounds = false;
+        all.ShowPointer = true;
+        all.HotkeyModifiers = 2 | 1;
+        all.HotkeyKey = Keys.F9;
+        all.CaptureBackend = RecorderCore.BackendGdigrab;
+        all.Encoder = RecorderCore.EncoderX264;
+        all.ChromaFormat = RecorderCore.Chroma444;
+        all.FrameRateMode = RecorderCore.ModeFixed;
+        all.OutputMode = RecorderCore.OutputMp4;
+        all.SelectorCrosshair = true;
+        all.SelectorMagnifier = false;
+        all.SelectorPosition = false;
+        all.RecordAudio = true;
+        // Fields that the window does not show: they must stay as they are.
+        all.NvencCq = 30;
+        all.SettleMs = 700;
+        all.StillIntervalSeconds = 9;
+        all.ScrollPercent = 50;
+        all.SizeLimit = 1000;
+        all.WhisperPath = @"C:\w\whisper-cli.exe";
+        all.WhisperModel = "m.bin";
+        all.WhisperLanguage = "de";
+        all.Region = new Rectangle(1, 2, 300, 200);
+        all.LastRegion = new Rectangle(5, 6, 400, 100);
+        all.ExtraLines.Add("linux_only_key=1");
+        RoundTrip(all, all, false, "all changed");
+        // Restore defaults: the fields of the window get the defaults, the other fields stay.
+        Settings expected = new Settings();
+        expected.NvencCq = all.NvencCq; expected.SettleMs = all.SettleMs; expected.StillIntervalSeconds = all.StillIntervalSeconds;
+        expected.ScrollPercent = all.ScrollPercent; expected.SizeLimit = all.SizeLimit; expected.WhisperPath = all.WhisperPath;
+        expected.WhisperModel = all.WhisperModel; expected.WhisperLanguage = all.WhisperLanguage; expected.Region = all.Region;
+        expected.LastRegion = all.LastRegion; expected.ExtraLines.Add("linux_only_key=1");
+        RoundTrip(all, expected, true, "restore defaults");
+    }
+
+    static void RoundTrip(Settings input, Settings expected, bool restore, string name)
+    {
+        using (SettingsForm f = new SettingsForm(input, 1.25f))
+        {
+            if (restore) f.PreviewRestoreDefaults();
+            Settings result;
+            bool startWithWindows;
+            SettingsPage page;
+            Control field;
+            string problem = f.ReadFields(out result, out startWithWindows, out page, out field);
+            if (problem != null) { Problem("round trip " + name + ": " + problem); return; }
+            if (restore && startWithWindows) Problem("round trip " + name + ": start with Windows is not off");
+            string[] a = RecorderCore.SerializeSettings(expected.ToStored()).Split('\n');
+            string[] b = RecorderCore.SerializeSettings(result.ToStored()).Split('\n');
+            if (a.Length != b.Length) Problem("round trip " + name + ": " + a.Length + " lines, read back " + b.Length);
+            for (int i = 0; i < Math.Min(a.Length, b.Length); i++)
+                if (a[i] != b[i]) Problem("round trip " + name + ": expected " + a[i].Trim() + ", read back " + b[i].Trim());
+            Console.WriteLine("round trip " + name + ": checked " + a.Length + " lines");
+        }
+    }
+
+    static void TrayPreviews(float[] scales) { }
 }

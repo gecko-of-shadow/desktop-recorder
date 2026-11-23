@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compile
         shell: cmd
-        run: '"%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /win32manifest:DesktopRecorder.manifest /win32icon:app.ico RecorderCore.cs RecordingSession.cs NativeMethods.cs RegionSelector.cs RecordingFrame.cs SettledFrames.cs AfterRecording.cs AudioTranscript.cs AudioCapture.cs UiModel.cs UiTheme.cs NoteForm.cs DesktopRecorder.cs'
+        run: '"%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:DesktopRecorder.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /win32manifest:DesktopRecorder.manifest /win32icon:app.ico RecorderCore.cs RecordingSession.cs NativeMethods.cs RegionSelector.cs RecordingFrame.cs SettledFrames.cs AfterRecording.cs AudioTranscript.cs AudioCapture.cs UiModel.cs UiTheme.cs NoteForm.cs SettingsForm.cs DesktopRecorder.cs'
       - name: Portable zip
         shell: bash
         run: |
