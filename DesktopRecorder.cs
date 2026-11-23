@@ -1068,7 +1068,7 @@ class TrayApp : ApplicationContext
                     mp4AudioNote = audioNote;
                     FinishStop();
                     Refresh();
-                    if (quitRequested) ExitNow();
+                    ExitIfDone();
                 });
             }
             catch (InvalidOperationException) { stopping = false; }
@@ -1281,7 +1281,7 @@ class TrayApp : ApplicationContext
 
     void ExitIfDone()
     {
-        if (quitRequested && passesRunning == 0 && !stopping) ExitNow();
+        if (quitRequested && passesRunning == 0 && !stopping && openNotes.Count == 0) ExitNow();
     }
 
     // The folder is deleted only when all of this is true (Bran, 2026-11-22):
@@ -1364,12 +1364,24 @@ class TrayApp : ApplicationContext
             r.Ok && zipError == null ? ToolTipIcon.Info : ToolTipIcon.Warning);
     }
 
+    // Open note boxes. Exit waits until they are closed (a note with text asks first).
+    readonly List<NoteForm> openNotes = new List<NoteForm>();
+    bool quitLoop;   // Quit is closing the note boxes: their FormClosed must not start Quit again
+
     void ShowNoteBox(PassJob job)
     {
-        IntPtr oldDpi = NativeMethods.SetThreadDpiContext(NativeMethods.DpiContextSystemAware);
+        // Per-monitor DPI aware, like the selector and the frame: the box uses the physical pixels and the DPI of the
+        // monitor of the recording (NoteForm lays itself out for that scale). The hotkey can come while the Settings
+        // dialog (system aware) is open, so set the context here.
+        IntPtr oldDpi = NativeMethods.SetThreadDpiContext(NativeMethods.DpiContextPerMonitorAwareV2);
+        NoteForm form = null;
         try
         {
-            NoteForm form = new NoteForm();
+            Rectangle area = recordingRegion.IsEmpty ? Screen.PrimaryScreen.WorkingArea : NativeMethods.GetMonitorWorkArea(recordingRegion);
+            float scale = NativeMethods.GetScaleForPoint(new Point(area.X + area.Width / 2, area.Y + area.Height / 2));
+            string name = job.Input.Folder != null ? Path.GetFileName(job.Input.Folder) : null;
+            double seconds = (DateTime.Now - recordingStartTime).TotalSeconds;
+            form = new NoteForm(name, seconds, area, scale, openNotes.Count, Ui.CurrentPalette());
             form.Saved += delegate(string note)
             {
                 job.Note = note;
@@ -1393,17 +1405,36 @@ class TrayApp : ApplicationContext
                     catch (Exception e) { tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("Cannot save the note: " + e.Message), ToolTipIcon.Warning); }
                 }
             };
+            // Back to the question of Exit: the app stays open.
+            form.QuitCancelled += delegate
+            {
+                quitRequested = false;
+                Refresh();
+            };
             // The folder stays while the note box is open. Saved or closed, the box then lets the cleanup run.
             job.NoteOpen = true;
+            openNotes.Add(form);
+            NoteForm closing = form;
             form.FormClosed += delegate
             {
+                openNotes.Remove(closing);
                 job.NoteOpen = false;
                 TryCleanup(job);
+                // The box was the last thing that Exit waited for.
+                if (quitRequested && !quitLoop) Quit();
             };
             form.Show();
             form.Activate();
         }
-        catch (Exception) { job.NoteOpen = false; }
+        catch (Exception)
+        {
+            job.NoteOpen = false;
+            if (form != null)
+            {
+                openNotes.Remove(form);
+                try { form.Dispose(); } catch (Exception) { }
+            }
+        }
         finally { NativeMethods.RestoreThreadDpiContext(oldDpi); }
     }
 
@@ -1544,6 +1575,17 @@ class TrayApp : ApplicationContext
         // Folder mode: the pass makes the folder from the work file. Wait for it, so the recording is not lost
         // (review 2026-11-19). The tray shows that the app is finishing. ExitNow runs after the pass.
         quitRequested = true;
+        // A note box with text asks Save, Discard or Back first (Bran, 2026-11-22). Back cancels the Exit
+        // (QuitCancelled). Save and Discard close the box, and its FormClosed calls Quit again.
+        bool waitForNotes = false;
+        quitLoop = true;
+        try
+        {
+            foreach (NoteForm note in openNotes.ToArray())
+                if (!note.CloseForQuit()) waitForNotes = true;
+        }
+        finally { quitLoop = false; }
+        if (waitForNotes) return;
         if (recorder.IsRecording && recordingFolder != null && !stopping) StopRecording(false, true);
         if (stopping || passesRunning > 0)
         {
@@ -1746,73 +1788,6 @@ sealed class PassJob
     public bool NoteOpen;            // the note box is open: the folder stays
     public bool Cleaning, Cleaned;   // the folder is being deleted, or is deleted
     public bool NoNoteBox;           // Quit: no note box
-}
-
-// The note box after Stop (AI capture brief, Phase 1, item 3). One line. Enter saves, Esc closes.
-// It does not block the pass. index.md gets the note when the user saves it, also after the pass.
-sealed class NoteForm : Form
-{
-    readonly TextBox box = new TextBox();
-    public event Action<string> Saved;
-
-    public NoteForm()
-    {
-        SuspendLayout();
-        AutoScaleDimensions = new SizeF(96F, 96F);
-        AutoScaleMode = AutoScaleMode.Dpi;
-        Text = "Desktop Recorder: note for the AI";
-        try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch (Exception) { }
-        FormBorderStyle = FormBorderStyle.FixedToolWindow;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        ShowInTaskbar = true;
-        TopMost = true;
-        StartPosition = FormStartPosition.Manual;
-        ClientSize = new Size(420, 92);
-        Font = SystemFonts.MessageBoxFont;
-        Label label = new Label();
-        label.Text = "Note for index.md (optional). Enter saves. Esc closes.";
-        label.SetBounds(10, 8, 400, 20);
-        box.SetBounds(10, 30, 400, 23);
-        box.MaxLength = 500;
-        Button save = new Button();
-        save.Text = "Save";
-        save.SetBounds(250, 60, 76, 26);
-        save.Click += delegate { SaveNote(); };
-        Button close = new Button();
-        close.Text = "Close";
-        close.SetBounds(334, 60, 76, 26);
-        close.DialogResult = DialogResult.Cancel;
-        close.Click += delegate { Close(); };
-        Controls.AddRange(new Control[] { box, save, close, label });
-        AcceptButton = save;
-        CancelButton = close;
-        ResumeLayout(false);
-        Rectangle work = Screen.PrimaryScreen.WorkingArea;
-        Location = new Point(work.Right - Width - 16, work.Bottom - Height - 16);
-    }
-
-    // The note box opens while FFmpeg still captures the last frames. Keep it out of the video.
-    // Real recording on 2026-11-19: the box was in the last 2 frames and made 2 false "scroll" rows.
-    protected override void OnHandleCreated(EventArgs e)
-    {
-        base.OnHandleCreated(e);
-        NativeMethods.ExcludeFromCapture(Handle);
-    }
-
-    void SaveNote()
-    {
-        string text = box.Text.Replace("\r", " ").Replace("\n", " ").Trim();
-        Action<string> h = Saved;
-        if (h != null && text.Length > 0) h(text);
-        Close();
-    }
-
-    protected override void OnClosed(EventArgs e)
-    {
-        base.OnClosed(e);
-        Dispose();
-    }
 }
 
 class SettingsForm : Form
