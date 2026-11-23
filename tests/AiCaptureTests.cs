@@ -33,6 +33,7 @@ static class AiCaptureTests
         TestScrollTurnsBack();
         TestAiMessage();
         TestZipOnly();
+        TestZipFailLeavesNoTemp();
         TestVideoIsNotScroll();
         TestNoisyShiftIsNotScroll();
         TestScrollStillFound();
@@ -55,6 +56,26 @@ static class AiCaptureTests
     }
 
     // Folder mode gives one ZIP only (Bran, 2026-11-22).
+    // A read-only file with the ZIP name makes MakeZip fail. The live test (HANDOFF 7.22) found the temporary
+    // "<name>.zip.tmp" left next to the recordings after that failure.
+    static void TestZipFailLeavesNoTemp()
+    {
+        string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dr_zipfail_" + Guid.NewGuid().ToString("N"));
+        string folder = System.IO.Path.Combine(dir, "desktop_test");
+        System.IO.Directory.CreateDirectory(folder);
+        System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "index.md"), "test");
+        string zip = folder + ".zip";
+        System.IO.File.WriteAllText(zip, "blocker");
+        System.IO.File.SetAttributes(zip, System.IO.FileAttributes.ReadOnly);
+        bool threw = false;
+        try { AfterRecording.MakeZip(folder); }
+        catch (Exception) { threw = true; }
+        Expect(threw, "zip fail: MakeZip throws when the ZIP file is read-only");
+        Expect(!System.IO.File.Exists(zip + ".tmp"), "zip fail: no temporary file is left");
+        System.IO.File.SetAttributes(zip, System.IO.FileAttributes.Normal);
+        System.IO.Directory.Delete(dir, true);
+    }
+
     static void TestZipOnly()
     {
         // The folder is deleted only when the ZIP is done and good, the pass is good, and the note box is closed.
@@ -725,5 +746,8 @@ static class AiCaptureTests
         Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 2560, 1600, frames.GetRange(0, 2), t, 2576, null).IndexOf("more than 3.75 million pixels", StringComparison.Ordinal) >= 0, "pixel warning at 2560 x 1600");
         Expect(RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, null, 1, 2560, 1440, frames.GetRange(0, 2), t, 2576, null).IndexOf("Warning:", StringComparison.Ordinal) < 0, "no warning at 2560 x 1440");
         Expect(big.IndexOf("Note from Bran:", StringComparison.Ordinal) < 0, "no note line");
+        // The note box saves CR LF line breaks. The live test (HANDOFF 7.22) found two spaces for one line break.
+        string twoLines = RecordingIndex.Build(DateTime.Now, TimeSpan.Zero, "line one\r\nline two\nline three", 1, 640, 480, frames.GetRange(0, 2), t, 2576, null);
+        Expect(twoLines.IndexOf("Note from Bran: line one line two line three\n", StringComparison.Ordinal) >= 0, "one space for each line break in the note");
     }
 }

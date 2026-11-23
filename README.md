@@ -85,7 +85,7 @@ The recording area is a fixed rectangle. If a window moves during the recording,
 Other controls:
 
 - A short sound plays when the recording starts and when it stops.
-- Right-click the tray icon for the tray menu. At the top, a status tells the state: not recording, recording (with the elapsed time, the fps and the region size), processing the last recording, or closing. Under it is the result of the last recording. The commands: **Select region and record** (or **Stop recording**, in bold, with the hotkey at the right), Open recordings folder, Show last ZIP in Explorer, Copy ZIP of last recording, Settings, Exit. The ZIP commands are gray when there is no ZIP.
+- Right-click the tray icon for the tray menu. At the top, a status tells the state: not recording, recording (with the elapsed time, the fps and the region size), processing the last recording, or closing. Under it is the result of the last recording. The commands: **Select region and record** (or **Stop recording**, in bold, with the hotkey at the right), Open recordings folder, Show last ZIP in Explorer, Copy ZIP of last recording, Settings, Exit. The ZIP commands are gray when there is no ZIP. The menu opens above the taskbar. While it is open, the status follows the state; the commands change when the menu closes, and a record command that the state made old does nothing.
 - The note box and the tray menu follow the Windows app mode (Settings > Personalization > Colors > Choose your default app mode): light or dark. The Settings window is always light.
 - Double-click the tray icon to open Settings.
 - Exit stops a running recording. The program then stays in the tray until the files of the last recording are made. The tray shows "Finishing the last recording, then the app closes...".
@@ -102,7 +102,7 @@ Other controls:
 | Enter | Records the current selection. |
 | Space | Records all monitors. |
 | `~` | Records the monitor under the cursor. |
-| C | Shows or hides a crosshair across the screen. |
+| C | Shows or hides a crosshair across the screen: a white line with a dark line on each side, so that it shows on light and on dark content. |
 | M | Shows or hides the magnifier near the cursor. |
 | P | Shows or hides the position and size of the selection. |
 | Esc | Closes the selector. Nothing is recorded. |
@@ -355,6 +355,8 @@ Unreleased (transcript rows on silence, pointer and the motion warning, file-cou
 
 - **Transcript.** Three recordings with silent audio got "Thank you." rows from whisper.cpp. The program now leaves out all of them (2 of 2, 1 of 1 and 1 of 1), and `index.md` says "No speech was found". Two recordings with real speech kept all their rows (50 of 50 at about -60 dBFS, and 3 of 3). The quiet speech also kept all its rows when the audio was 10 dB and 20 dB quieter. The whisper.cpp options `-sns`, `-lpt` and `-nth` did not stop the false rows. Silero VAD removed them, but also most of the quiet real speech, so the program does not use VAD.
 - **Motion warning.** The pointer was shown in these recordings, and their `index.md` said "the picture changed during" 81% to 92%. The lossless work files are gone, so the pass ran again on each `clip.mp4`. The motion share fell from 84% to 94% to 10% to 26%: no false warning. The frame count and the PNG files did not change. The offline tests of 3.0.0 gave the same results (status line, blinking cursor, 15 of 15 look-alike changes, scroll 0 px missed), and test videos with real motion (`testsrc2`, `mandelbrot`, `life`, a video area on a page) still get the warning (97% to 100%).
+
+Unreleased (live test of the ZIP-only build: note box, Settings window, tray menu, ZIP indication and the selector keys; `HANDOFF.md` section 7.22), on the same PC with synthetic input and real recordings: every check of the live test plan passed after 8 fixes (tray menu over the taskbar, crosshair on white pages, mixed tray status, two spaces for a line break in the note, a temporary file after a failed ZIP, and others). The full-screen check found no note box and no popup in the video. Not tested: 100% and 150% scale, a paste of the ZIP into a chat app, more monitors.
 
 The test kit is in `test/`: a source text, an auto-scroll page, a frame-counter page, and scripts that count frames and score an AI copy.
 

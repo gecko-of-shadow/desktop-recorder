@@ -31,15 +31,21 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 - Windows, transcript: the app leaves out rows that Whisper wrote on silent or almost silent audio, for example "Thank you." (seen in three recordings by Bran on 2026-11-22). The app measures the sound in the time of each row: a row with sound in less than 10% of its time and for less than 1 s is left out, and a known Whisper text for silence in a long row (10 s or more, or most of a short recording) needs sound in half of its time. `index.md` gives the number of rows that the app left out. When no row is left, it says "No speech was found", and the folder has no `transcript.srt`. The whisper.cpp options for silence did not stop these rows on the test PC, and Silero VAD also removed quiet real speech, so the app does not use them.
 - Windows, folder mode: a moving mouse pointer no longer gives the warning "the picture changed during N% of the recording". Only a frame pair with a large change counts as moving content: 96 px or more on the short side of one connected changed area (half the short side of the region, when the region is smaller), or many small changed parts that together cover 96 x 96 px or more. The area in the warning now covers only that moving content. The frame rules are not changed.
 
+- Windows, tray menu: the menu opens above the taskbar. Before, its lower part covered the taskbar by 30 px (live test, HANDOFF 7.22).
+- Windows, tray menu: when the state changes while the menu is open, the status title, the detail line and the dot change together. Before, the menu could say "Not recording" above "Wait for "ZIP ready" before you paste". A long detail is drawn on one line with "..." while the menu is open. A screen reader gets the current time of a recording.
+- Windows, tray menu: a record command that a state change made old does nothing. Before, "Stop recording" in a menu that stayed open across a Stop opened the region selector.
+- Windows, region selector: the crosshair has a dark line on each side of the white line, so that it shows on a white page.
+- `index.md`: a line break in the note gives one space. Before, a Windows line break gave two spaces.
+- Windows, folder mode: a failed ZIP does not leave `<name>.zip.tmp` next to the recordings.
+
 ### Removed
 
 - Windows: the setting "Folder mode: copy one ZIP above this many files" (`clipboard_max_files`), which was never released. A settings file that has the key still loads with no error. The next Save does not write it.
 
 ### Notes
 
-- ZIP indication: built, unit tested, drawn offscreen and reviewed (HANDOFF 7.21). Not tested on the screen.
-- UI redesign (note box, Settings, tray menu): built and unit tested, and drawn offscreen at 100%, 125% and 150% (HANDOFF 7.20). Not tested: the windows on the screen, the keys, the mouse, Windows dark mode, and a real recording with this build.
-- Tested on one PC: unit tests, the app build, and the ZIP file made from a test folder. Not tested: a real recording with this build, the note box with a late note, a paste of the ZIP into a chat app or a Claude cloud session, and the Settings window at 125%.
+- Live test on one PC (HANDOFF 7.22, synthetic input and real recordings at 125%): the note box, the Settings window, the tray menu, the ZIP indication (tray icon, note box line, popup, sound, wait text), the ZIP-only flow (T1 to T7), MP4-only mode and the selector keys (`~`, Shift, Ctrl, C, M, P, arrow keys, Esc) passed, in light and dark app mode. The note box and the popup were not in the video. Not tested: 100% and 150% scale, a paste of the ZIP into a chat app or a Claude cloud session, more monitors.
+- UI redesign and ZIP indication: also drawn offscreen at 100%, 125% and 150% (HANDOFF 7.20, 7.21).
 - Transcript and motion fixes: tested offline on the same PC with the `clip.mp4` files of three real recordings and with synthetic test videos (HANDOFF 7.19). Not tested: a real recording with this build.
 
 ## [3.0.1] - 2026-11-20

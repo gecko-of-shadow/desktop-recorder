@@ -371,10 +371,14 @@ static class NativeMethods
 
     /// <summary>
     /// Asks Windows to keep the window out of screen captures (WDA_EXCLUDEFROMCAPTURE, Windows 10 2004 and later).
-    /// Returns false when Windows does not support it. UNVERIFIED: that gdigrab and ddagrab respect this flag.
+    /// Returns false when Windows does not support it. gdigrab and ddagrab respect the flag (HANDOFF 6.7 and 7.22).
     /// </summary>
     public static bool ExcludeFromCapture(IntPtr hWnd)
     {
+        // Test switch: with DESKTOP_RECORDER_SHOW_IN_CAPTURE=1 in the environment, the windows stay in screen captures,
+        // so that a screenshot can show the note box, the popup and the frame (HANDOFF 7.22). PrintWindow gives a black
+        // picture of an excluded window. Never use it for real recordings: these windows are then in the video.
+        if (ShowInCapture) return false;
         try
         {
             return SetWindowDisplayAffinity(hWnd, WDA_EXCLUDEFROMCAPTURE);
@@ -384,6 +388,8 @@ static class NativeMethods
             return false;
         }
     }
+
+    static readonly bool ShowInCapture = Environment.GetEnvironmentVariable("DESKTOP_RECORDER_SHOW_IN_CAPTURE") == "1";
 
     // ---------------------------------------------------------------- thread DPI awareness
 

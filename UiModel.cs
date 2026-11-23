@@ -511,6 +511,23 @@ static class TrayModel
         }
     }
 
+    // NotifyIcon puts the bottom right corner of the menu at the pointer, so the lower part of the menu covered a
+    // bottom taskbar (live test, HANDOFF 7.22). The open menu moves into the work area, as little as possible.
+    // A menu that is larger than the work area keeps its top left corner in the area.
+    public static void MenuInside(int x, int y, int width, int height, int left, int top, int right, int bottom, out int newX, out int newY)
+    {
+        newX = Math.Max(left, Math.Min(x, right - width));
+        newY = Math.Max(top, Math.Min(y, bottom - height));
+    }
+
+    // The record command of an open menu shows the phase of the open. When a recording stopped (or started) while
+    // the menu was open, a click must not do the other thing: "Stop recording" must not open the selector, and
+    // "Select region and record" must not stop the new recording (review of the live test, HANDOFF 7.22).
+    public static bool RecordClickActs(TrayPhase shownPhase, TrayPhase nowPhase)
+    {
+        return (shownPhase == TrayPhase.Recording) == (nowPhase == TrayPhase.Recording);
+    }
+
     public static string Tooltip(TrayState s)
     {
         string text;

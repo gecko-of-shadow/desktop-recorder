@@ -142,6 +142,7 @@ sealed class RegionSelectorForm : Form
     readonly Pen selectionPen = new Pen(Accent, 1f);
     readonly Pen hoverPen = new Pen(Accent, 2f);
     readonly Pen crosshairPen = new Pen(Color.FromArgb(170, 255, 255, 255), 1f);
+    readonly Pen crosshairShadowPen = new Pen(Color.FromArgb(170, 0, 0, 0), 1f);
     readonly SolidBrush labelBrush = new SolidBrush(Color.FromArgb(220, 20, 20, 20));
     readonly Rectangle? lastRegion;
 
@@ -271,6 +272,7 @@ sealed class RegionSelectorForm : Form
             selectionPen.Dispose();
             hoverPen.Dispose();
             crosshairPen.Dispose();
+            crosshairShadowPen.Dispose();
             labelBrush.Dispose();
             if (font != null) font.Dispose();
         }
@@ -851,6 +853,12 @@ sealed class RegionSelectorForm : Form
 
         if (RegionSelector.ShowCrosshair)
         {
+            // Dark lines on both sides of the white line: the white line alone did not show on a bright white page
+            // (live test, HANDOFF 7.22). All lines are inside the 3 px area that RefreshOverlay paints again.
+            g.DrawLine(crosshairShadowPen, 0, mouse.Y - 1, clientArea.Width, mouse.Y - 1);
+            g.DrawLine(crosshairShadowPen, 0, mouse.Y + 1, clientArea.Width, mouse.Y + 1);
+            g.DrawLine(crosshairShadowPen, mouse.X - 1, 0, mouse.X - 1, clientArea.Height);
+            g.DrawLine(crosshairShadowPen, mouse.X + 1, 0, mouse.X + 1, clientArea.Height);
             g.DrawLine(crosshairPen, 0, mouse.Y, clientArea.Width, mouse.Y);
             g.DrawLine(crosshairPen, mouse.X, 0, mouse.X, clientArea.Height);
         }

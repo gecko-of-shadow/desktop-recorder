@@ -324,7 +324,7 @@ Selector (checked):
 - Before the change in 4.1 point 6: Right, Right, Shift+Down moved the selection by 2 px and 10 px. Esc cancelled and saved nothing.
 - After the change: release after a drag starts ddagrab at the dragged offsets. A window click starts at once.
 - Space selected 0,0,1920x1080 (physical pixels). The video size equals the selection in every run. DPI scale is correct on this PC.
-- Not checked: `~` (on one monitor it gives the same result as Space), Shift (square) and Ctrl (move) while dragging, crosshair key C.
+- Not checked: `~` (on one monitor it gives the same result as Space), Shift (square) and Ctrl (move) while dragging, crosshair key C. Checked in 7.22: `~`, Shift, Ctrl, C, M, P and the arrow keys.
 
 Recording frame (checked):
 
@@ -359,7 +359,7 @@ Not checked:
 
 - Multi-monitor PCs and monitors with different DPI.
 - libx264 fallback in the app (NVENC worked in every run).
-- `~`, Shift and Ctrl while dragging, the crosshair key.
+- Checked in 7.22: `~`, Shift and Ctrl while dragging, the keys C, M and P.
 - The tray balloons: Windows did not show them on this PC. The tray menu shows the status line.
 
 ### 6.8 Phase B results (run on Bran's PC on 2026-11-14)
@@ -621,13 +621,14 @@ Commands of this run, in order (`quality_reads.py`; the defaults are `--reads 1-
 | False transcript rows, pointer motion warning, file-count text (7.19) | Code, unit tests and offline tests on three real recordings done on branch `zip-only`. Not installed, not pushed, not released. No real recording with this build yet. |
 | UI redesign: note box, Settings, tray menu (7.20) | Code, unit tests and offscreen previews (100%, 125%, 150%) done on branch `zip-only`. No live test (Bran used the PC). Not installed, not pushed, not released. Live test plan in 7.20. |
 | "Busy, then ready" indication for the ZIP (7.21) | Code, unit tests, offscreen previews and an independent review done on branch `zip-only`. No live test. Not installed, not pushed, not released. Live test items 9 to 13 in 7.20. |
+| Live test of zip-only: note box, Settings, tray menu, ZIP indication, selector keys (7.22) | Done on Bran's PC with synthetic input. 8 bugs found and fixed (tray menu over the taskbar, crosshair on white, mixed tray status, screen reader name, two spaces in the note, ZIP temp file, old record command, cut detail). All live checks pass, except 100%/150% (not run). Not installed, not pushed, not released. |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
 - Done (2026-11-22): more reads of B3, B9 and B11 to decide the quality default (decision 11). See 6.11.
 - Later: Phase A run A6.
-- Later: selector keys `~`, C, M, P, and Shift and Ctrl while dragging. Not checked yet.
-- Later: the tray icons in Bran's real tray. Not checked yet.
+- Done (7.22): selector keys `~`, C, M, P, the arrow keys, and Shift and Ctrl while dragging.
+- Partly done (7.22): the idle and the busy tray icons in Bran's real tray. The recording icon is not checked.
 - Not now: multi-monitor PCs and monitors with different scales.
 - Future: a PC without an NVIDIA GPU.
 - New session: idea to explore, an "Export frames" feature (unique frames as PNG) for AI tools that sample a video at 1 fps (for example Gemini).
@@ -1196,6 +1197,8 @@ After the fixes (checked): the app builds, unit tests `ok`, the preview checks `
 - Settings: [settings-recording-125](docs/ui/offscreen-settings-recording-125.png), [settings-capture-125](docs/ui/offscreen-settings-capture-125.png), [settings-hotkey-125](docs/ui/offscreen-settings-hotkey-125.png), [settings-aiaudio-125](docs/ui/offscreen-settings-aiaudio-125.png), [settings-startup-125](docs/ui/offscreen-settings-startup-125.png), [settings-message-125](docs/ui/offscreen-settings-message-125.png), [settings-recording-100](docs/ui/offscreen-settings-recording-100.png), [settings-recording-150](docs/ui/offscreen-settings-recording-150.png).
 - Tray menu: [tray-idle-125-light](docs/ui/offscreen-tray-idle-125-light.png), [tray-recording-125-light](docs/ui/offscreen-tray-recording-125-light.png), [tray-recording-125-dark](docs/ui/offscreen-tray-recording-125-dark.png), [tray-processing-125-light](docs/ui/offscreen-tray-processing-125-light.png), [tray-recording-100-light](docs/ui/offscreen-tray-recording-100-light.png), [tray-recording-150-light](docs/ui/offscreen-tray-recording-150-light.png).
 
+**Live test: done in 7.22 (2026-11-22).**
+
 **Not checked (needs the live test below):** the real windows on the screen; every key and click; the focus at open; the flash; the menu position at the first open and on a later open; the rounded corners and the shadow of the menu; dark mode on the screen; a real recording with this build (note box out of the video); the Settings Save with a real click; Windows 10; another monitor or scale; a screen reader. The Mono build and the GitHub CI with the new files (no Mono on this PC).
 
 **Open decisions for Bran:**
@@ -1248,7 +1251,118 @@ Research: Microsoft progress guidance (an indeterminate indicator when the time 
 - Offscreen previews at 100%, 125% and 150%, light and dark: `preview ok` (no overlap, no cut text, the popup inside the work area). The checks found and the agent fixed two layout faults (a mark and a detail line that read `Visible` before the form shows) and a too narrow mark at 150%.
 - Previews (NOT real screenshots, see 7.20): [note-zip-busy-125-light](docs/ui/offscreen-note-zip-busy-125-light.png), [note-zip-ready-125-dark](docs/ui/offscreen-note-zip-ready-125-dark.png), [note-zip-failed-125-light](docs/ui/offscreen-note-zip-failed-125-light.png), [toast-busy-125-light](docs/ui/offscreen-toast-busy-125-light.png), [toast-ready-125-light](docs/ui/offscreen-toast-ready-125-light.png), [toast-ready-125-dark](docs/ui/offscreen-toast-ready-125-dark.png), [toast-ready-150-light](docs/ui/offscreen-toast-ready-150-light.png), [toast-failed-125-dark](docs/ui/offscreen-toast-failed-125-dark.png), [tray-zip-125-light](docs/ui/offscreen-tray-zip-125-light.png), [tray-zip-125-dark](docs/ui/offscreen-tray-zip-125-dark.png), [tray-icon-busy-20](docs/ui/offscreen-tray-icon-busy-20.png) (the 8 frames at 20 px, 4 times larger). The note box previews of 7.20 are new (the box has the ZIP line now).
 
+**Live test: done in 7.22 (2026-11-22).**
+
 **Not checked:** everything on the screen (live test items 9 to 13 below): the popup position, that it does not take the focus, the click, the animation of the tray icon, the sound, the clipboard text at Stop with a real paste, the times on a real recording, Windows clipboard history. The busy bar and the popup in a real recording (they must not be in the video).
+
+### 7.22 Live test of the zip-only build (2026-11-22, branch `zip-only`, not pushed, not released)
+
+Job from Bran (headless agent run): the full live test on Bran's PC, in one run: the live test plan of 7.20 (items 1 to 13), job 3 (T1 to T7, the ZIP-only flow) and job 4 (S1 to S6, the selector keys). Bran did not use the PC. Synthetic input and screenshots were allowed. HANDOFF already had 7.21, so this is 7.22.
+
+**Setup (checked):**
+
+- `DesktopRecorder-zip.exe` built with the file list of `build.cmd`. Unit tests `ok` before the first run and after each fix.
+- `settings.txt` saved as `settings.backup-2026-11-22-live-all.txt`. The installed app exited through its own tray menu (Exit), with no recording in progress.
+- The test exe used the same settings file with `folder=C:\Users\Bran\Recordings\live-test-2026-11-22` and Bran's other values (6 fps, changes only, pointer shown, sound of the PC on, crosshair on). Folder-mode runs also set `whisper_path` and `whisper_model` to the installed whisper.cpp: the test exe in the repository folder does not find it by itself.
+- Windows put the tray icon of the new exe in the hidden-icons area. The test set `IsPromoted=1` in `HKCU\Control Panel\NotifyIconSettings\6081391132074632530` (the entry of the test exe only), so the icon showed in the taskbar like the installed app. The restore script removed the value.
+- Test page: `test\counter.html` in its own Chrome profile (`%TEMP%\dr_counter_profile`), maximized. No click in Bran's windows.
+- Driver: `test\live_ui_test.cs` (tools) and `test\live_ui_sessions.cs` (scenarios). It is a per-monitor DPI aware console program: `keybd_event` and `mouse_event`; UI Automation for the window texts, positions and the focus; screenshots with CopyFromScreen; the clipboard (read once after each change of `GetClipboardSequenceNumber`); the ZIP files; ffprobe; a shell hook (`RegisterShellHookWindow`) for window flashes; and a WASAPI loopback capture (`AudioCapture.cs`) for the sounds. The build and run commands are at the top of `live_ui_test.cs`. Sessions: `mp4`, `folder`, `more`, `look` (screenshots), `settings`. All result rows: `%TEMP%\svr-live-all\results-all.tsv`.
+
+**Bugs found and fixed:**
+
+| # | Bug (found by) | Fix | Check after the fix |
+|---|---|---|---|
+| 1 | Tray menu: the lower 30 px covered the taskbar (A1). NotifyIcon puts the bottom right corner of the menu at the pointer, and the pointer is in the taskbar. | `Strip.Opened` moves the open menu into the work area of its monitor (`TrayModel.MenuInside`, unit test). | Live: menu 798,669 440x351, bottom 1020 = taskbar top, right edge at the pointer, first and second open. |
+| 2 | Selector: the crosshair was a white line only. It did not show on a bright white page (S4: 215 changed pixels on the row, only over black digits). | Dark lines on both sides of the white line, inside the 3 px area that `RefreshOverlay` paints again. | Live: 3390 changed pixels on the row. Screenshot. |
+| 3 | Tray menu: a new state while the menu was open changed only the title. The menu said "Not recording" above "Wait for "ZIP ready" before you paste." (A9). | `TrayStatusItem.SetLive`: the title, the detail and the dot change together. The size stays. | Live (R13, 2 runs): menu open during the work, read about each 0.1 s: "Making the ZIP... (step: frames)" > "(step: transcript)" > "Not recording. Press Win+Shift+D...". |
+| 4 | Tray menu: the screen reader name of the status kept the time of the open (A2). | `SetTitle` also sets `AccessibleName`. | Live: "Recording 0:03" > "Recording 0:06". |
+| 5 | `index.md`: a note with a line break got two spaces ("line one  line two") (T7). | `RecordingIndex.Cell` makes one space of each line break. Unit test. | Live: "line one line two". |
+| 6 | A failed ZIP left `<name>.zip.tmp` next to the recordings (item 12). | `MakeZip` deletes the temporary file and throws the error again. Unit test. | Live: no new `.tmp` file. |
+| 7 | Review finding (from the 7.20 design): a menu that stayed open across a Stop still showed "Stop recording", and a click on it opened the selector. | `TrayModel.RecordClickActs` (unit test): the record command does nothing when the recording state changed while the menu was open. | Live (MP4 mode, where the menu stays open after a hotkey Stop): no selector. |
+| 8 | Review finding: a detail that comes while the menu is open and needs two lines (for example "Win+Shift+D is used by another program...") was cut. | While the menu is open, the detail is drawn on one line with "...". | Not checked live. |
+
+New test switch `DESKTOP_RECORDER_SHOW_IN_CAPTURE=1` (in `NativeMethods.ExcludeFromCapture`): the note box, the popup and the frame stay in screen captures. Reason (checked): PrintWindow gives a black picture of a window with `WDA_EXCLUDEFROMCAPTURE` (black share 1.00 for the note box and the popup), and CopyFromScreen leaves the window out. Only the `look` session used it, for the screenshots in `docs\ui`. All other runs ran without it. Like `DESKTOP_RECORDER_KEEP_WORK`, it is not in the README.
+
+**Results (all live, on the final build or on the last build before the fix of that area):**
+
+| ID | What I did | Expected | Actual | Result | Screenshot (`docs/ui`) |
+|---|---|---|---|---|---|
+| 1 (A1) | Right-click the tray icon, first and second open after the start | Above the taskbar, at the pointer | 798,669 440x351, bottom = taskbar top (FAIL before fix 1: bottom 1050) | PASS | live-tray-idle-125-light.png |
+| 1 | Read the items; click the gray "Show last ZIP"; Esc | Status, bold record command with Win+Shift+D, ZIP items gray; gray click does nothing | As expected | PASS | |
+| 1 | Open recordings folder; Settings, Cancel; Exit (each session) | Explorer opens the test folder; Settings opens and closes; the app ends | As expected (Exit 9 times) | PASS | |
+| 2 | Menu open during a recording, 2 readings 2 s apart; then "Stop recording" | The time counts; the recording stops | "Recording 0:03" > "0:06"; note box opened | PASS | live-tray-recording-125-light.png |
+| 2 | MP4 mode: menu open, hotkey Stop, click the old "Stop recording" | Nothing happens | No selector (fix 7) | PASS | |
+| 3 | Note box after Stop | Middle of the work area, focus in the text box, typing at once works | Offset 0,-2 px; foreground and focus in the text box; text arrived | PASS | live-note-busy-125-light.png |
+| 3, 13 | Exclusion of the note box, the popup, the Stop button | `GetWindowDisplayAffinity` = 0x11 | 0x11, 0x11, 0x11 | PASS | |
+| 4 | Enter (T1); Shift+Enter; Esc in an empty box | Saves; new line; closes at once | As expected; closed after 0.20 s | PASS | |
+| 4 | Text, Esc, Back, Esc, Discard (T7) | Question; Back keeps the text; Discard closes without a note | As expected; folder deleted only after the box closed | PASS | live-note-question-125-light.png |
+| 4 | Text, Alt+F4, Back; X button, Save | Both ask; Save saves | As expected; note in the ZIP | PASS | |
+| 4 | Click the counter page beside the box | The box stays on top | Window at the box center = note box | PASS | |
+| 4 | Text, tray Exit, Back; Exit, Discard | The question names the Exit; Back keeps the app; Discard ends it after the ZIP | As expected; no note in the ZIP; folder deleted | PASS | |
+| 5 | The pad in front locks SetForegroundWindow; hotkey Stop | The box opens without the focus and flashes | Foreground stayed on the pad; 2 flash events (HSHELL_FLASH) of the box | PASS | |
+| 5 | Click the Stop button below the region | Stops; the box opens with the focus | As expected | PASS | live-frame-stop-125.png |
+| 6 | Open Settings by a double-click on the tray icon; each page | Opens; 5 pages | As expected | PASS | live-settings-page1-125.png to page5 |
+| 6 | One change on each page, Save; open again | settings.txt and the fields have the new values | fps 7, show_pointer 0, selector_crosshair 0, record_audio 0, play_sounds 0 | PASS | |
+| 6 | Change and Cancel; Restore defaults and Cancel | Nothing saved; Restore defaults puts the defaults into the fields | As expected (10 fps, pointer hidden, crosshair off, sound off, sounds on, Start with Windows off) | PASS | |
+| 6 | Clear Win in the hotkey, go to page 1, Save | Red text, Hotkey page, nothing saved | As expected | PASS | live-settings-bad-hotkey-125.png |
+| 7 | App mode dark: tray menu, note box, popup | Dark versions | Dark, readable (looked at the screenshots) | PASS | live-*-dark.png |
+| 8 | 100% and 150% | | Not run (see Not checked) | NOT RUN | |
+| 9 | Tray icon just after Stop (16 crops in 2 s) | The arc turns | 7 to 9 different frames | PASS | |
+| 9 | Tray menu and tooltip during the work | "Making the ZIP... (step: ...)" and the wait line | As expected (FAIL before fix 3) | PASS | live-tray-busy-125-light.png |
+| 9 | Note box line during the work | stopping > frames > transcript > ZIP > ready | stopping > frames > transcript > ready (the ZIP step took less than 0.1 s) | PASS | |
+| 9 | Ctrl+V in an Edit control just after Stop | The wait text | The wait text | PASS | |
+| 9 | Ready popup while an Edit control of the driver had the focus; type while it shows | Bottom middle, about 4 s, no focus change | Offset 0 px, 30 px above the work area bottom, 4.1 s, focus stayed, typing arrived, WS_EX_NOACTIVATE | PASS | live-popup-ready-125-light.png |
+| 9 | Note box line at ready; ready sound (loopback) | "ZIP ready. Press Ctrl+V to paste (... MB)."; 1047 then 1568 Hz | As expected; tones within 0.1 s of "ready" | PASS | live-note-ready-125-light.png |
+| 9 | Ctrl+V in a new Explorer window of a scratch folder | The new ZIP pastes | Pasted, same size | PASS | |
+| 10 | "No note" before the ZIP is ready; click the busy popup | The popup shows; a click closes it; it comes back only with "ZIP ready" | As expected | PASS | live-popup-busy-125-light.png |
+| 11 | Save a note after "ZIP ready" | The ZIP is made again (same path) with the note | As expected; popup "ZIP with your note ready" | PASS | |
+| 12 | A read-only file with the ZIP name, then Stop | "Could not make the ZIP" with the reason; no wait text left; folder stays | Box line and popup (10.0 s) as expected; clipboard has the result text | PASS | |
+| 13 | Full-screen recording while the popup of the recording before showed (5.4 s), then its own note box | No popup and no note box pixels in the video | 38 frames: 0 strong-color and 0 dark pixels in the popup area, 0 strong-color pixels in the box area | PASS | |
+| 13 | Clipboard history (Win+V) | | History is off on this PC | N/A | |
+| T1 | Drag, 6 s, hotkey, note, Enter (while busy) | ZIP with index.md (note), frames, clip.mp4; clipboard only the ZIP and text with its path; folder gone | As expected; clip.mp4 1600x800 | PASS | |
+| T2 | Same, Esc | ZIP, no note, folder gone | As expected | PASS | |
+| T3 | Box open more than 10 s after ready, then note and Enter | Folder stays while the box is open; note in the ZIP; same path; folder gone | As expected | PASS | |
+| T4 | Show last ZIP in Explorer; Copy ZIP of last recording | The ZIP selected; the ZIP on the clipboard | As expected | PASS | |
+| T5 | Tray Exit while the ZIP is made | The app waits; the ZIP is complete; folder gone | Exit at 1.8 s, end at 5.1 s, ZIP opens | PASS | |
+| T6 | MP4 only (5 recordings) | One MP4, no folder, no ZIP, no note box; the MP4 on the clipboard | As expected | PASS | |
+| T7 | See item 4 | | | PASS | |
+| S1 | Selector, `~` (VK 0xC0) | The active monitor | 0,0 1920x1080 (FFmpeg and ffprobe) | PASS | |
+| S2 | Drag 500,300 to 900,500 with Shift | A square | 500,300 400x400 | PASS | |
+| S3 | Drag, then Ctrl and move +200,+100 | The new rectangle moves | 700,400 300x200 | PASS | |
+| S4 | C, M, P; once more each; one C and Esc | Each key toggles; the values are saved; the next selector starts with them | As expected (C visible on white after fix 2) | PASS | live-selector-crosshair-125.png |
+| S5 | Arrow keys, Shift + arrow keys; Right x5 and Down x3 during a drag | 1 px and 10 px steps; 306x204 | 960,540 > 963,540 > 963,542 > 973,542 > 973,552 > 963,551; 600,300 306x204 | PASS | live-selector-drag-125.png |
+| S6 | Esc during a drag, and with no drag | No recording, no file, region not changed | As expected | PASS | |
+
+The first runs gave more FAIL rows. All of them were driver faults (for example: the multiline text box is a "Document" in UI Automation; the popup texts start with an icon glyph; the expected ZIP was not the newest one), except the 8 bugs above.
+
+**Checked (in this job, on Bran's PC):** all PASS rows above; the unit tests (`ok`) and the app build after each fix; the screenshots in `docs/ui/live-*.png` (24 files: note box, popup, tray menu light and dark, Settings pages, selector, frame and Stop button); the transcript step with whisper.cpp (it wrote rows of audio that another app played on the PC, because the sound of the PC is on in Bran's settings).
+
+**Not checked:**
+
+- Item 8 (100% and 150%): Windows 11 can change the scale without a sign-out, but that changes the layout of all of Bran's open windows. Not run.
+- Fix 8 on the screen (it needs the hotkey to be used by another program).
+- A jump of the menu at the open: `Opened` moves the menu after it shows. Screenshots cannot show one frame. If Bran sees a jump: a `ContextMenuStrip` subclass that moves the place in `SetBoundsCore` (reviewer's advice).
+- A paste of the ZIP into a chat app (Claude desktop chat, a Claude cloud session, claude.ai, Gemini). Only Explorer and an Edit control.
+- More monitors, other DPI, Windows 10, a real screen reader (only the UI Automation names), the recording tray icon in the real tray, the Mono build and the GitHub CI.
+
+**Seen, not changed (Bran decides):**
+
+- "Copy ZIP of last recording" puts only the ZIP file on the clipboard. The copy after a recording also puts the text message for the AI, so a text paste (Claude Code) after the tray copy gets nothing.
+- "Start with Windows" shows On when the Run entry points to another exe, and Save then writes the path of the exe that saves (7.8). The test Save wrote the test exe; the restore script put the installed exe back.
+- Windows "Do not disturb" is on, on this PC (the taskbar notification button says so). This is the probable cause of "Windows did not show the balloons" (6.7). Not checked further.
+- UI Automation gives some Settings panels the text of a nearby label as their name (WinForms). A screen reader can read wrong names for these panels.
+- After Ctrl+Tab, the selected page in the Settings navigation has a black keyboard focus frame.
+
+**Test recordings (not deleted):** `C:\Users\Bran\Recordings\live-test-2026-11-22`: 31 ZIP files, 5 MP4 files (MP4-only tests), the folder `desktop_2026-11-22_21-43-44` (failed ZIP test; the folder stays by design) and `desktop_2026-11-22_21-43-44.zip.tmp` (left by the failed ZIP before fix 6), 17.4 MB in all. Scratch: `%TEMP%\svr-live-all` (driver, logs, screenshots, `paste-target-A9` with 3 pasted ZIPs).
+
+**Restore at the end (checked):** the test exe exited through its tray menu; `settings.txt` is equal to the backup; the Run entry points at `%LOCALAPPDATA%\Programs\DesktopRecorder\DesktopRecorder.exe` again (the Settings test had changed it); `AppsUseLightTheme` = 1; `IsPromoted` of the test exe removed; the test Chrome profile closed; the installed app runs (tray icon "Desktop Recorder: stopped"). Restore script: `%TEMP%\svr-live-all\restore.ps1`.
+
+**Next steps for Bran:**
+
+1. Install decision: every live check passed on the final build, except item 8 (not run) and fix 8 (not seen on the screen). The build is not installed.
+2. Paste the ZIP into the Claude desktop chat and a Claude cloud session (the reason for ZIP-only, 7.18).
+3. Decide the points under "Seen, not changed".
+4. Approve the deletion of the test folder and `%TEMP%\svr-live-all` when they are no longer needed, then decide push, merge and release of `zip-only`.
 
 ## 8. Rules for the agent
 

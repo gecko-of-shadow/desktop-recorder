@@ -1016,10 +1016,12 @@ static class RecordingIndex
         return number.ToString(new string('0', digits), CultureInfo.InvariantCulture);
     }
 
+    // One line for a table cell or a note line: each line break (CR LF, CR or LF) becomes one space (live test,
+    // HANDOFF 7.22: a CR LF gave two spaces), and a pipe is escaped.
     internal static string Cell(string s)
     {
         if (s == null) return "";
-        return s.Replace("\r", " ").Replace("\n", " ").Replace("|", "\\|");
+        return s.Replace("\r\n", " ").Replace("\r", " ").Replace("\n", " ").Replace("|", "\\|");
     }
 
     public static string Build(DateTime start, TimeSpan utcOffset, string note, double lengthSeconds,

@@ -4,7 +4,8 @@
 // Position: NotifyIcon shows the menu with ContextMenuStrip.ShowInTaskbar, which computes the place from the size
 // of the menu BEFORE the Opening event (dotnet/winforms source). So this class never changes the menu in Opening:
 // TrayApp calls Update at each state change and once a second while recording, and ApplyLook on the right
-// mouse button down (before the button up opens the menu).
+// mouse button down (before the button up opens the menu). ShowInTaskbar also lets the menu cover a bottom taskbar,
+// so Opened moves the open menu into the work area (KeepInWorkArea).
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -23,7 +24,9 @@ sealed class TrayMenu : IDisposable
     UiFonts fonts;
     Font bold;
     Bitmap placeholder;
-    TrayPhase phase;
+    TrayPhase phase;      // the phase that the commands show (the last full Update)
+    TrayPhase shownPhase; // the phase of the commands when the menu opened
+    TrayState latest;     // the newest state, also while the menu is open
     TrayState pending;   // a state that came while the menu was open
 
     public TrayMenu()
@@ -48,6 +51,7 @@ sealed class TrayMenu : IDisposable
             TrayCommand command = e.Command;
             item.Click += delegate
             {
+                if (command == TrayCommand.Record && latest != null && !TrayModel.RecordClickActs(shownPhase, latest.Phase)) return;
                 Action<TrayCommand> handler = Command;
                 if (handler != null) handler(command);
             };
@@ -55,6 +59,11 @@ sealed class TrayMenu : IDisposable
             Strip.Items.Add(item);
         }
         ApplyLook(1f);
+        Strip.Opened += delegate
+        {
+            shownPhase = phase;
+            KeepInWorkArea();
+        };
         // An open menu keeps its size: NotifyIcon placed it from that size. A new state applies when it closes.
         Strip.Closed += delegate
         {
@@ -119,10 +128,13 @@ sealed class TrayMenu : IDisposable
 
     public void Update(TrayState state)
     {
+        latest = state;
         if (Strip.Visible)
         {
             pending = state;
-            status.SetTitle(TrayModel.StatusTitle(state));
+            // The title, the detail and the dot follow the state, so they never contradict each other (live test,
+            // HANDOFF 7.22: "Not recording" above "Wait for ZIP ready"). Each is one line, so the size stays.
+            status.SetLive(TrayModel.StatusTitle(state), TrayModel.StatusDetail(state), state.Phase);
             return;
         }
         phase = state.Phase;
@@ -137,6 +149,16 @@ sealed class TrayMenu : IDisposable
             item.Tag = Glyph(e.Command);
         }
         Strip.PerformLayout();
+    }
+
+    // ShowInTaskbar does not keep the menu off the taskbar: move the open menu into the work area of its monitor.
+    void KeepInWorkArea()
+    {
+        Rectangle b = Strip.Bounds;
+        Rectangle area = Screen.FromRectangle(b).WorkingArea;
+        int x, y;
+        TrayModel.MenuInside(b.X, b.Y, b.Width, b.Height, area.Left, area.Top, area.Right, area.Bottom, out x, out y);
+        if (x != b.X || y != b.Y) Strip.Location = new Point(x, y);
     }
 
     // Only the time in the status changes (once a second while recording); the menu keeps its size.
@@ -175,6 +197,7 @@ sealed class TrayStatusItem : ToolStripItem
 {
     string title = "", detail = "", last;
     TrayPhase phase;
+    bool live;            // set while the menu is open: the detail is drawn on one line (the item keeps its height)
     UiPalette palette = UiPalette.Light();
     UiFonts fonts;
     const int StatusWidth = 300;
@@ -194,13 +217,26 @@ sealed class TrayStatusItem : ToolStripItem
         this.detail = detail ?? "";
         this.last = last;
         this.phase = phase;
+        live = false;
         AccessibleName = this.title + ". " + this.detail + (last != null ? " " + last : "");
         Invalidate();
     }
 
+    // A new state while the menu is open: no new layout (the last result waits for the close).
+    public void SetLive(string title, string detail, TrayPhase phase)
+    {
+        this.detail = detail ?? "";
+        this.phase = phase;
+        live = true;
+        SetTitle(title);
+    }
+
+    // The clock while the menu is open. The name for screen readers follows it (live test, HANDOFF 7.22: it kept the
+    // time of the open).
     public void SetTitle(string title)
     {
         this.title = title ?? "";
+        AccessibleName = this.title + ". " + detail + (last != null ? " " + last : "");
         Invalidate();
     }
 
@@ -230,8 +266,13 @@ sealed class TrayStatusItem : ToolStripItem
         TextFormatFlags flags = TextFormatFlags.WordBreak | TextFormatFlags.NoPadding | TextFormatFlags.TextBoxControl | TextFormatFlags.NoPrefix;
         TextRenderer.DrawText(g, title, fonts.BodyStrong, new Rectangle(x, y, w, titleH), palette.Text, flags);
         y += titleH + fonts.S(2);
-        int detailH = Ui.Measure(detail, fonts.Caption, w).Height;
-        TextRenderer.DrawText(g, detail, fonts.Caption, new Rectangle(x, y, w, detailH), palette.TextSecondary, flags);
+        // A detail that came while the menu was open can need two lines (for example "Win+Shift+D is used by another
+        // program..."), but the item keeps its height: draw it on one line with "..." (review, HANDOFF 7.22).
+        int detailH = Ui.Measure(live ? "Ag" : detail, fonts.Caption, w).Height;
+        TextFormatFlags detailFlags = live
+            ? TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.TextBoxControl | TextFormatFlags.NoPrefix
+            : flags;
+        TextRenderer.DrawText(g, detail, fonts.Caption, new Rectangle(x, y, w, detailH), palette.TextSecondary, detailFlags);
         y += detailH;
         if (!string.IsNullOrEmpty(last))
         {

@@ -317,6 +317,24 @@ static class AfterRecording
         if (File.Exists(temp)) File.Delete(temp);
         // Not the lossless work files: they are large, and the folder has clip.mp4 (review 2026-11-19).
         string root = Path.GetFileName(folder.TrimEnd('\\', '/'));
+        try
+        {
+            WriteZip(folder, root, temp);
+            if (File.Exists(zip)) File.Delete(zip);
+            File.Move(temp, zip);
+        }
+        catch (Exception)
+        {
+            // A failed ZIP must not leave its temporary file next to the recordings (live test, HANDOFF 7.22:
+            // a read-only file with the ZIP name left "<name>.zip.tmp").
+            try { if (File.Exists(temp)) File.Delete(temp); } catch (Exception) { }
+            throw;
+        }
+        return zip;
+    }
+
+    static void WriteZip(string folder, string root, string temp)
+    {
         using (FileStream fs = new FileStream(temp, FileMode.CreateNew))
         using (ZipArchive archive = new ZipArchive(fs, ZipArchiveMode.Create))
         {
@@ -336,9 +354,6 @@ static class AfterRecording
                 archive.CreateEntryFromFile(file, root + "/" + rel, packed ? CompressionLevel.NoCompression : CompressionLevel.Optimal);
             }
         }
-        if (File.Exists(zip)) File.Delete(zip);
-        File.Move(temp, zip);
-        return zip;
     }
 
     static void Analyze(AfterRecordingInput input, AfterRecordingResult r)

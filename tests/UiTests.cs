@@ -35,6 +35,8 @@ static class UiTests
         TestTrayPhase();
         TestTrayEntries();
         TestTrayText();
+        TestMenuInside();
+        TestRecordClick();
         TestZipStatus();
         return failures;
     }
@@ -326,5 +328,34 @@ static class UiTests
             Expect(TrayModel.Tooltip(s).Length <= TrayModel.TooltipMax, "tooltip fits: " + p);
             Expect(TrayModel.StatusTitle(s).Length > 0 && TrayModel.StatusDetail(s).Length > 0, "status texts: " + p);
         }
+    }
+
+    static void TestRecordClick()
+    {
+        Expect(TrayModel.RecordClickActs(TrayPhase.Recording, TrayPhase.Recording), "stop while recording acts");
+        Expect(TrayModel.RecordClickActs(TrayPhase.Idle, TrayPhase.Idle), "record while idle acts");
+        Expect(TrayModel.RecordClickActs(TrayPhase.Processing, TrayPhase.Idle), "record while the ZIP is made, then idle, acts");
+        Expect(!TrayModel.RecordClickActs(TrayPhase.Recording, TrayPhase.Stopping), "a stale 'Stop recording' does nothing (stopping)");
+        Expect(!TrayModel.RecordClickActs(TrayPhase.Recording, TrayPhase.Processing), "a stale 'Stop recording' does nothing (processing)");
+        Expect(!TrayModel.RecordClickActs(TrayPhase.Idle, TrayPhase.Recording), "a stale 'Select region and record' does not stop the new recording");
+    }
+
+    // NotifyIcon puts the bottom right corner of the menu at the pointer. The live test (HANDOFF 7.22) found the
+    // lower 30 px of the menu on the taskbar: the menu must move into the work area.
+    static void TestMenuInside()
+    {
+        int x, y;
+        TrayModel.MenuInside(798, 699, 440, 351, 0, 0, 1920, 1020, out x, out y);
+        Expect(x == 798 && y == 669, "menu above a bottom taskbar: " + x + "," + y);
+        TrayModel.MenuInside(798, 300, 440, 351, 0, 0, 1920, 1020, out x, out y);
+        Expect(x == 798 && y == 300, "menu inside the work area does not move: " + x + "," + y);
+        TrayModel.MenuInside(798, 20, 440, 351, 0, 48, 1920, 1080, out x, out y);
+        Expect(x == 798 && y == 48, "menu below a top taskbar: " + x + "," + y);
+        TrayModel.MenuInside(1700, 600, 440, 351, 0, 0, 1872, 1080, out x, out y);
+        Expect(x == 1432 && y == 600, "menu left of a right taskbar: " + x + "," + y);
+        TrayModel.MenuInside(-10, 600, 440, 351, 48, 0, 1920, 1080, out x, out y);
+        Expect(x == 48 && y == 600, "menu right of a left taskbar: " + x + "," + y);
+        TrayModel.MenuInside(0, 0, 440, 2000, 0, 0, 1920, 1020, out x, out y);
+        Expect(x == 0 && y == 0, "a menu taller than the work area keeps its top in the area: " + x + "," + y);
     }
 }
