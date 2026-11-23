@@ -125,7 +125,7 @@ The Settings window has five pages in a list at the left: Recording, Capture and
 | Color detail (Capture and quality) | 4:2:0 | 4:2:0 or 4:4:4. In folder mode it applies only to `clip.mp4`. |
 | Frame-rate mode (Recording) | Changes only | Fixed frame rate, or Changes only. |
 | Output (Recording) | Folder for AI | Folder for AI (frames, `index.md`, `clip.mp4`), or MP4 only. See [Recording folder](#recording-folder-windows). |
-| Start with Windows (Startup and sounds) | Off | Adds one entry for your user account only. |
+| Start with Windows (Startup and sounds) | Off | Adds one entry for your user account only. The switch shows Off when Windows has the app turned off in Settings > Apps > Startup. The program does not change that Windows switch. |
 | Copy to the clipboard when the recording stops (AI and audio) | On | In folder mode: the ZIP and the text message. |
 | Play sounds (Startup and sounds) | On | Two rising tones for start, two falling tones for stop. |
 | Hide the mouse pointer (Capture and quality) | On | Off shows the pointer in the video and in the frames. See [Good to know](#good-to-know). |
@@ -218,6 +218,7 @@ New in 3.0.0. Tested on one Windows 11 PC: the audio capture, and a transcript w
 - whisper.cpp needs a model file `ggml-*.bin`: next to the program, in its `models` folder, or in `models` or `whisper\models` next to the app. With more than one model, the program uses the first of large-v3-turbo, medium, small, base, large and tiny.
 - Without Whisper, the recording still has the audio, and `index.md` says that there is no transcript.
 - Whisper can run for at most 2 minutes plus 3 times the recording length (at most 1 hour). If it takes longer, or if the audio is silent, `index.md` gives the reason that there is no transcript.
+- Whisper does not run when the recording has less than 0.5 s of sound, and sound in less than 10% of its time (for example only the stop sound). `index.md` then says that the audio was silent or almost silent.
 - Whisper writes text such as "Thank you." on silent or almost silent audio. The program measures the sound in the time of each transcript row (100 ms parts, sound = -90 dBFS or louder, that is 1 LSB of 16-bit audio). It leaves out a row that has sound in less than 10% of its time and for less than 1 s in total. A known Whisper text for silence (for example "Thank you." or "Thanks for watching!") in a long row (10 s or more, or most of a short recording) needs sound in half of its time. A short row with a known text stays, because a real "Thanks." is short. `index.md` says how many rows the program left out. When no row is left, it says "No speech was found", and the ZIP has no `transcript.srt`.
 - If the audio cannot go into the video, it stays as a WAV file: `audio_system.wav` in the recording folder, or `desktop_<time>.wav` next to the MP4 files.
 - Settings without a control (edit `settings.txt`): `whisper_path` (a full path to the program), `whisper_model` (whisper.cpp: the model file; other programs: a model name), `whisper_language` (`auto`, or a code such as `en`).

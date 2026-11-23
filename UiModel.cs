@@ -277,7 +277,7 @@ static class SettingsCatalog
             "Records what the PC plays, not the microphone. When Whisper is installed, index.md also gets a transcript. Default: Off."),
 
         new SettingInfo(StartWithWindowsKey, SettingsPage.Startup, "Start with Windows",
-            "Starts Desktop Recorder when you sign in to Windows. It adds one entry for your user account only. Default: Off."),
+            "Starts Desktop Recorder when you sign in to Windows. It shows Off when Windows has the app turned off in Settings > Apps > Startup. Default: Off."),
         new SettingInfo("play_sounds", SettingsPage.Startup, "Play sounds",
             "Two rising tones when a recording starts, and two falling tones when it stops. Default: On.")
     };
@@ -312,6 +312,18 @@ static class SettingsCatalog
 
 // The work after Stop in folder mode, in the order that it runs (Bran, 2026-11-22: "Some sort of indication that
 // the zip is being created would be helpful. So I don't try to paste too soon.").
+// "Start with Windows": the Run entry of the user account, and the switch that Windows keeps for it (Task Manager, and
+// Settings > Apps > Startup). Windows turns an entry off with an odd first byte in StartupApproved\Run (03, 07) and
+// leaves the Run entry as it is. No value: on.
+static class StartupRule
+{
+    public static bool IsOn(string runEntry, byte[] approved)
+    {
+        if (string.IsNullOrEmpty(runEntry)) return false;
+        return approved == null || approved.Length == 0 || (approved[0] & 1) == 0;
+    }
+}
+
 enum ZipStep { Stopping, Frames, Transcript, Zip, Ready, Failed }
 
 // The texts of the "busy, then ready" indication: tray menu, tooltip, note box and the ready popup.

@@ -191,6 +191,13 @@ static class AfterRecording
             r.TranscriptNote = "FFmpeg could not make the 16 kHz audio for Whisper: " + Trim(output);
             return;
         }
+        double[] levels = null;
+        try { levels = SpeechCheck.WindowLevels(wav); } catch (Exception) { levels = null; }
+        if (!SpeechCheck.MayHaveSpeech(levels))
+        {
+            r.TranscriptNote = "the audio was silent or almost silent, so Whisper did not run";
+            return;
+        }
         string srt;
         string[] args = Transcript.BuildArguments(input.Whisper, wav, input.Folder, input.WhisperLanguage, out srt);
         try { if (File.Exists(srt)) File.Delete(srt); } catch (Exception) { }
@@ -210,8 +217,6 @@ static class AfterRecording
         List<TranscriptSegment> segments = Transcript.ParseSrt(File.ReadAllText(srt, Encoding.UTF8));
         // Whisper writes text such as "Thank you." on silence (Bran's recordings of 2026-11-22). The 16 kHz copy is on
         // the time line of the rows: a row with almost no sound in its time is left out (SpeechCheck).
-        double[] levels = null;
-        try { levels = SpeechCheck.WindowLevels(wav); } catch (Exception) { levels = null; }
         int dropped;
         segments = SpeechCheck.Filter(segments, levels, out dropped);
         r.TranscriptRowsDropped = dropped;

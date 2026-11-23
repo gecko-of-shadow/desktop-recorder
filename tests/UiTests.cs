@@ -38,7 +38,20 @@ static class UiTests
         TestMenuInside();
         TestRecordClick();
         TestZipStatus();
+        TestStartupRule();
         return failures;
+    }
+
+    // HKCU Run entry and the StartupApproved value of Windows (Bran's PC, 2026-11-23: 03 = turned off in Windows).
+    static void TestStartupRule()
+    {
+        byte[] off = { 0x03, 0, 0, 0, 0xbf, 0x21, 0xb8, 0x92, 0xb7, 0x78, 0xdd, 0x01 };
+        byte[] on = { 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        Expect(StartupRule.IsOn("app.exe", null), "Run entry, no Windows value: on");
+        Expect(StartupRule.IsOn("app.exe", on) && StartupRule.IsOn("app.exe", new byte[] { 0x06, 0, 0, 0 }), "Windows value 02 and 06: on");
+        Expect(!StartupRule.IsOn("app.exe", off) && !StartupRule.IsOn("app.exe", new byte[] { 0x07, 0, 0, 0 }), "Windows value 03 and 07: off");
+        Expect(StartupRule.IsOn("app.exe", new byte[0]), "empty Windows value: on");
+        Expect(!StartupRule.IsOn(null, on) && !StartupRule.IsOn(null, null) && !StartupRule.IsOn("", null), "no Run entry: off");
     }
 
     static void TestDuration()

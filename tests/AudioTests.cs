@@ -26,6 +26,7 @@ static class AudioTests
         TestSrt();
         TestIndexSection();
         TestSpeechCheck();
+        TestMayHaveSpeech();
         TestFindWhisper();
         TestWhisperArguments();
         TestAiMessage();
@@ -249,6 +250,28 @@ static class AudioTests
 
     // Whisper writes "Thank you." on silence (Bran's recordings of 2026-11-22). SpeechCheck leaves such rows out,
     // and keeps quiet real speech (about -60 dBFS in the recording of 14:45).
+    // The audio of "seconds" with "soundWindows" windows (100 ms) of sound at its end (the stop sound of the app).
+    static double[] QuietLevels(double seconds, int soundWindows)
+    {
+        double[] v = new double[(int)Math.Round(seconds * 10)];
+        for (int i = 0; i < v.Length; i++) v[i] = i >= v.Length - soundWindows ? -20 : double.NegativeInfinity;
+        return v;
+    }
+
+    // Bran, 2026-11-23: "Making the ZIP" stays for a long time. Whisper ran on recordings that had only the stop sound.
+    static void TestMayHaveSpeech()
+    {
+        Expect(!SpeechCheck.MayHaveSpeech(QuietLevels(15.3, 3)), "15.3 s with the stop sound only (0.3 s): no Whisper");
+        Expect(!SpeechCheck.MayHaveSpeech(QuietLevels(0.4, 0)), "0.4 s of digital silence: no Whisper");
+        Expect(SpeechCheck.MayHaveSpeech(QuietLevels(60, 5)), "0.5 s of sound in 60 s can be a short word: Whisper runs");
+        Expect(SpeechCheck.MayHaveSpeech(QuietLevels(2, 4)), "0.4 s of sound in 2 s (share 0.2): Whisper runs");
+        Expect(SpeechCheck.MayHaveSpeech(QuietLevels(77.1, 12)), "1.2 s of sound in 77.1 s: Whisper runs");
+        Expect(SpeechCheck.MayHaveSpeech(null), "levels not known: Whisper runs");
+        double[] quiet = new double[300];
+        for (int i = 0; i < quiet.Length; i++) quiet[i] = -85;
+        Expect(SpeechCheck.MayHaveSpeech(quiet), "steady sound at -85 dBFS: Whisper runs");
+    }
+
     static void TestSpeechCheck()
     {
         // 0 to 20 s: digital silence with two clicks of 0.2 s (at 5 s and 12 s). 20 to 30 s: steady sound at -60 dBFS.

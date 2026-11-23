@@ -1471,6 +1471,36 @@ gh release view v3.1.0 --json isLatest,isDraft,assets
 
 5. Optional, only with Bran's approval (7.17 keeps only the latest release): delete the v3.0.1 release and keep its tag.
 
+### 7.26 The app closes, and "Making the ZIP" stays for a long time (2026-11-23, branch `fix-silent-audio-and-startup`, not pushed, not released)
+
+Bran: "the app keeps closing after a while", then "the making the zip screen stays on a lo long time".
+
+**The app closes.** Facts (checked):
+
+- No crash record for the app. Control: a test program that crashed on purpose gave events 1000 and 1026 on this PC, although the Windows Error Reporting service is disabled.
+- `StartupApproved\Run` for `DesktopRecorder` starts with 03: turned off in the Windows startup list since 2026-11-20 00:22:52. Who turned it off is not known. The PC shut down at 00:27 and restarted at 01:09 on 2026-11-23, and Windows has no record that it started the app.
+- The app, opened at 13:57, ran for more than 3 h with steady memory (105 MB private, 74 GDI objects when idle).
+- Claude stopped the app on 2026-11-22 for installs (18:28, 22:50, 23:12) and for the live test.
+- Correction: 7.8, 7.15, 7.17, 7.22 and 7.23 checked only the Run entry. That entry was correct, but Windows had the app turned off, so it did not start at sign-in.
+- Not checked: a close while the PC stayed on. Bran's setting in Windows is not changed.
+
+Fix: `StartupRule.IsOn` (`UiModel.cs`) reads both values. Save writes the Run entry only when the switch was changed. The app offers to open `ms-settings:startupapps` and does not write `StartupApproved`.
+
+**"Making the ZIP" is slow.** Facts (checked, from the file times in 14 ZIP files of 2026-11-22 and 2026-11-23):
+
+- The frames and `clip.mp4` are ready 2 to 28 s after Stop. The transcript step took 2 to 84 s. The worst case: a 15 s recording, ZIP 88 s after Stop, no speech.
+- 10 of the 14 recordings got no transcript row. Nine of them had 0 to 0.3 s of sound (the stop sound); together the 10 cost 254 s. The tenth had 1.2 s of sound.
+- whisper-cli alone on the audio of two of them: 6.8 s and 5.3 s in the first run, 1.4 s and 4.1 s in the second run. Model load 5.4 s cold, 0.7 s warm.
+- Probable cause of the 84 s, UNVERIFIED: about 1.7 GB of files (model 547 MB, CUDA DLLs about 1.1 GB) must load from a SATA SSD when Windows no longer has them in memory. Not reproduced.
+
+Fix: `SpeechCheck.MayHaveSpeech` (`AudioTranscript.cs`) before Whisper. Limits: less than 0.5 s of sound (-90 dBFS) and less than 10% of the time. Known limit: a real word shorter than 0.5 s in a recording with no other sound gets no transcript.
+
+Checked: unit tests `ok` (new `TestMayHaveSpeech`, `TestStartupRule`; they failed first), the app builds, the offscreen preview prints `preview ok`. The old code gives `StartsWithWindows` True on Bran's registry, the new code False. `test/process_clip.cs` on real recordings, old and new, files already in memory: two silent recordings skip Whisper (3.3 to 1.7 s, 2.9 to 1.4 s), the recording with speech keeps its 3 rows, the one with 1.2 s of sound still runs Whisper.
+
+Not checked: a click on the switch and the offer on the screen, a recording with the installed build, the cold case, the Mono build and the GitHub CI.
+
+Open for Bran: a recording with speech still waits for Whisper (2 to 32 s seen). An option: put the ZIP on the clipboard first, and add the transcript after.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.

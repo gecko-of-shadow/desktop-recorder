@@ -310,6 +310,11 @@ static class SpeechCheck
     public const double PhraseLongSeconds = 10;
     public const double PhraseLongPart = 0.8;
 
+    // Whisper does not run when all of the audio has less sound than this, and sound in less than MinSoundShare of its
+    // time. The stop sound of the app gives 0.2 to 0.3 s. Nine of 14 recordings of 2026-11-22 and 2026-11-23 had only that
+    // sound, and the transcript step took 6 to 84 s in each of them for no row.
+    public const double MinSpeechSeconds = 0.5;
+
     // Normalized: lower case, letters and digits only, one space between words. Sources: arXiv 2501.11378 (the most
     // common outputs on non-speech audio), community reports, and this PC ("Thank you." and "Bye." on the silent
     // test recordings). The texts in other languages come from community reports (not checked on this PC).
@@ -406,6 +411,15 @@ static class SpeechCheck
     {
         if (sumSquares <= 0 || n <= 0) return double.NegativeInfinity;
         return 20 * Math.Log10(Math.Sqrt(sumSquares / n) / 32768.0);
+    }
+
+    // False when the audio has too little sound for speech. Levels that are not known: true.
+    public static bool MayHaveSpeech(double[] levels)
+    {
+        if (levels == null) return true;
+        int sound = 0;
+        foreach (double level in levels) if (level >= SoundFloorDb) sound++;
+        return sound * WindowSeconds >= MinSpeechSeconds - 1e-9 || sound >= MinSoundShare * levels.Length;
     }
 
     // The part of the windows from start to end (seconds) that have sound. The windows after the end of the audio

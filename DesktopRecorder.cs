@@ -78,6 +78,7 @@ class Settings
     public static readonly int[] Crf = RecorderCore.Crf;
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     const string RunName = "DesktopRecorder";
+    const string StartupApprovedKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 
     public Settings()
     {
@@ -245,10 +246,13 @@ class Settings
     {
         get
         {
+            string entry = null;
+            byte[] approved = null;
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKey))
-            {
-                return key != null && key.GetValue(RunName) != null;
-            }
+                if (key != null) entry = key.GetValue(RunName) as string;
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(StartupApprovedKey))
+                if (key != null) approved = key.GetValue(RunName) as byte[];
+            return StartupRule.IsOn(entry, approved);
         }
         set
         {
@@ -1688,7 +1692,13 @@ class TrayApp : ApplicationContext
             try
             {
                 settings.Save();
-                Settings.StartsWithWindows = form.StartWithWindows;
+                // Only when the user changed the switch: a Save for another setting must not add or remove the entry.
+                if (form.StartWithWindowsChanged)
+                {
+                    Settings.StartsWithWindows = form.StartWithWindows;
+                    // The switch of Windows stays with the user: the app does not change it.
+                    if (form.StartWithWindows && !Settings.StartsWithWindows) OfferStartupList();
+                }
             }
             catch (Exception e) { MessageBox.Show("Cannot save the settings: " + e.Message, "Desktop Recorder"); }
             RegisterHotkeys();
@@ -1700,6 +1710,18 @@ class TrayApp : ApplicationContext
             // recording. The new hotkey applies now (RegisterHotkeys above).
             Refresh();
         }
+    }
+
+    static void OfferStartupList()
+    {
+        if (MessageBox.Show("Windows has Desktop Recorder turned off in its startup list, so it does not start with Windows yet.\n\n"
+            + "Open the list now? Then turn on Desktop Recorder there.", "Desktop Recorder", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+        try
+        {
+            Process started = Process.Start("ms-settings:startupapps");
+            if (started != null) started.Dispose();
+        }
+        catch (Exception e) { MessageBox.Show("Cannot open the startup list: " + e.Message, "Desktop Recorder"); }
     }
 
     void Quit()

@@ -6,6 +6,14 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ## [Unreleased]
 
+### Changed
+
+- Windows, transcript: Whisper does not run when the recording has less than 0.5 s of sound, and sound in less than 10% of its time. Before, Whisper ran on recordings that had only the stop sound, and "Making the ZIP" stayed for up to 88 s with no transcript row as the result.
+
+### Fixed
+
+- Windows, Settings: "Start with Windows" shows Off when Windows has the app turned off in its startup list. Before, it showed On. Save changes the startup entry only when the switch was changed. When you turn the switch on while Windows has the app off, the program offers to open the startup list of Windows; it does not change that list.
+
 ## [3.1.0] - 2026-11-22
 
 ### Added

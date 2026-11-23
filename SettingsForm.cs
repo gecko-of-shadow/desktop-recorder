@@ -16,6 +16,8 @@ sealed class SettingsForm : Form
 {
     public Settings Result;
     public bool StartWithWindows;
+    readonly bool startedWithWindows;   // the state when the window opened
+    public bool StartWithWindowsChanged { get { return StartWithWindows != startedWithWindows; } }
 
     readonly Settings current;
     readonly UiPalette palette = UiPalette.Light();
@@ -88,7 +90,8 @@ sealed class SettingsForm : Form
 
         SetUpChoices();
         BuildPages();
-        Fill(current, ReadStartsWithWindows());
+        startedWithWindows = ReadStartsWithWindows();
+        Fill(current, startedWithWindows);
         nav.SelectedIndexChanged += delegate { ShowPage(SettingsCatalog.Pages[Math.Max(0, nav.SelectedIndex)]); };
         nav.SelectedIndex = 0;
         ShowPage(SettingsPage.Recording);
