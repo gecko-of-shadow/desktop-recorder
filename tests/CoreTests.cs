@@ -51,6 +51,7 @@ static class CoreTests
         TestSession();
         failures += AiCaptureTests.Run();
         failures += AudioTests.Run();
+        failures += UiTests.Run();
         if (failures > 0)
         {
             Console.Error.WriteLine(failures + " failed");
