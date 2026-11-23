@@ -616,7 +616,7 @@ Commands of this run, in order (`quality_reads.py`; the defaults are `--reads 1-
 | README and release notes for v3.0.0 | Done (7.12). |
 | New defaults and index.md warnings | Done (7.13, 7.14). |
 | Release v3.0.1 | Done (7.15). The exe from the zip is not run on a PC. |
-| Release v3.1.0 (7.25) | Prepared on `zip-only`: version, CHANGELOG, README, notes. Not pushed, not tagged. |
+| Release v3.1.0 (7.25) | Done. Build and Release workflows passed. The exe from the zip is not run on a PC. |
 | ZIP on the clipboard (7.16) | Code done, test build installed. Cloud paste test open. Not released. |
 | One ZIP only in folder mode (7.18) | Code, unit tests and a ZIP check done on branch `zip-only`. Not installed, not pushed, not released. No real recording and no paste test yet. Replaces 7.16. |
 | False transcript rows, pointer motion warning, file-count text (7.19) | Code, unit tests and offline tests on three real recordings done on branch `zip-only`. Not installed, not pushed, not released. No real recording with this build yet. |
@@ -1411,7 +1411,7 @@ Seen, not changed:
 - `StartRecording` has one caller now. Its `sound`, `balloon` and `note` arguments are always `true`, `true` and `null`.
 - The class comment at the top of `RegionSelector.cs` still names a "last region" from before 2.0.0.
 
-### 7.25 Release v3.1.0: prepared, not published (2026-11-22)
+### 7.25 Release v3.1.0 (2026-11-22)
 
 - Bran: "Yes, prep release" (23:17). Done in the Claude Code session on the Max plan, not on the API credit.
 - Version 3.1.0 in `DesktopRecorder.manifest` (3.1.0.0), `README.md`, `packaging/windows/README.txt` and `packaging/linux/README.txt`. CHANGELOG: section [3.1.0] - 2026-11-22 from the Unreleased text, plus the real recordings (7.23) and the quality reads (6.11). README: the 3.1.0 test summary; the selector keys are now tested.
@@ -1419,7 +1419,15 @@ Seen, not changed:
 - Checked: the app builds with the build.cmd file list and the exe has the manifest version 3.1.0.0; unit tests `ok`; build.yml and release.yml list all source files. `zip-only` is 0 commits behind `main`. Local `main` is 3 commits ahead of `origin/main` (7.16, 7.17 and the reinstall note).
 - Not checked: the Mono build and the GitHub CI with the new files (the Build workflow runs on the push); the exe from the release zip.
 
-Commands for Bran's approval, in order (PowerShell, in the repository folder). Do not run them before Bran says so.
+Published (Bran: "Yes, publish", 23:20): https://github.com/gecko-of-shadow/desktop-recorder/releases/tag/v3.1.0
+
+- `main` fast-forwarded to `zip-only` (3891897) and pushed. This also pushed the 3 local commits of 7.16 and 7.17.
+- The Build workflow failed twice in the Linux job, then passed: (1) `run-tests.sh` had no `-r:System.Drawing` (csc adds it by default, mcs does not; AfterRecording.cs uses it), fixed in 30d3312; (2) Mono's ZipArchive compresses an entry also with `NoCompression`, so the stored-entry check now runs on .NET Framework only, fixed in ca4a181. This closes the open point "Mono build and GitHub CI" of 7.18 to 7.24.
+- Tag v3.1.0 = ca4a181 (annotated, `--cleanup=verbatim`, message from `release-notes-3.1.0.md`). The Release workflow passed in full (windows, linux, publish).
+- Checked: the release is Latest, not a draft, and its body equals the notes file. Assets: `desktop-recorder-3.1.0-windows-x64.zip` (335,628 bytes) and `desktop-recorder-3.1.0-linux-x86_64.tar.gz` (21,505 bytes). The exe in the zip has the manifest version 3.1.0.0 (SHA-256 starts with CEE93BF86B354B16) and the zip README shows 3.1.0.
+- Not checked: the exe from the release zip on a PC (Bran's PC runs the local build 9FF36ADA of 6f336e6, see 7.23). The v3.0.1 release page still exists (7.17 keeps only the latest release; deleting it needs Bran's approval).
+
+Commands that were used (for the next release):
 
 1. Switch to main and fast-forward it to zip-only:
 
