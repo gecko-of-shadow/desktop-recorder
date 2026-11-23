@@ -71,9 +71,10 @@ Windows SmartScreen can show a warning, because the program is not signed. Click
 
 When the recording stops:
 
-- In folder mode, a small note box opens. Type one line for the AI and press Enter, or press Esc. The note goes into `index.md` as "Note from Bran:" (into `note.txt` if the frame pass fails). The program does not wait for the note. "MP4 only" mode has no note box.
+- In folder mode, the note box opens in the middle of the monitor of the recording. Type a note for the AI and press Enter (or click **Save note**), or click **No note**. Shift+Enter or Ctrl+Enter starts a new line. The note goes into `index.md` as "Note from Bran:" on one line (line breaks become spaces), or into `note.txt` with its lines if the frame pass fails. The program does not wait for the note. "MP4 only" mode has no note box.
+- The note box does not lose typed text. Esc, the X button, Alt+F4 and **No note** close an empty box at once. When the box has text, they ask "Save this note?" in the box: **Save**, **Discard** or **Back** (back to the note). Exit in the tray menu asks the same question first; **Back** keeps the app open. When Windows shuts down, the text is saved. The box stays on top of other windows and does not close when you click another window. When it opens without the keyboard focus, its taskbar button flashes.
 - The program makes the frames, `index.md` and `clip.mp4` in the background. When this work is done, the status line in the tray menu ends with "Ready ... s after Stop."
-- In folder mode, the output is one ZIP file only. The ZIP is next to where the recording folder was, and it has the same name as the folder (`desktop_<date>_<time>.zip`). The ZIP holds one folder with `index.md`, `frames\`, `clip.mp4` and, when the program made them, `transcript.srt` and `note.txt`. The clipboard holds the ZIP as a file, together with a text message for the AI that has the path of the ZIP. It never holds the loose files. Ctrl+V in a chat app attaches the ZIP. Ctrl+V in a terminal pastes the text. When the ZIP is made, the program deletes the recording folder. In "MP4 only" mode, the video file goes on the clipboard. The setting "Copy the recording (ZIP or video) to the clipboard when it stops" turns off the whole clipboard copy: the ZIP and the message. The ZIP is still made.
+- In folder mode, the output is one ZIP file only. The ZIP is next to where the recording folder was, and it has the same name as the folder (`desktop_<date>_<time>.zip`). The ZIP holds one folder with `index.md`, `frames\`, `clip.mp4` and, when the program made them, `transcript.srt` and `note.txt`. The clipboard holds the ZIP as a file, together with a text message for the AI that has the path of the ZIP. It never holds the loose files. Ctrl+V in a chat app attaches the ZIP. Ctrl+V in a terminal pastes the text. When the ZIP is made, the program deletes the recording folder. In "MP4 only" mode, the video file goes on the clipboard. The setting "Copy to the clipboard when the recording stops" (Settings, AI and audio) turns off the whole clipboard copy: the ZIP and the message. The ZIP is still made.
 - A paste of the loose files into the Claude desktop chat was tested before this change (version 3.0.1 and earlier put the files on the clipboard). A Claude cloud session refused pastes of 8 and 12 files, and that is why the output is one ZIP now. Not tested: that a chat app or a cloud session accepts the ZIP.
 - The tray menu shows a status line. Folder mode example: "Last recording: Frames: 5. clip.mp4: 0.12 MB. Ready 3.1 s after Stop." With audio, the line also gives the transcript result. "MP4 only" example: "Last recording: Real frames: 83 of 83. Duplicates: 0. Dropped: 0. File size: 0.05 MB."
 
@@ -82,7 +83,8 @@ The recording area is a fixed rectangle. If a window moves during the recording,
 Other controls:
 
 - A short sound plays when the recording starts and when it stops.
-- Right-click the tray icon for: Select region and record (or Stop recording), Open recordings folder, Show last ZIP in Explorer, Copy ZIP of last recording, Settings, Exit.
+- Right-click the tray icon for the tray menu. At the top, a status tells the state: not recording, recording (with the elapsed time, the fps and the region size), processing the last recording, or closing. Under it is the result of the last recording. The commands: **Select region and record** (or **Stop recording**, in bold, with the hotkey at the right), Open recordings folder, Show last ZIP in Explorer, Copy ZIP of last recording, Settings, Exit. The ZIP commands are gray when there is no ZIP.
+- The note box and the tray menu follow the Windows app mode (Settings > Personalization > Colors > Choose your default app mode): light or dark. The Settings window is always light.
 - Double-click the tray icon to open Settings.
 - Exit stops a running recording. The program then stays in the tray until the files of the last recording are made. The tray shows "Finishing the last recording, then the app closes...".
 
@@ -107,25 +109,27 @@ The size label shows the size in physical pixels. The program makes the width an
 
 ### Settings (Windows)
 
-| Setting | Default | Notes |
+The Settings window has five pages in a list at the left: Recording, Capture and quality, Hotkey and selector, AI and audio, Startup and sounds. Each setting has a help text that gives its default. **Restore defaults** puts the defaults into the fields of the window; **Save** applies them. Ctrl+Tab goes to the next page. When a value is not valid (for example the hotkey), a red text at the bottom tells the problem, and the window opens that page.
+
+| Setting (page) | Default | Notes |
 |---|---|---|
-| Save recordings to | `C:\Users\<you>\Recordings` | The program makes the folder. |
-| Frames per second | 10 | 0.2 to 60. See [Choose a frame rate](#choose-a-frame-rate). |
-| Quality | Balanced | Smallest files, Balanced, or Sharpest text. See [Capture and encoding](#capture-and-encoding-windows). In folder mode it applies only to `clip.mp4`. |
-| Start a new file every | 30 minutes | 0 means one file for each recording. "MP4 only" mode only. Folder mode does not split. |
-| Hotkey | Win+Shift+D | Win, Ctrl, Alt and Shift, plus a letter, a digit or F1 to F12. Shift alone works only with F1 to F12. The same hotkey opens the selector and stops the recording. |
-| Capture | ddagrab (GPU) | ddagrab or gdigrab. |
-| Encoder | Auto | Auto (NVENC, else x264), NVENC only, or x264 only. |
-| Color detail (chroma) | 4:2:0 | 4:2:0 or 4:4:4. In folder mode it applies only to `clip.mp4`. |
-| Frame-rate mode | Changes only | Fixed frame rate, or Changes only. |
-| Output | Folder for AI | Folder for AI (frames, `index.md`, `clip.mp4`), or MP4 only. See [Recording folder](#recording-folder-windows). |
-| Start Desktop Recorder when Windows starts | Off | Adds one entry for your user account only. |
-| Start recording (saved region) when Desktop Recorder starts | Off | On records the last selected area as soon as the app starts, without the selector. With no saved area, or an area that is not on the screen now, it records the full desktop. |
-| Copy the recording (ZIP or video) to the clipboard when it stops | On | In folder mode: the ZIP and the text message. |
-| Play a sound when recording starts and stops | On | Two rising tones for start, two falling tones for stop. |
-| Hide the mouse pointer in the video | On | Off shows the pointer in the video and in the frames. See [Good to know](#good-to-know). |
-| Record the sound of the PC, and make a transcript if Whisper is installed | Off | See [Audio and transcript](#audio-and-transcript-windows). |
-| Region selector: Crosshair, Magnifier, Position | Off, On, On | The keys C, M and P in the selector change them too. |
+| Save recordings to (Recording) | `C:\Users\<you>\Recordings` | The program makes the folder. |
+| Frames per second (Recording) | 10 | 0.2 to 60. See [Choose a frame rate](#choose-a-frame-rate). |
+| Quality (Capture and quality) | Balanced | Smallest files, Balanced, or Sharpest text. See [Capture and encoding](#capture-and-encoding-windows). In folder mode it applies only to `clip.mp4`. |
+| Start a new file every (Recording) | 30 minutes | 0 means one file for each recording. "MP4 only" mode only: the field is off in folder mode, because folder mode does not split. |
+| Hotkey (Hotkey and selector) | Win+Shift+D | Win, Ctrl, Alt and Shift, plus a letter, a digit or F1 to F12. Shift alone works only with F1 to F12. The same hotkey opens the selector and stops the recording. |
+| Capture method (Capture and quality) | ddagrab (GPU) | ddagrab or gdigrab. |
+| Encoder (Capture and quality) | Auto | Auto (NVENC, else x264), NVENC only, or x264 only. |
+| Color detail (Capture and quality) | 4:2:0 | 4:2:0 or 4:4:4. In folder mode it applies only to `clip.mp4`. |
+| Frame-rate mode (Recording) | Changes only | Fixed frame rate, or Changes only. |
+| Output (Recording) | Folder for AI | Folder for AI (frames, `index.md`, `clip.mp4`), or MP4 only. See [Recording folder](#recording-folder-windows). |
+| Start with Windows (Startup and sounds) | Off | Adds one entry for your user account only. |
+| Record when the app starts (Startup and sounds) | Off | On records the last selected area as soon as the app starts, without the selector. With no saved area, or an area that is not on the screen now, it records the full desktop. |
+| Copy to the clipboard when the recording stops (AI and audio) | On | In folder mode: the ZIP and the text message. |
+| Play sounds (Startup and sounds) | On | Two rising tones for start, two falling tones for stop. |
+| Hide the mouse pointer (Capture and quality) | On | Off shows the pointer in the video and in the frames. See [Good to know](#good-to-know). |
+| Record the sound of the PC (AI and audio) | Off | Makes a transcript when Whisper is installed. The page tells if the app finds Whisper. See [Audio and transcript](#audio-and-transcript-windows). |
+| Crosshair, Magnifier, Position and size (Hotkey and selector) | Off, On, On | The keys C, M and P in the selector change them too. |
 
 Settings are stored in `%APPDATA%\DesktopRecorder\settings.txt`.
 
@@ -204,7 +208,7 @@ When the picture changes almost all the time (for example a video or a stream), 
 
 New in 3.0.0. Tested on one Windows 11 PC: the audio capture, and a transcript with whisper.cpp. Not tested: the sync of audio and video, long recordings with a transcript, and the Whisper programs other than whisper.cpp. Details: [docs/audio-transcript.md](docs/audio-transcript.md).
 
-- Turn on "Record the sound of the PC, and make a transcript if Whisper is installed" in Settings. It is off by default.
+- Turn on "Record the sound of the PC" in Settings (page AI and audio). It is off by default. The page tells if the app finds a Whisper program.
 - The program records what the default playback device plays (WASAPI loopback). No extra driver and no "Stereo Mix" device are necessary. The microphone is not recorded.
 - Folder mode: `clip.mp4` gets the audio. "MP4 only" mode: each video file gets the audio after Stop.
 - Transcript: set `whisper_path`, or put a Whisper program next to `DesktopRecorder.exe` (or in a subfolder `whisper`, `whisper.cpp` or `Faster-Whisper-XXL`), or on PATH. The program uses `whisper_path` first, then the folder of the app, then PATH. If `whisper_path` names a file that does not exist, there is no transcript. It looks for `whisper-cli.exe` (whisper.cpp), `faster-whisper-xxl.exe`, `whisper-ctranslate2.exe`, and `whisper.exe` (only on PATH, because the name is too general). The transcript goes into `index.md` (section "Audio and transcript") and into `transcript.srt`. Its times are on the time line of `clip.mp4`.

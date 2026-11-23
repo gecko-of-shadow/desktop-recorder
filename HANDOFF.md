@@ -506,6 +506,7 @@ Not checked: look-alike changes in a real screen capture (the states were drawn 
 | ZIP on the clipboard (7.16) | Code done, test build installed. Cloud paste test open. Not released. |
 | One ZIP only in folder mode (7.18) | Code, unit tests and a ZIP check done on branch `zip-only`. Not installed, not pushed, not released. No real recording and no paste test yet. Replaces 7.16. |
 | False transcript rows, pointer motion warning, file-count text (7.19) | Code, unit tests and offline tests on three real recordings done on branch `zip-only`. Not installed, not pushed, not released. No real recording with this build yet. |
+| UI redesign: note box, Settings, tray menu (7.20) | Code, unit tests and offscreen previews (100%, 125%, 150%) done on branch `zip-only`. No live test (Bran used the PC). Not installed, not pushed, not released. Live test plan in 7.20. |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -1011,6 +1012,85 @@ Next steps for Bran:
 2. Record about 20 s of a real video or stream with the test build and check that `index.md` has the motion note. The motion rule saw only synthetic video.
 3. Make one real recording with silent audio and one with speech, and check the transcript section.
 4. Decide about push, merge and release of `zip-only` (7.18 and 7.19).
+
+### 7.20 UI redesign: note box, Settings window, tray menu (2026-11-22, branch `zip-only`, not pushed, not released)
+
+Job from Bran (headless agent run). Bran's change at 18:27: code only, no live test, because Bran used the PC. The agent did not start the app, did not stop the installed app, sent no input, took no screenshot and showed no window.
+
+**Files.** New: `UiModel.cs` (rules, no WinForms, unit tested), `UiTheme.cs` (colors, fonts, DWM calls, custom controls), `NoteForm.cs`, `SettingsForm.cs`, `TrayMenu.cs`, `tests/UiTests.cs`, `test/ui_preview.cs` (offscreen preview tool). Changed: `DesktopRecorder.cs` (the old `NoteForm` and `SettingsForm` classes are removed; `TrayApp` uses the new parts), `tests/CoreTests.cs`, the build lists (`build.cmd`, `run-tests.sh`, `.github/workflows/build.yml`, `release.yml`, README build and test commands), `README.md`, `CHANGELOG.md`. The recording, the capture, the frame pass and the settings file format are not changed.
+
+**Part 1: note box** (`NoteForm.cs`, rules in `NoteRules`).
+
+- Opens in the middle of the work area of the monitor that has the largest part of the recording region (the primary monitor for a whole-desktop recording). A second open box moves 28 epx down and right.
+- Content: title "Note for this recording", the line "The note goes into index.md in the ZIP. The AI reads it as context for this recording.", the recording name and length, a text box with several lines (2000 characters at most), a hint line, and the buttons **Save note** (default) and **No note**. The text box has the focus.
+- Keys: Enter saves. Shift+Enter and Ctrl+Enter start a new line (the key handler inserts the line break itself). Ctrl+A selects all.
+- Close rules (unit tested): an empty box closes at once for every trigger. With text, only **Save note** and a Windows shutdown (also Task Manager and `Application.Exit`) save without a question. Esc, the X button, Alt+F4, the taskbar "Close window", **No note** and Exit in the tray menu show "Save this note?" in the box with **Save**, **Discard** and **Back**. Back returns to the text. For Exit, Back also cancels the Exit (`QuitCancelled` clears `quitRequested`).
+- The question is in the box, not in a second window (advisor review): no second window to keep out of the video, and no nested modal loop during Exit.
+- `TrayApp.Quit` asks the open note boxes first. When a box asks, Quit returns; the answer closes the box, and its `FormClosed` calls Quit again (`quitLoop` stops a nested call). `ExitIfDone` also waits for `openNotes.Count == 0`. The MP4 stop path now calls `ExitIfDone()` (before: `ExitNow()` at once).
+- On top (`TopMost`), in the taskbar, does not close when it loses the focus. When it opens without the foreground, `FlashWindowEx(FLASHW_ALL | FLASHW_TIMERNOFG)` flashes it until the user opens it.
+- DPI: the box is per-monitor-v2 aware. `ShowNoteBox` sets the thread context to per-monitor-v2 (before: system aware), because the hotkey can come while the system-aware Settings window is open. The box lays itself out for the DPI of its monitor (`GetScaleForPoint`). It does not handle `WM_DPICHANGED` (mixed DPI is "not now", 7.1): a box dragged to a monitor with another scale keeps its pixel size.
+- `NativeMethods.ExcludeFromCapture` stays on the box. The ZIP and folder rules of 7.18 are not changed: the folder is deleted only after the box is closed (`job.NoteOpen`, `TryCleanup`), and a note saved after the pass makes the ZIP again.
+- `index.md` writes the note on one line (`RecordingIndex.Cell` turns line breaks into spaces; `SettledFrames.cs` is out of scope). `note.txt` keeps the lines. The hint tells this.
+
+**Part 2: Settings window** (`SettingsForm.cs`, texts in `SettingsCatalog`).
+
+- Left navigation with five pages: Recording; Capture and quality; Hotkey and selector; AI and audio; Startup and sounds. Reason: Microsoft recommends left navigation for 5 to 10 equal categories and top navigation (tabs) for 5 or fewer; this window has 5, so both are possible. The left list won because it is the pattern of the Windows 11 Settings app, and a WinForms `TabControl` cannot be drawn in that style (its tab row and border stay classic).
+- Each setting is a card: title, help text with the default, control at the right (or under the text for the folder and the hotkey). Switches (`ToggleSwitch`, a `CheckBox` subclass) replace the check boxes; the hotkey keeps check boxes for Win, Ctrl, Alt and Shift.
+- "Start a new file every" is off when Output is "Folder for AI" (folder mode never splits). The AI and audio page shows the result of `Transcript.Find` and names the settings that are in `settings.txt` only.
+- A problem (hotkey, folder) shows in red at the bottom; the window opens the page and focuses the field. No message box.
+- **Restore defaults**: puts the values of `new Settings()` into the fields, and "Start with Windows" off. Save applies them. The fields that the window does not show (regions, `nvenc_cq`, `settle_ms`, Whisper keys, Linux lines) stay.
+- Ctrl+Tab and Ctrl+Page Down: next page. Ctrl+Shift+Tab and Ctrl+Page Up: page before.
+- System DPI aware, as before (`ShowSettings`); the scale is the DPI of the screen DC in that context. `AutoScaleMode.None`; every position comes from the scale.
+- Light theme only. Reason: the native `ComboBox`, the spin buttons of `NumericUpDown` and the check boxes draw with the light visual style. A dark version needs undocumented theme names (`DarkMode_CFD`) or new controls. Bran's app mode is light (registry, 2026-11-22).
+- Every key, default and value range stays. Save does not restart a running recording (decision 7). `OnSave` is split: `ReadFields` reads the fields with no file or registry change; `OnSave` then makes the folder and closes.
+
+**Part 3: tray menu** (`TrayMenu.cs`, texts in `TrayModel`).
+
+- `ContextMenuStrip` with a status item at the top (a colored dot, "Not recording", "Recording  1:23", "Stopping the recording...", "Processing the last recording..." or "Closing Desktop Recorder...", a detail line, and the last result), then three groups: record; folder and ZIP commands; Settings and Exit.
+- The record command is bold, with the hotkey at the right (not shown when another program has the hotkey). Icons from Segoe Fluent Icons (Segoe MDL2 Assets on Windows 10). Disabled commands are gray. The record command is off while FFmpeg stops and while the app closes.
+- Position (the known problem): the dotnet/winforms source of `ContextMenuStrip.ShowInTaskbar` computes the place from the menu size before the `Opening` event, so a menu that changes in `Opening` opens at a wrong place. The app never changes the menu in `Opening`: `Refresh` updates it at each state change, a 1 s timer updates the time while recording (the status item has a fixed width), and the right mouse button down sets the scale and the theme before the button up opens the menu. The menu window is made at start, under the per-monitor-v2 context, so its size is known before the first open. The advisor advised against an own show path (foreground and keyboard open are hard to check without a live test).
+- Scale: the DPI of the monitor under the pointer, at each right button down. Theme: the app mode. Windows 11: small rounded corners (`DWMWCP_ROUNDSMALL`) and the border color.
+- The tooltip is "Desktop Recorder: not recording / recording / processing / closing" (at most 63 characters).
+
+**Theme.** One switch for all three parts: `Ui.ThemeValue = "AppsUseLightTheme"` (`HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`). Microsoft documents the WinRT `UISettings` check; .NET Framework 4 with `csc.exe` cannot call WinRT easily, so the app reads the registry value. Dark title bar with `DWMWA_USE_IMMERSIVE_DARK_MODE` (20). Colors after the Windows 11 light and dark themes, with the default Windows blue as accent (not Bran's purple accent). Fonts: Segoe UI and Segoe UI Semibold in pixel units (14 epx text, 12 epx captions, 20 epx titles).
+
+**Checked (this job, on Bran's PC, no window shown):**
+
+- The app builds with the `csc.exe` command of `build.cmd` (`/out:DesktopRecorder-zip.exe`; CS0649 warnings only).
+- Unit tests: `ok` (new `tests/UiTests.cs`: duration text, every close trigger with and without text, the answers, the Enter keys, the clean note, the 19 catalog keys against `SerializeSettings`, each default in the help texts against `StoredSettings`, the tray phase, commands and texts, the tooltip length).
+- `UiModel.cs` and `tests/UiTests.cs` compile with `/noconfig` and only `System.dll` and `System.Core.dll` (no System.Drawing, no WinForms), as Mono in `run-tests.sh` needs.
+- Offscreen preview (`test/ui_preview.cs`) at 100%, 125% and 150%, light and dark: 0 layout problems. The check: every visible control is inside its parent, visible sibling controls do not overlap (HANDOFF 6.7 bug 3), the text of each label, button, check box, list item and navigation item fits.
+- Settings round trip in the preview: the window reads back the same `settings.txt` lines for the defaults (29 lines), for all values changed (30 lines, also the fields that the window does not show), and after Restore defaults (30 lines).
+- The preview found and the agent fixed: the recording name of the note box was never placed (it used `Visible`, which is false before the form shows); the page names were cut in the navigation; two list texts were cut at 100%; the restore check (the preview first used `PerformClick`, which does nothing on a hidden form).
+- Previews looked at by the agent and by a review agent: see the list below.
+
+**Offscreen previews (NOT real screenshots).** The preview tool draws each form with `Control.DrawToBitmap` into a PNG file, without showing it. Limits: client area only (the real window adds the Windows title bar and DWM effects: rounded corners, shadow); the tool draws the selected text of each drop-down list itself (`WM_PRINT` skips it); native parts (check marks, list arrows, spin buttons) draw at the DPI of this PC (125%), so they are correct in the 125% files and simulated in the 100% and 150% files.
+
+- Note box: [note-125-light](docs/ui/offscreen-note-125-light.png), [note-125-dark](docs/ui/offscreen-note-125-dark.png), [note-question-125-light](docs/ui/offscreen-note-question-125-light.png), [note-quit-question-125-dark](docs/ui/offscreen-note-quit-question-125-dark.png), [note-100-light](docs/ui/offscreen-note-100-light.png), [note-150-light](docs/ui/offscreen-note-150-light.png).
+- Settings: [settings-recording-125](docs/ui/offscreen-settings-recording-125.png), [settings-capture-125](docs/ui/offscreen-settings-capture-125.png), [settings-hotkey-125](docs/ui/offscreen-settings-hotkey-125.png), [settings-aiaudio-125](docs/ui/offscreen-settings-aiaudio-125.png), [settings-startup-125](docs/ui/offscreen-settings-startup-125.png), [settings-message-125](docs/ui/offscreen-settings-message-125.png), [settings-recording-100](docs/ui/offscreen-settings-recording-100.png), [settings-recording-150](docs/ui/offscreen-settings-recording-150.png).
+- Tray menu: [tray-idle-125-light](docs/ui/offscreen-tray-idle-125-light.png), [tray-recording-125-light](docs/ui/offscreen-tray-recording-125-light.png), [tray-recording-125-dark](docs/ui/offscreen-tray-recording-125-dark.png), [tray-processing-125-light](docs/ui/offscreen-tray-processing-125-light.png), [tray-recording-100-light](docs/ui/offscreen-tray-recording-100-light.png), [tray-recording-150-light](docs/ui/offscreen-tray-recording-150-light.png).
+
+**Not checked (needs the live test below):** the real windows on the screen; every key and click; the focus at open; the flash; the menu position at the first open and on a later open; the rounded corners and the shadow of the menu; dark mode on the screen; a real recording with this build (note box out of the video); the Settings Save with a real click; Windows 10; another monitor or scale; a screen reader. The Mono build and the GitHub CI with the new files (no Mono on this PC).
+
+**Open decisions for Bran:**
+
+1. Tray menu theme: it follows the app mode (light on Bran's PC). Windows' own taskbar menus follow the Windows mode (dark on Bran's PC). To change: `Ui.ThemeValue = "SystemUsesLightTheme"` in `UiTheme.cs` (this also changes the note box).
+2. Line breaks in the note: `index.md` shows the note on one line. A change needs `RecordingIndex.Build` in `SettledFrames.cs`.
+3. Accent color: the default Windows blue. Bran's accent color (purple) is not used.
+4. Settings in dark mode: not done (reason above).
+
+**Live test plan (about 20 minutes, hands off, for a later job).** Stop the installed app first (save `settings.txt` before), start `DesktopRecorder-zip.exe`, use synthetic input (`test\app_runs.ps1` style) and DPI-aware screenshots at 125%:
+
+1. Tray: right-click the tray icon. Screenshot. Check: the menu opens above the taskbar at the pointer, its bottom edge does not go below the taskbar top on the first open and on the second open, rounded corners, status "Not recording", bold record command with "Win+Shift+D". Hover one command (rounded mark). Click each command once: Open recordings folder, Settings (then Cancel), Show last ZIP / Copy ZIP (gray before a recording), Exit last.
+2. Tray during a recording: start with the hotkey and a drag. Open the menu: "Recording 0:0x" counts each second while the menu stays open; "Stop recording" stops.
+3. Note box (folder mode): after Stop, screenshot. Check: middle of the monitor, the focus is in the text box (type at once), not in the video (decode the last frames of `clip.mp4` in the ZIP).
+4. Note keys: Enter with text saves (the note is in `index.md` of the new ZIP). Shift+Enter adds a line. Esc with an empty box closes. Esc with text: question; then Save, then (next recording) Discard, then (next) Back (text kept). The X button and Alt+F4 with text: question. Click another window: the box stays on top. Exit with a box that has text: question; Back keeps the app; Discard closes the box and the app.
+5. Flash: start a recording, click another app, stop with the Stop button: if the box does not get the focus, its taskbar button flashes.
+6. Settings: open (double-click the tray icon). Screenshot of each page (Ctrl+Tab). Change one setting on each page, Save, open again: the values stay, and `settings.txt` has the keys. Change and Cancel: nothing changes. Restore defaults, Cancel: nothing changes. A bad hotkey (no Win, Ctrl or Alt): red text, Hotkey page.
+7. Dark mode: set the app mode to dark (Settings > Personalization > Colors), open the tray menu and a note box, screenshot, set it back to light.
+8. If possible without a sign-out: 100% and 150% (otherwise "not checked").
+
+At the end: restore `settings.txt`, start the installed app again.
 
 ## 8. Rules for the agent
 

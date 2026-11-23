@@ -8,6 +8,9 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ### Changed
 
+- Windows, note box after Stop (Bran, 2026-11-22): it opens in the middle of the monitor of the recording, larger, with a title, a line that says what the note is for, the recording name and length, and a text box with several lines. "Save note" (default) and "No note". Enter saves; Shift+Enter or Ctrl+Enter starts a new line (`index.md` still shows the note on one line). Esc, the X button, Alt+F4 and "No note" close an empty box at once. When the box has text, they ask "Save this note?" in the box: Save, Discard or Back. Exit in the tray menu asks the same question, and Back cancels the Exit. A Windows shutdown saves the text. The box stays on top, is in the taskbar, does not close when it loses the focus, and flashes its taskbar button when it opens without the focus. It follows the app theme (light or dark).
+- Windows, Settings window: five pages in a left navigation list (Recording, Capture and quality, Hotkey and selector, AI and audio, Startup and sounds). Each setting is a card with a help text that gives the default. Switches replace the check boxes. A problem shows in red at the bottom and the window opens the page of the problem. New "Restore defaults" button: it puts the defaults into the fields, and Save applies them. "Start a new file every" is off in folder mode. The AI and audio page tells if Whisper is found. Every setting, key, default and value range stays. The window uses the light theme only.
+- Windows, tray menu: a status at the top (not recording, recording with the elapsed time, processing, closing), groups, a bold "Select region and record" or "Stop recording" with the hotkey at the right, icons, and the app theme (light or dark). Every command stays. The tooltip tells the state.
 - Windows, folder mode: the output of a recording is one ZIP file only (Bran, 2026-11-22). After the frame pass, the app always makes the ZIP next to where the recording folder was. The clipboard holds the ZIP as a file and the text message for the AI. It never holds the loose files. Then the app deletes the recording folder. When the frame pass fails, the folder stays (it holds the lossless work file), and the app still makes and copies the ZIP.
 - A note typed in the note box after the ZIP is made goes into `index.md`, and the app makes the ZIP again (same path). The folder is deleted only when the note box is closed and the ZIP is done.
 - Tray: "Open last recording folder" is now "Show last ZIP in Explorer". "Copy ZIP of last recording" copies the existing ZIP and does not make it again.
@@ -28,6 +31,7 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ### Notes
 
+- UI redesign (note box, Settings, tray menu): built and unit tested, and drawn offscreen at 100%, 125% and 150% (HANDOFF 7.20). Not tested: the windows on the screen, the keys, the mouse, Windows dark mode, and a real recording with this build.
 - Tested on one PC: unit tests, the app build, and the ZIP file made from a test folder. Not tested: a real recording with this build, the note box with a late note, a paste of the ZIP into a chat app or a Claude cloud session, and the Settings window at 125%.
 - Transcript and motion fixes: tested offline on the same PC with the `clip.mp4` files of three real recordings and with synthetic test videos (HANDOFF 7.19). Not tested: a real recording with this build.
 
