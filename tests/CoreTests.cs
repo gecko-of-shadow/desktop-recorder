@@ -35,6 +35,7 @@ static class CoreTests
         TestArguments();
         TestBackendSettings();
         TestLastRegionHotkey();
+        TestRecordOnLaunchRemoved();
         TestRegion();
         TestPlan();
         TestNvencSizeLimits();
@@ -130,11 +131,10 @@ static class CoreTests
         Expect(saved.Contains("hotkey=Win+Shift+D\r\n"), "hotkey serialized");
         StoredSettings again = RecorderCore.ParseSettings(saved, defaults);
         Expect(again.ExtraLines.Count == 2, "extras survive a second load");
-        Expect(again.CopyToClipboard && again.PlaySounds && !again.RecordOnLaunch, "bool defaults when omitted");
-        Expect(RecorderCore.ParseSettings("record_on_launch=1\r\n", defaults).RecordOnLaunch, "explicit record on launch");
+        Expect(again.CopyToClipboard && again.PlaySounds, "bool defaults when omitted");
 
-        StoredSettings off = RecorderCore.ParseSettings("record_on_launch=0\r\ncopy_to_clipboard=0\r\nplay_sounds=0\r\nfps=2.5\r\n", defaults);
-        Expect(!off.RecordOnLaunch && !off.CopyToClipboard && !off.PlaySounds, "explicit off");
+        StoredSettings off = RecorderCore.ParseSettings("copy_to_clipboard=0\r\nplay_sounds=0\r\nfps=2.5\r\n", defaults);
+        Expect(!off.CopyToClipboard && !off.PlaySounds, "explicit off");
         Expect(off.Fps == 2.5, "fractional fps");
         Expect(!again.ShowPointer, "pointer hidden by default");
         Expect(saved.Contains("show_pointer=0\r\n"), "pointer serialized");
@@ -262,6 +262,26 @@ static class CoreTests
         string saved = RecorderCore.SerializeSettings(o);
         Expect(!saved.Contains("last_region_hotkey") && !saved.Contains("stop_hotkey"), "old hotkey keys dropped: " + saved);
     }
+
+    static void TestRecordOnLaunchRemoved()
+    {
+        // "Record when the app starts" (record_on_launch) was removed on 2026-11-22 (Bran). The Windows app does not
+        // use the key. It keeps an old line for the Linux build, which reads a missing key as on.
+        StoredSettings d = new StoredSettings();
+        Expect(RecorderCore.SerializeSettings(d).IndexOf("record_on_launch", StringComparison.Ordinal) < 0, "a new file has no record_on_launch");
+        foreach (string v in new[] { "0", "1" })
+        {
+            string line = "record_on_launch=" + v;
+            StoredSettings o = RecorderCore.ParseSettings("fps=4\r\n" + line + "\r\nplay_sounds=0\r\n", d);
+            Expect(o.Fps == 4 && !o.PlaySounds, "old file with " + line + " loads the other keys");
+            Expect(o.ExtraLines.Count == 1 && o.ExtraLines[0] == line, "old " + line + " is kept for the Linux build");
+            string saved = RecorderCore.SerializeSettings(o);
+            int first = saved.IndexOf("record_on_launch", StringComparison.Ordinal);
+            Expect(first >= 0 && first == saved.LastIndexOf("record_on_launch", StringComparison.Ordinal) && saved.Contains(line + "\r\n"),
+                "old " + line + " is written back once, unchanged: " + saved);
+            ExpectEqual(RecorderCore.SerializeSettings(RecorderCore.ParseSettings(saved, d)), saved, "second save with " + line + " identical");
+        }
+    }
     static void TestBackendSettings()
     {
         StoredSettings d = new StoredSettings();
@@ -275,11 +295,11 @@ static class CoreTests
         // An old settings file (before this change) loads with the new defaults.
         string old = "folder=C:\\Rec\r\nfps=4\r\nquality=0\r\nsplit_minutes=10\r\nrecord_on_launch=0\r\ncopy_to_clipboard=1\r\nplay_sounds=1\r\nhotkey=Win+Shift+D\r\n";
         StoredSettings o = RecorderCore.ParseSettings(old, d);
-        Expect(o.Folder == "C:\\Rec" && o.Fps == 4 && o.Quality == 0 && o.SplitMinutes == 10 && !o.RecordOnLaunch, "old file values");
+        Expect(o.Folder == "C:\\Rec" && o.Fps == 4 && o.Quality == 0 && o.SplitMinutes == 10, "old file values");
         Expect(o.CaptureBackend == "ddagrab" && o.Encoder == "auto" && o.ChromaFormat == "yuv420"
             && o.FrameRateMode == "changes" && o.NvencCq == 23, "old file new defaults");
         Expect(RecorderCore.RegionOf(o).IsEmpty, "old file no region");
-        Expect(o.ExtraLines.Count == 0, "old file no extras");
+        Expect(o.ExtraLines.Count == 1 && o.ExtraLines[0] == "record_on_launch=0", "old file keeps only the record_on_launch line");
 
         // Round trip.
         StoredSettings s = new StoredSettings();

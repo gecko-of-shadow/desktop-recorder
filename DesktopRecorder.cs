@@ -43,7 +43,6 @@ class Settings
     public double Fps = RecorderCore.DefaultFps;
     public int Quality = 1;          // 0 = smallest, 1 = balanced, 2 = sharpest
     public int SplitMinutes = 30;    // 0 = one file per recording
-    public bool RecordOnLaunch = false;
     public bool CopyToClipboard = true;
     public bool PlaySounds = true;
     public bool ShowPointer = false;
@@ -103,7 +102,6 @@ class Settings
         stored.Fps = Fps;
         stored.Quality = Quality;
         stored.SplitMinutes = SplitMinutes;
-        stored.RecordOnLaunch = RecordOnLaunch;
         stored.CopyToClipboard = CopyToClipboard;
         stored.PlaySounds = PlaySounds;
         stored.ShowPointer = ShowPointer;
@@ -144,7 +142,6 @@ class Settings
         Fps = stored.Fps;
         Quality = stored.Quality;
         SplitMinutes = stored.SplitMinutes;
-        RecordOnLaunch = stored.RecordOnLaunch;
         CopyToClipboard = stored.CopyToClipboard;
         PlaySounds = stored.PlaySounds;
         ShowPointer = stored.ShowPointer;
@@ -732,8 +729,7 @@ class TrayApp : ApplicationContext
         };
 
         Refresh();
-        if (!settings.RecordOnLaunch) Recorder.WarmUp(settings);
-        if (settings.RecordOnLaunch) StartSavedRegion(true, false);
+        Recorder.WarmUp(settings);
         string warning = HotkeyWarning();
         if (warning != null) tray.ShowBalloonTip(6000, "Desktop Recorder", warning, ToolTipIcon.Warning);
     }
@@ -788,21 +784,6 @@ class TrayApp : ApplicationContext
         }
     }
 
-    // Starts with the saved region, without the selector. Used at launch and after a settings change.
-    // With no saved region, or a region that is not on the screen now, it records the whole desktop (as before).
-    void StartSavedRegion(bool sound, bool balloon)
-    {
-        Rectangle region = Rectangle.Empty;
-        string note = null;
-        if (!settings.Region.IsEmpty)
-        {
-            Rectangle? onScreen = RegionSelector.NormalizeRegion(settings.Region);
-            if (onScreen.HasValue) region = onScreen.Value;
-            else note = "The saved region is not on the screen now. Recording the whole desktop.";
-        }
-        StartRecording(region, sound, balloon || note != null, note);
-    }
-
     // The record hotkey and the first tray item: show the selector, then record the selection.
     void SelectAndRecord()
     {
@@ -819,7 +800,7 @@ class TrayApp : ApplicationContext
         try
         {
             // No preselected region: the release of the mouse starts the recording, so a drag must always
-            // draw a new box. The last region has its own hotkey.
+            // draw a new box.
             picked = RegionSelector.Show(null);
         }
         catch (Exception e)

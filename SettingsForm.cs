@@ -30,7 +30,7 @@ sealed class SettingsForm : Form
     readonly NumericUpDown fps = new NumericUpDown(), split = new NumericUpDown();
     readonly ToggleSwitch pointer = new ToggleSwitch(), crosshair = new ToggleSwitch(), magnifier = new ToggleSwitch(),
         position = new ToggleSwitch(), copy = new ToggleSwitch(), audio = new ToggleSwitch(), startup = new ToggleSwitch(),
-        launch = new ToggleSwitch(), sounds = new ToggleSwitch();
+        sounds = new ToggleSwitch();
     readonly CheckBox win = new CheckBox(), ctrl = new CheckBox(), alt = new CheckBox(), shift = new CheckBox();
     readonly Label message;
     readonly string whisperText;
@@ -232,7 +232,6 @@ sealed class SettingsForm : Form
         Page(SettingsPage.Startup, delegate(Panel p, ref int y)
         {
             InlineCard(p, ref y, SettingsCatalog.StartWithWindowsKey, startup, 0);
-            InlineCard(p, ref y, "record_on_launch", launch, 0);
             InlineCard(p, ref y, "play_sounds", sounds, 0);
         });
         LayoutWindow();
@@ -405,7 +404,6 @@ sealed class SettingsForm : Form
         copy.Checked = s.CopyToClipboard;
         audio.Checked = s.RecordAudio;
         startup.Checked = startsWithWindows;
-        launch.Checked = s.RecordOnLaunch;
         sounds.Checked = s.PlaySounds;
     }
 
@@ -437,7 +435,6 @@ sealed class SettingsForm : Form
         result.Fps = (double)fps.Value;
         result.Quality = int.Parse(SettingsCatalog.ValueAt(SettingsCatalog.Quality, quality.SelectedIndex), System.Globalization.CultureInfo.InvariantCulture);
         result.SplitMinutes = (int)split.Value;
-        result.RecordOnLaunch = launch.Checked;
         result.CopyToClipboard = copy.Checked;
         result.PlaySounds = sounds.Checked;
         result.ShowPointer = !pointer.Checked;

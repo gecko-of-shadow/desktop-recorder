@@ -7,6 +7,8 @@
 #   4. reads the FFmpeg command line of the app, waits, and presses the hotkey (Win+Shift+D) to stop,
 #   5. runs ffprobe and frames.py on the new file(s).
 # The script makes a copy of settings.txt first and puts it back at the end.
+# Note (2026-11-22, HANDOFF 7.24): the app no longer has record_on_launch. It ignores the key, so with a build of
+# that date or later, step 3 starts no recording. Step 3 worked with the builds of HANDOFF 6.7 and 6.10.
 #
 # Example:
 #   powershell -ExecutionPolicy Bypass -File test\app_runs.ps1 -Region 20,180,1880,820 -Runs dda420,gdi420

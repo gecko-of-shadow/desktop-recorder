@@ -8,6 +8,8 @@
 #   4. waits for the end of the scroll, presses Win+Shift+D to stop, and closes the Chrome window,
 #   5. writes the FFmpeg command, ffprobe output and the foreground window titles to the output folder.
 # The script restores settings.txt at the end. It does not read the frames (see the Phase B notes).
+# Note (2026-11-22, HANDOFF 7.24): the app no longer has record_on_launch. It ignores the key, so with a build of
+# that date or later, step 3 starts no recording (the LL run calls FFmpeg directly). Step 3 worked in HANDOFF 6.8.
 #
 # Example:
 #   & .\test\phase_b.ps1 -Runs B3

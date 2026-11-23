@@ -59,7 +59,7 @@ public static class RegionSelector
 
     /// <summary>
     /// Clips the region to the virtual screen and makes the width and the height even (H.264 needs even sizes).
-    /// Returns null when less than 2 x 2 px stays. Use this for "record last region" without the selector.
+    /// Returns null when less than 2 x 2 px stays.
     /// </summary>
     public static Rectangle? NormalizeRegion(Rectangle region)
     {

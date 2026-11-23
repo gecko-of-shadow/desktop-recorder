@@ -126,7 +126,6 @@ The Settings window has five pages in a list at the left: Recording, Capture and
 | Frame-rate mode (Recording) | Changes only | Fixed frame rate, or Changes only. |
 | Output (Recording) | Folder for AI | Folder for AI (frames, `index.md`, `clip.mp4`), or MP4 only. See [Recording folder](#recording-folder-windows). |
 | Start with Windows (Startup and sounds) | Off | Adds one entry for your user account only. |
-| Record when the app starts (Startup and sounds) | Off | On records the last selected area as soon as the app starts, without the selector. With no saved area, or an area that is not on the screen now, it records the full desktop. |
 | Copy to the clipboard when the recording stops (AI and audio) | On | In folder mode: the ZIP and the text message. |
 | Play sounds (Startup and sounds) | On | Two rising tones for start, two falling tones for stop. |
 | Hide the mouse pointer (Capture and quality) | On | Off shows the pointer in the video and in the frames. See [Good to know](#good-to-know). |
@@ -134,6 +133,8 @@ The Settings window has five pages in a list at the left: Recording, Capture and
 | Crosshair, Magnifier, Position and size (Hotkey and selector) | Off, On, On | The keys C, M and P in the selector change them too. |
 
 Settings are stored in `%APPDATA%\DesktopRecorder\settings.txt`.
+
+The app does not record when it starts. Every recording starts with the hotkey and an area that you select. The setting "Record when the app starts" (`record_on_launch`) was removed on 2026-11-22. An old `record_on_launch` line stays in `settings.txt`, because the Linux build uses that key. The Windows app ignores the line.
 
 When you click Save during a recording, the recording continues. New capture settings apply to the next recording. A new hotkey applies at once.
 

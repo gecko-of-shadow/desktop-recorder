@@ -158,7 +158,7 @@ Other rules:
 10. Default frame rate: 10 fps (was 2). Bran decided on 2026-11-14. Reason: the 6.8 rule needs 2.3 fps for 1000 CSS px/s at 125% in an 892 px area. 10 fps is safe up to about 4400 CSS px/s. Bran's settings file already had `fps=10`.
 11. Quality default: keep Balanced (CQ 23). More reads of B3, B9 and B11 are put off to a later date (Bran, 2026-11-14). Data in 6.11; Bran decides.
 12. Release: push `test-kit`, merge it into `main`, publish v2.0.0 (Bran, 2026-11-14). The version is 2.0.0 because the hotkey now opens the selector, not a full-desktop recording.
-13. "Start recording (saved region) when Desktop Recorder starts": off by default (`record_on_launch=0`). Bran decided on 2026-11-20 (7.13).
+13. "Start recording (saved region) when Desktop Recorder starts": off by default (`record_on_launch=0`). Bran decided on 2026-11-20 (7.13). Removed on 2026-11-22 (Bran): every recording starts with the hotkey and a region that Bran selects, so the setting has no use (7.24).
 
 ---
 
@@ -622,6 +622,7 @@ Commands of this run, in order (`quality_reads.py`; the defaults are `--reads 1-
 | UI redesign: note box, Settings, tray menu (7.20) | Code, unit tests and offscreen previews (100%, 125%, 150%) done on branch `zip-only`. No live test (Bran used the PC). Not installed, not pushed, not released. Live test plan in 7.20. |
 | "Busy, then ready" indication for the ZIP (7.21) | Code, unit tests, offscreen previews and an independent review done on branch `zip-only`. No live test. Not installed, not pushed, not released. Live test items 9 to 13 in 7.20. |
 | Live test of zip-only: note box, Settings, tray menu, ZIP indication, selector keys (7.22) | Done on Bran's PC with synthetic input. 8 bugs found and fixed (tray menu over the taskbar, crosshair on white, mixed tray status, screen reader name, two spaces in the note, ZIP temp file, old record command, cut detail). All live checks pass, except 100%/150% (not run). Not installed, not pushed, not released. |
+| Remove "Record when the app starts" (7.24) | Code, unit tests, offscreen preview and an independent review done on branch `zip-only`. No live test. Not installed, not pushed, not released. |
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
@@ -1376,6 +1377,37 @@ The first runs gave more FAIL rows. All of them were driver faults (for example:
 - Checked: no ffmpeg process ran before the swap; the app runs from that path and responds; the Run entry points at it.
 - Checked by Bran before the install, with the 2669732 build: real recordings gave one ZIP and no folder; a note was in the ZIP; the motion warning showed for a Twitch stream; the transcript kept real speech.
 - Not checked: a recording with the 7BEA53A7 build after the install; a paste of the ZIP into a Claude chat or cloud session. Not released, not pushed.
+
+### 7.24 Remove "Record when the app starts" (2026-11-22, branch `zip-only`, not pushed, not released)
+
+- Bran (22:56): "can you remove setting start recording when startup? makes no sense." Every recording starts with the hotkey and a region that Bran selects. The default was off since 7.13. Headless job, code only: the agent did not start the app, did not stop the installed app, sent no input and took no screenshot.
+- Code: the field `RecordOnLaunch` is removed from `StoredSettings` (`RecorderCore.cs`) and `Settings` (`DesktopRecorder.cs`). `StartSavedRegion` is removed: its only caller was the start of the app. `Recorder.WarmUp` (the NVENC test in the background) now runs at every start. The Settings window has no "Record when the app starts" switch. The catalog has 18 settings. New intro of the Startup page: "What happens when you sign in to Windows, and the sounds of the app." Two old comments are corrected (`RegionSelector.NormalizeRegion`, `SelectAndRecord`).
+- Old key (decision without Bran): the Windows app does not read `record_on_launch`, and it does not drop the key. The line goes to `ExtraLines`, and the next Save writes it back unchanged, like the Linux-only keys. A new Windows file never gets the key. Reason: the Linux build uses the key and reads a missing key as on (`record_on_launch: bool = True` in `linux/desktop_recorder/settings.py`). If the Windows app dropped the line, a file shared with the Linux build would make Linux record at launch.
+- Result for Bran: `settings.txt` keeps `record_on_launch=0` (after the next Save, at the end of the file). The Windows app ignores the line, also a value of 1.
+- Tests: new `TestRecordOnLaunchRemoved` (a new file has no key; old files with `=0` and `=1` load the other keys; the line is kept once and unchanged; a second save is identical). `TestBackendSettings`: the old file keeps only that line as an extra line. `TestCatalogKeys`: 18 settings, and the key is not in the catalog and not in a new file.
+- `test\app_runs.ps1` and `test\phase_b.ps1` used `record_on_launch=1` to start a recording. Each has a note now: with this build, step 3 starts no recording. They are not changed to the hotkey and selector flow (this job could not run them).
+- Offscreen preview: `docs/ui/offscreen-settings-startup-125.png` is new. The other 30 offscreen previews are pixel-equal to the new run, so the window size did not change.
+- Old picture, not changed: `docs/ui/live-settings-page5-125.png` is a real screenshot from 7.22. It still shows the switch.
+
+Checked (this job, on Bran's PC):
+
+- The app builds with the file list of `build.cmd` (`/out:DesktopRecorder-zip.exe`; CS0649 warnings only).
+- Unit tests: `ok`.
+- `test\ui_preview.cs`: `preview ok`. Round trips: 28, 29 and 29 lines (before: 29, 30 and 30).
+- Independent review (code-reviewer agent): no blocking finding. It agreed with the handling of the old key. Two comments were changed after the review.
+
+Not checked:
+
+- The app on the screen: the Settings window, and a start of the app with an old `settings.txt` that has `record_on_launch=1` (expected: no recording at start).
+- That Save in the Settings window keeps the old line. Code reading and the `linux_only_key=1` line of the preview round trip cover the same path. No test uses `record_on_launch` for it.
+- The Mono build and the GitHub CI.
+- The Linux build with a file from this build: a new Windows file has no `record_on_launch`, so the Linux build reads it as on. Linux is not changed in this task.
+
+Seen, not changed:
+
+- Nothing in the Windows app now reads `region` or `last_region` to start a recording. The selector still writes them (4.1 point 9).
+- `StartRecording` has one caller now. Its `sound`, `balloon` and `note` arguments are always `true`, `true` and `null`.
+- The class comment at the top of `RegionSelector.cs` still names a "last region" from before 2.0.0.
 
 ## 8. Rules for the agent
 

@@ -182,7 +182,7 @@ static class SettingsCatalog
             case SettingsPage.Capture: return "How the screen is captured and encoded.";
             case SettingsPage.Hotkey: return "How you start and stop a recording.";
             case SettingsPage.AiAudio: return "What the app gives to the AI after a recording.";
-            default: return "What happens when Windows or Desktop Recorder starts.";
+            default: return "What happens when you sign in to Windows, and the sounds of the app.";
         }
     }
 
@@ -278,8 +278,6 @@ static class SettingsCatalog
 
         new SettingInfo(StartWithWindowsKey, SettingsPage.Startup, "Start with Windows",
             "Starts Desktop Recorder when you sign in to Windows. It adds one entry for your user account only. Default: Off."),
-        new SettingInfo("record_on_launch", SettingsPage.Startup, "Record when the app starts",
-            "Records the saved region at once, without the selector. With no saved region, it records the whole desktop. Default: Off."),
         new SettingInfo("play_sounds", SettingsPage.Startup, "Play sounds",
             "Two rising tones when a recording starts, and two falling tones when it stops. Default: On.")
     };

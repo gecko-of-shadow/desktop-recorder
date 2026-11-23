@@ -123,11 +123,12 @@ static class UiTests
     static void TestCatalogKeys()
     {
         HashSet<string> fileKeys = FileKeys();
-        // The 19 settings of the old Settings window (3.0.1): none is lost.
+        // The 19 settings of the old Settings window (3.0.1): none is lost, except "Record when the app starts"
+        // (record_on_launch), which Bran removed on 2026-11-22. That leaves 18.
         string[] oldWindow =
         {
             "folder", "fps", "quality", "split_minutes", "hotkey", "capture_backend", "encoder", "chroma",
-            "frame_rate_mode", "output_mode", SettingsCatalog.StartWithWindowsKey, "record_on_launch", "copy_to_clipboard",
+            "frame_rate_mode", "output_mode", SettingsCatalog.StartWithWindowsKey, "copy_to_clipboard",
             "play_sounds", "show_pointer", "record_audio", "selector_crosshair", "selector_magnifier", "selector_position"
         };
         HashSet<string> seen = new HashSet<string>();
@@ -138,7 +139,8 @@ static class UiTests
             Expect(s.Help.Contains("Default: "), "help gives the default: " + s.Key);
             Expect(s.Title.Length > 0 && s.Help.Length > 0, "title and help: " + s.Key);
         }
-        Expect(SettingsCatalog.All.Length == oldWindow.Length, "catalog has 19 settings");
+        Expect(SettingsCatalog.All.Length == oldWindow.Length, "catalog has 18 settings");
+        Expect(!seen.Contains("record_on_launch") && !fileKeys.Contains("record_on_launch"), "record_on_launch is removed");
         foreach (string key in oldWindow) Expect(seen.Contains(key), "old window setting kept: " + key);
         foreach (SettingsPage page in SettingsCatalog.Pages)
         {
@@ -186,7 +188,6 @@ static class UiTests
         Expect(SettingsCatalog.Get("show_pointer").Help.Contains("Default: " + (d.ShowPointer ? "Off" : "On")), "pointer help default");
         Expect(SettingsCatalog.Get("copy_to_clipboard").Help.Contains("Default: " + (d.CopyToClipboard ? "On" : "Off")), "copy help default");
         Expect(SettingsCatalog.Get("record_audio").Help.Contains("Default: " + (d.RecordAudio ? "On" : "Off")), "audio help default");
-        Expect(SettingsCatalog.Get("record_on_launch").Help.Contains("Default: " + (d.RecordOnLaunch ? "On" : "Off")), "launch help default");
         Expect(SettingsCatalog.Get("play_sounds").Help.Contains("Default: " + (d.PlaySounds ? "On" : "Off")), "sound help default");
         Expect(SettingsCatalog.Get("selector_crosshair").Help.Contains("Default: " + (d.SelectorCrosshair ? "On" : "Off")), "crosshair help default");
         Expect(SettingsCatalog.Get("selector_magnifier").Help.Contains("Default: " + (d.SelectorMagnifier ? "On" : "Off")), "magnifier help default");

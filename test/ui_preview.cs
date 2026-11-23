@@ -246,7 +246,6 @@ static class UiPreview
         all.Fps = 15;
         all.Quality = 2;
         all.SplitMinutes = 5;
-        all.RecordOnLaunch = true;
         all.CopyToClipboard = false;
         all.PlaySounds = false;
         all.ShowPointer = true;

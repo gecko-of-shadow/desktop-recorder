@@ -13,7 +13,6 @@ sealed class StoredSettings
     public double Fps = RecorderCore.DefaultFps;
     public int Quality = 1;
     public int SplitMinutes = 30;
-    public bool RecordOnLaunch = false;
     public bool CopyToClipboard = true;
     public bool PlaySounds = true;
     // Draw the mouse pointer in the video. Off = no pointer: a mouse move on a still screen
@@ -434,7 +433,6 @@ static class RecorderCore
             if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out i)) s.SplitMinutes = i;
             return true;
         }
-        if (key == "record_on_launch") { s.RecordOnLaunch = val == "1"; return true; }
         if (key == "copy_to_clipboard") { s.CopyToClipboard = val == "1"; return true; }
         if (key == "play_sounds") { s.PlaySounds = val == "1"; return true; }
         if (key == "show_pointer") { s.ShowPointer = val == "1"; return true; }
@@ -526,6 +524,9 @@ static class RecorderCore
         // Removed on 2026-11-14 (Bran): the "record last region" hotkey and the separate stop hotkey.
         // The one hotkey starts and stops. Read and drop the old keys, so they do not stay in the file.
         if (key == "last_region_hotkey" || key == "stop_hotkey") return true;
+        // Removed on 2026-11-22 (Bran): record_on_launch ("Record when the app starts"). On purpose, it is not read
+        // and not dropped here: the line goes to ExtraLines and is written back unchanged, because the Linux build
+        // uses this key and reads a missing key as on.
         return false;
     }
 
@@ -570,7 +571,6 @@ static class RecorderCore
         Append(sb, "fps", ClampFps(s.Fps).ToString("0.###", CultureInfo.InvariantCulture));
         Append(sb, "quality", ClampQuality(s.Quality).ToString(CultureInfo.InvariantCulture));
         Append(sb, "split_minutes", ClampSplitMinutes(s.SplitMinutes).ToString(CultureInfo.InvariantCulture));
-        Append(sb, "record_on_launch", s.RecordOnLaunch ? "1" : "0");
         Append(sb, "copy_to_clipboard", s.CopyToClipboard ? "1" : "0");
         Append(sb, "play_sounds", s.PlaySounds ? "1" : "0");
         Append(sb, "show_pointer", s.ShowPointer ? "1" : "0");
@@ -624,7 +624,6 @@ static class RecorderCore
         s.Fps = defaults.Fps;
         s.Quality = defaults.Quality;
         s.SplitMinutes = defaults.SplitMinutes;
-        s.RecordOnLaunch = defaults.RecordOnLaunch;
         s.CopyToClipboard = defaults.CopyToClipboard;
         s.PlaySounds = defaults.PlaySounds;
         s.ShowPointer = defaults.ShowPointer;
