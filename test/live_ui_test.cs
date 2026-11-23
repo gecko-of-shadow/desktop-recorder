@@ -7,8 +7,10 @@
 //   & "$fw\csc.exe" /nologo /target:exe /out:"$env:TEMP\svr-live-all\LiveUiTest.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll
 //     /r:System.Management.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:Microsoft.CSharp.dll
 //     /r:"$fw\WPF\UIAutomationClient.dll" /r:"$fw\WPF\UIAutomationTypes.dll" /r:"$fw\WPF\WindowsBase.dll"
-//     test\live_ui_test.cs AudioCapture.cs AudioTranscript.cs RecorderCore.cs RecordingSession.cs SettledFrames.cs AfterRecording.cs UiModel.cs
-// Run: LiveUiTest.exe <command> [names]. Commands: exit-tray <tooltip prefix>, mp4, folder [names], more [names].
+//     /r:System.Core.dll test\live_ui_test.cs test\live_ui_sessions.cs AudioCapture.cs AudioTranscript.cs RecorderCore.cs RecordingSession.cs SettledFrames.cs AfterRecording.cs UiModel.cs
+// Run: LiveUiTest.exe <command> [names]. Commands: exit-tray <tooltip prefix>, mp4, folder [names], more [names], look [dark-only], settings.
+// Before: exit the installed app (exit-tray "Desktop Recorder: stopped"), save settings.txt as settings.backup-2026-11-22-live-all.txt,
+// and show the tray icon of the test exe in the taskbar (IsPromoted=1 in HKCU\Control Panel\NotifyIconSettings\<entry of the exe>).
 // Output: %TEMP%\svr-live-all\run-<command>-<time>\ (log.txt, results.tsv, PNG files). The results also go to
 // %TEMP%\svr-live-all\results-all.tsv.
 using System;

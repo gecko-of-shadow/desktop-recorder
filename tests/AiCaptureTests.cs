@@ -56,7 +56,7 @@ static class AiCaptureTests
     }
 
     // Folder mode gives one ZIP only (Bran, 2026-11-22).
-    // A read-only file with the ZIP name makes MakeZip fail. The live test (HANDOFF 7.22) found the temporary
+    // A folder with the ZIP name makes MakeZip fail (a read-only file does not block a delete on Linux; the live test R12 used one). The live test (HANDOFF 7.22) found the temporary
     // "<name>.zip.tmp" left next to the recordings after that failure.
     static void TestZipFailLeavesNoTemp()
     {
@@ -65,14 +65,12 @@ static class AiCaptureTests
         System.IO.Directory.CreateDirectory(folder);
         System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "index.md"), "test");
         string zip = folder + ".zip";
-        System.IO.File.WriteAllText(zip, "blocker");
-        System.IO.File.SetAttributes(zip, System.IO.FileAttributes.ReadOnly);
+        System.IO.Directory.CreateDirectory(zip);
         bool threw = false;
         try { AfterRecording.MakeZip(folder); }
         catch (Exception) { threw = true; }
-        Expect(threw, "zip fail: MakeZip throws when the ZIP file is read-only");
+        Expect(threw, "zip fail: MakeZip throws when a folder has the ZIP name");
         Expect(!System.IO.File.Exists(zip + ".tmp"), "zip fail: no temporary file is left");
-        System.IO.File.SetAttributes(zip, System.IO.FileAttributes.Normal);
         System.IO.Directory.Delete(dir, true);
     }
 

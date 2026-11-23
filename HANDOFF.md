@@ -1335,6 +1335,8 @@ New test switch `DESKTOP_RECORDER_SHOW_IN_CAPTURE=1` (in `NativeMethods.ExcludeF
 
 The first runs gave more FAIL rows. All of them were driver faults (for example: the multiline text box is a "Document" in UI Automation; the popup texts start with an icon glyph; the expected ZIP was not the newest one), except the 8 bugs above.
 
+**Tested exe:** `DesktopRecorder-zip.exe` built at 22:22:35 from the code of this commit, SHA-256 starts with 7BEA53A7A4433864. After the review, one more `folder R2` run on that exe: 14 PASS (a real "Stop recording" click in the tray menu, a good ZIP, a late note, Explorer paste, the sound). Its A9-tray-busy row failed by the timing race described above: the menu opened just after "ready". R13 shows the busy status.
+
 **Checked (in this job, on Bran's PC):** all PASS rows above; the unit tests (`ok`) and the app build after each fix; the screenshots in `docs/ui/live-*.png` (24 files: note box, popup, tray menu light and dark, Settings pages, selector, frame and Stop button); the transcript step with whisper.cpp (it wrote rows of audio that another app played on the PC, because the sound of the PC is on in Bran's settings).
 
 **Not checked:**
@@ -1343,6 +1345,8 @@ The first runs gave more FAIL rows. All of them were driver faults (for example:
 - Fix 8 on the screen (it needs the hotkey to be used by another program).
 - A jump of the menu at the open: `Opened` moves the menu after it shows. Screenshots cannot show one frame. If Bran sees a jump: a `ContextMenuStrip` subclass that moves the place in `SetBoundsCore` (reviewer's advice).
 - A paste of the ZIP into a chat app (Claude desktop chat, a Claude cloud session, claude.ai, Gemini). Only Explorer and an Edit control.
+- Five committed pictures were not looked at one by one: live-tray-idle-125-light/dark, live-tray-recording-125-light, live-popup-busy-125-dark, live-note-question-125-dark (crops of the app windows on the counter page, cut at the taskbar top).
+- The new unit test of a failed ZIP uses a folder with the ZIP name as the blocker (a read-only file does not block a delete on Linux). The Mono build and the GitHub CI did not run it.
 - More monitors, other DPI, Windows 10, a real screen reader (only the UI Automation names), the recording tray icon in the real tray, the Mono build and the GitHub CI.
 
 **Seen, not changed (Bran decides):**
@@ -1353,7 +1357,7 @@ The first runs gave more FAIL rows. All of them were driver faults (for example:
 - UI Automation gives some Settings panels the text of a nearby label as their name (WinForms). A screen reader can read wrong names for these panels.
 - After Ctrl+Tab, the selected page in the Settings navigation has a black keyboard focus frame.
 
-**Test recordings (not deleted):** `C:\Users\Bran\Recordings\live-test-2026-11-22`: 31 ZIP files, 5 MP4 files (MP4-only tests), the folder `desktop_2026-11-22_21-43-44` (failed ZIP test; the folder stays by design) and `desktop_2026-11-22_21-43-44.zip.tmp` (left by the failed ZIP before fix 6), 17.4 MB in all. Scratch: `%TEMP%\svr-live-all` (driver, logs, screenshots, `paste-target-A9` with 3 pasted ZIPs).
+**Test recordings (not deleted):** `C:\Users\Bran\Recordings\live-test-2026-11-22`: 32 ZIP files, 5 MP4 files (MP4-only tests), the folders `desktop_2026-11-22_21-43-44` and `desktop_2026-11-22_22-22-40` (failed ZIP tests; the folder stays by design) and `desktop_2026-11-22_21-43-44.zip.tmp` (left by the failed ZIP before fix 6), 18.2 MB in all. Scratch: `%TEMP%\svr-live-all` (driver, logs, screenshots, `paste-target-A9` with 3 pasted ZIPs).
 
 **Restore at the end (checked):** the test exe exited through its tray menu; `settings.txt` is equal to the backup; the Run entry points at `%LOCALAPPDATA%\Programs\DesktopRecorder\DesktopRecorder.exe` again (the Settings test had changed it); `AppsUseLightTheme` = 1; `IsPromoted` of the test exe removed; the test Chrome profile closed; the installed app runs (tray icon "Desktop Recorder: stopped"). Restore script: `%TEMP%\svr-live-all\restore.ps1`.
 
