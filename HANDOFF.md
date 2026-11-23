@@ -1368,6 +1368,15 @@ The first runs gave more FAIL rows. All of them were driver faults (for example:
 3. Decide the points under "Seen, not changed".
 4. Approve the deletion of the test folder and `%TEMP%\svr-live-all` when they are no longer needed, then decide push, merge and release of `zip-only`.
 
+### 7.23 Install of the zip-only build on Bran's PC (2026-11-22, 22:50)
+
+- Bran: "Install it" (after the live test in 7.22).
+- 18:28: the build of 2669732 (ZIP only and the 7.19 fixes) was installed first. The 3.0.1 exe is kept as `DesktopRecorder-3.0.1-backup.exe`.
+- 22:50: installed `DesktopRecorder-zip.exe`, the exe that the live test in 7.22 used (SHA-256 starts with 7BEA53A7A4433864), as `%LOCALAPPDATA%\Programs\DesktopRecorder\DesktopRecorder.exe`. The 2669732 build is kept as `DesktopRecorder-2669732-backup.exe`.
+- Checked: no ffmpeg process ran before the swap; the app runs from that path and responds; the Run entry points at it.
+- Checked by Bran before the install, with the 2669732 build: real recordings gave one ZIP and no folder; a note was in the ZIP; the motion warning showed for a Twitch stream; the transcript kept real speech.
+- Not checked: a recording with the 7BEA53A7 build after the install; a paste of the ZIP into a Claude chat or cloud session. Not released, not pushed.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.
