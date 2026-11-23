@@ -112,8 +112,13 @@ static class AiCaptureTests
                 Expect(z.Entries.Count == 3, "ZIP has 3 entries");
                 foreach (System.IO.Compression.ZipArchiveEntry e in z.Entries)
                 {
+                    // Mono's ZipArchive compresses an entry also with CompressionLevel.NoCompression
+                    // (Build workflow on Linux, 2026-11-22). The app runs on .NET Framework, so check it there only.
                     if (e.FullName.EndsWith(".png") || e.FullName.EndsWith(".mp4"))
-                        Expect(e.CompressedLength >= e.Length, "stored without compression: " + e.FullName);
+                    {
+                        if (Type.GetType("Mono.Runtime") == null)
+                            Expect(e.CompressedLength >= e.Length, "stored without compression: " + e.FullName);
+                    }
                     else
                         Expect(e.CompressedLength < e.Length / 4, "text is compressed: " + e.FullName);
                     Expect(e.FullName.StartsWith("desktop_test/", StringComparison.Ordinal), "entry is in the folder: " + e.FullName);
