@@ -1376,6 +1376,7 @@ The first runs gave more FAIL rows. All of them were driver faults (for example:
 - 22:50: installed `DesktopRecorder-zip.exe`, the exe that the live test in 7.22 used (SHA-256 starts with 7BEA53A7A4433864), as `%LOCALAPPDATA%\Programs\DesktopRecorder\DesktopRecorder.exe`. The 2669732 build is kept as `DesktopRecorder-2669732-backup.exe`.
 - Checked: no ffmpeg process ran before the swap; the app runs from that path and responds; the Run entry points at it.
 - Checked by Bran before the install, with the 2669732 build: real recordings gave one ZIP and no folder; a note was in the ZIP; the motion warning showed for a Twitch stream; the transcript kept real speech.
+- 23:12: installed the build of 6f336e6 (7.24, no "record when the app starts" setting; SHA-256 starts with 9FF36ADA9EAB8C54). The 7BEA53A7 build is kept as `DesktopRecorder-7BEA53A7-backup.exe`. Checked: unit tests `ok`, the app runs from the install path and responds.
 - Not checked: a recording with the 7BEA53A7 build after the install; a paste of the ZIP into a Claude chat or cloud session. Not released, not pushed.
 
 ### 7.24 Remove "Record when the app starts" (2026-11-22, branch `zip-only`, not pushed, not released)
