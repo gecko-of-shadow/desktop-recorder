@@ -542,9 +542,12 @@ static class Sounds
 {
     static readonly System.Media.SoundPlayer startSound = Make(660, 880);
     static readonly System.Media.SoundPlayer stopSound = Make(880, 660);
+    // Higher and shorter in pitch than start and stop: the ZIP is on the clipboard (Bran, 2026-11-22).
+    static readonly System.Media.SoundPlayer readySound = Make(1047, 1568);
 
     public static void PlayStart() { Play(startSound); }
     public static void PlayStop() { Play(stopSound); }
+    public static void PlayReady() { Play(readySound); }
 
     static void Play(System.Media.SoundPlayer player)
     {
@@ -681,6 +684,7 @@ class TrayApp : ApplicationContext
         menu.ApplyLook(NativeMethods.GetScaleForPoint(Cursor.Position));
         menu.CreateWindow();
         tray.ContextMenuStrip = menu.Strip;
+        busyTimer.Tick += delegate { BusyTick(); };
         clockTimer.Interval = 1000;
         clockTimer.Tick += delegate { menu.UpdateClock(MenuState()); };
         tray.DoubleClick += delegate { ShowSettings(); };
@@ -1021,6 +1025,7 @@ class TrayApp : ApplicationContext
         if (job != null && wait) job.NoNoteBox = true;
         // The note box does not wait for the pass, and the pass does not wait for the note box (Bran, 2026-11-19).
         if (job != null && !job.NoNoteBox) ShowNoteBox(job);
+        if (job != null) BeginZipWork(job, ZipStep.Stopping);
         stopping = true;
         if (job != null) passesRunning++;
         Refresh();
@@ -1040,7 +1045,7 @@ class TrayApp : ApplicationContext
                     ui.BeginInvoke((MethodInvoker)delegate
                     {
                         stopping = false;
-                        Refresh();
+                        SetStep(job, ZipStep.Frames);
                     });
                 }
                 catch (InvalidOperationException) { stopping = false; }
@@ -1162,6 +1167,13 @@ class TrayApp : ApplicationContext
         PassJob job = new PassJob();
         job.Input = input;
         job.Problem = problem;
+        // The pass reports its steps on its own thread; the indication runs on the UI thread.
+        input.Step = delegate(string step)
+        {
+            ZipStep next = step == AfterRecording.StepTranscript ? ZipStep.Transcript : ZipStep.Frames;
+            try { ui.BeginInvoke((MethodInvoker)delegate { SetStep(job, next); }); }
+            catch (InvalidOperationException) { }
+        };
         return job;
     }
 
@@ -1193,6 +1205,7 @@ class TrayApp : ApplicationContext
     {
         if (recordingFolder == null) return;
         PassJob job = CreateJob(problem);
+        BeginZipWork(job, ZipStep.Frames);
         // The Failed handler stopped the audio already.
         SetAudioInput(job.Input, recorder.LastAudio, recorder.ClockOffset);
         Stopwatch fromStop = Stopwatch.StartNew();
@@ -1238,6 +1251,7 @@ class TrayApp : ApplicationContext
         // Folder mode gives one ZIP only (Bran, 2026-11-22). The ZIP is made on a background thread.
         // Exit waits for it (passesRunning). The folder is deleted when the ZIP is done and the note box is closed.
         job.ZipPending++;
+        SetStep(job, ZipStep.Zip);
         MakeZipAsync(job, delegate(string error)
         {
             FinishPass(job, fromStop, r, text, error);
@@ -1270,7 +1284,8 @@ class TrayApp : ApplicationContext
                 {
                     passesRunning--;
                     job.ZipPending--;
-                    if (error == null) job.Zip = zip; else job.ZipError = error;
+                    // A good ZIP after a failed one clears the error, so the folder cleanup can run (review 2026-11-22).
+                    if (error == null) { job.Zip = zip; job.ZipError = null; } else job.ZipError = error;
                     done(error);
                     Refresh();
                     ExitIfDone();
@@ -1338,7 +1353,12 @@ class TrayApp : ApplicationContext
         bool copied = false;
         string zip = job.Zip;
         if (zipError != null) balloonText += "\nCould not make the ZIP. The folder stays: " + zipError;
-        if (settings.CopyToClipboard && zipError == null && zip != null)
+        // A newer recording that is still busy has its "wait" text on the clipboard: an older ZIP must not replace it.
+        bool newerBusy = indicatorJob != null && indicatorJob != job && ZipStatus.Busy(indicatorJob.Step);
+        string copyError = null;
+        if (settings.CopyToClipboard && zipError == null && zip != null && newerBusy)
+            copyError = "a newer recording is in progress.";
+        if (settings.CopyToClipboard && zipError == null && zip != null && !newerBusy)
         {
             try
             {
@@ -1352,7 +1372,20 @@ class TrayApp : ApplicationContext
                 Clipboard.SetDataObject(data, true);
                 copied = true;
             }
-            catch (Exception e) { balloonText += "\nCould not copy the ZIP to the clipboard: " + e.Message; }
+            catch (Exception e)
+            {
+                balloonText += "\nCould not copy the ZIP to the clipboard: " + e.Message;
+                copyError = e.Message;
+            }
+        }
+        // The "wait" text must not stay on the clipboard: replace it with the result.
+        if (job.PlaceholderSet && !copied && !newerBusy)
+        {
+            string reason = zipError != null ? "could not make the ZIP of the last recording: " + zipError
+                : copyError != null ? "could not copy the ZIP to the clipboard: " + copyError
+                : "did not copy the ZIP (the clipboard copy is off).";
+            try { Clipboard.SetDataObject(new DataObject(DataFormats.UnicodeText, "Desktop Recorder " + reason + (zip != null ? " ZIP: " + zip : "")), true, 3, 50); }
+            catch (Exception) { }
         }
         // Condition D (Bran, 2026-11-19): the time from Stop to "clipboard ready".
         job.SecondsFromStop = fromStop.Elapsed.TotalSeconds;
@@ -1362,6 +1395,110 @@ class TrayApp : ApplicationContext
         tray.ShowBalloonTip(5000, "Desktop Recorder",
             Shorten((copied ? "AI message and ZIP copied. Press Ctrl+V to paste.\n" : "Recording stopped.\n") + balloonText + ready),
             r.Ok && zipError == null ? ToolTipIcon.Info : ToolTipIcon.Warning);
+        // The indication: tray, note box and popup say "ready" (or the error), and the ready sound plays.
+        job.ZipCopied = copied;
+        job.CopyError = copyError;
+        job.ZipBytes = FileBytes(zip);
+        SetStep(job, zipError == null ? ZipStep.Ready : ZipStep.Failed);
+    }
+
+    static long FileBytes(string path)
+    {
+        try { return path != null && File.Exists(path) ? new FileInfo(path).Length : 0; }
+        catch (Exception) { return 0; }
+    }
+
+    // ------------------------------------------------------------ "busy, then ready" (Bran, 2026-11-22)
+
+    PassJob indicatorJob;            // the last recording in folder mode: the indication shows its state
+    ZipToast toast;
+
+    // Stop (or FFmpeg stopped by itself): the work for the ZIP starts.
+    void BeginZipWork(PassJob job, ZipStep step)
+    {
+        indicatorJob = job;
+        job.Step = step;
+        job.Region = recordingRegion;
+        // An early Ctrl+V must not paste the ZIP of the recording before (HANDOFF 7.21): until the new ZIP is on the
+        // clipboard, the clipboard has a short text that says to wait. Only when the clipboard copy is on: then the
+        // app replaces the clipboard a few seconds later in any case.
+        if (settings.CopyToClipboard)
+        {
+            try
+            {
+                Clipboard.SetDataObject(new DataObject(DataFormats.UnicodeText, ZipStatus.ClipboardPlaceholder), true, 3, 50);
+                job.PlaceholderSet = true;
+            }
+            catch (Exception) { }
+        }
+        UpdateIndicator();
+    }
+
+    void SetStep(PassJob job, ZipStep step)
+    {
+        if (job == null) return;
+        // A late step message of the pass must not take back "ready" or "failed".
+        if (!ZipStatus.Busy(job.Step) && ZipStatus.Busy(step) && step != ZipStep.Zip) return;
+        // "Ready" only when no ZIP is pending: a note saved during the first ZIP makes a second one (review 2026-11-22).
+        if (!ZipStatus.Busy(step) && job.ZipPending > 0) step = ZipStep.Zip;
+        bool nowReady = step == ZipStep.Ready && job.Step != ZipStep.Ready;
+        job.Step = step;
+        // The ready sound: not while the app closes, and not during a new recording (the loopback audio records it).
+        if (nowReady && settings.PlaySounds && !quitRequested && job == indicatorJob && !recorder.IsRecording)
+            Sounds.PlayReady();
+        if (job == indicatorJob) UpdateIndicator();
+    }
+
+    // Tray icon, tray menu and tooltip (Refresh), the line in the note box, and the popup.
+    void UpdateIndicator()
+    {
+        Refresh();
+        PassJob job = indicatorJob;
+        if (job == null) return;
+        bool busy = ZipStatus.Busy(job.Step);
+        if (job.NoteBox != null && !job.NoteBox.IsDisposed)
+            job.NoteBox.SetZipStatus(job.Step, ZipStatus.NoteText(job.Step, job.ZipBytes, job.ZipCopied, job.ZipUpdated, job.ZipError, job.CopyError));
+        // No popup while the app closes: ExitNow follows at once.
+        if (quitRequested) { CloseToast(); return; }
+        // The popup: while busy only when the note box is closed (the box shows it) and the user did not close the
+        // busy popup; always for ready and failed.
+        if (busy && (job.NoteBox != null || job.ToastDismissed)) { CloseToast(); return; }
+        ShowToast(job);
+    }
+
+    void ShowToast(PassJob job)
+    {
+        // Per-monitor DPI aware, like the note box (the thread can be system aware while Settings is open).
+        IntPtr oldDpi = NativeMethods.SetThreadDpiContext(NativeMethods.DpiContextPerMonitorAwareV2);
+        try
+        {
+            Rectangle area = job.Region.IsEmpty ? Screen.PrimaryScreen.WorkingArea : NativeMethods.GetMonitorWorkArea(job.Region);
+            if (toast == null || toast.IsDisposed || toast.WorkArea != area)
+            {
+                CloseToast();
+                float scale = NativeMethods.GetScaleForPoint(new Point(area.X + area.Width / 2, area.Y + area.Height / 2));
+                ZipToast created = new ZipToast(area, scale, Ui.CurrentPalette());
+                created.FormClosed += delegate
+                {
+                    if (created.ClosedByUser && indicatorJob != null && ZipStatus.Busy(indicatorJob.Step))
+                        indicatorJob.ToastDismissed = true;
+                };
+                toast = created;
+            }
+            toast.Set(job.Step, ZipStatus.PopupText(job.Step, job.ZipBytes, job.ZipCopied, job.ZipUpdated, job.CopyError),
+                ZipStatus.PopupDetail(job.Step, job.ZipError, job.CopyError));
+            if (!toast.Visible) toast.Show();
+        }
+        catch (Exception) { CloseToast(); }
+        finally { NativeMethods.RestoreThreadDpiContext(oldDpi); }
+    }
+
+    void CloseToast()
+    {
+        ZipToast t = toast;
+        toast = null;
+        if (t == null || t.IsDisposed) return;
+        try { t.Close(); t.Dispose(); } catch (Exception) { }
     }
 
     // Open note boxes. Exit waits until they are closed (a note with text asks first).
@@ -1393,10 +1530,14 @@ class TrayApp : ApplicationContext
                         // The ZIP path stays the same. Make the ZIP again, so that it has the note.
                         // The folder is deleted after this ZIP (TryCleanup).
                         job.ZipPending++;
+                        job.ZipUpdated = true;
+                        SetStep(job, ZipStep.Zip);
                         MakeZipAsync(job, delegate(string error)
                         {
                             if (error != null)
                                 tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("Cannot make the ZIP again, so it has no note. The folder stays: " + error), ToolTipIcon.Warning);
+                            job.ZipBytes = FileBytes(job.Zip);
+                            SetStep(job, error == null ? ZipStep.Ready : ZipStep.Failed);
                             TryCleanup(job);
                         });
                         if (!job.Result.Ok)
@@ -1414,12 +1555,16 @@ class TrayApp : ApplicationContext
             // The folder stays while the note box is open. Saved or closed, the box then lets the cleanup run.
             job.NoteOpen = true;
             openNotes.Add(form);
+            job.NoteBox = form;
             NoteForm closing = form;
             form.FormClosed += delegate
             {
                 openNotes.Remove(closing);
                 job.NoteOpen = false;
+                if (job.NoteBox == closing) job.NoteBox = null;
                 TryCleanup(job);
+                // The box showed the ZIP work. When it closes before the ZIP is ready, the popup takes over.
+                if (job == indicatorJob && ZipStatus.Busy(job.Step)) UpdateIndicator();
                 // The box was the last thing that Exit waited for.
                 if (quitRequested && !quitLoop) Quit();
             };
@@ -1614,6 +1759,11 @@ class TrayApp : ApplicationContext
         if (currentIconHandle != IntPtr.Zero) DestroyIcon(currentIconHandle);
         currentIcon = null;
         currentIconHandle = IntPtr.Zero;
+        busyTimer.Stop();
+        busyTimer.Dispose();
+        CloseToast();
+        tray.Icon = null;
+        DisposeBusyIcons();
         tray.Dispose();
         clockTimer.Stop();
         menu.Dispose();
@@ -1634,12 +1784,62 @@ class TrayApp : ApplicationContext
         s.HotkeyActive = hotkey.IsRegistered(SelectHotkeyId);
         s.HasLastZip = lastZipAvailable;
         s.LastResult = lastResult;
+        s.ZipBusy = indicatorJob != null && ZipStatus.Busy(indicatorJob.Step);
+        s.ZipStep = indicatorJob != null ? indicatorJob.Step : ZipStep.Ready;
         return s;
     }
 
     void UpdateMenu()
     {
         menu.Update(MenuState());
+    }
+
+    // The busy tray icon: 8 pictures, made once for each icon size, shown in turn by busyTimer.
+    readonly System.Windows.Forms.Timer busyTimer = new System.Windows.Forms.Timer();
+    Icon[] busyIcons;
+    IntPtr[] busyHandles;
+    int busyIconSize, busyFrame;
+
+    void ShowBusyIcon(int px)
+    {
+        if (busyIcons == null || busyIconSize != px)
+        {
+            DisposeBusyIcons();
+            busyIcons = new Icon[TrayIcons.BusyFrames];
+            busyHandles = new IntPtr[TrayIcons.BusyFrames];
+            for (int i = 0; i < busyIcons.Length; i++)
+                using (Bitmap bmp = TrayIcons.DrawBusy(px, i))
+                {
+                    busyHandles[i] = bmp.GetHicon();
+                    busyIcons[i] = Icon.FromHandle(busyHandles[i]);
+                }
+            busyIconSize = px;
+        }
+        tray.Icon = busyIcons[busyFrame % busyIcons.Length];
+        if (!busyTimer.Enabled)
+        {
+            busyTimer.Interval = 125;
+            busyTimer.Start();
+        }
+    }
+
+    void BusyTick()
+    {
+        if (busyIcons == null) return;
+        busyFrame++;
+        tray.Icon = busyIcons[busyFrame % busyIcons.Length];
+    }
+
+    void DisposeBusyIcons()
+    {
+        if (busyIcons == null) return;
+        for (int i = 0; i < busyIcons.Length; i++)
+        {
+            if (busyIcons[i] != null) busyIcons[i].Dispose();
+            if (busyHandles[i] != IntPtr.Zero) DestroyIcon(busyHandles[i]);
+        }
+        busyIcons = null;
+        busyHandles = null;
     }
 
     void Refresh()
@@ -1656,6 +1856,13 @@ class TrayApp : ApplicationContext
         // and a dot. Idle: light blue lines and a small dot. Recording: pink-to-blue brackets and a red dot.
         // Drawn at the real tray size, so the thin lines stay sharp (20 px at 125 %).
         int px = Math.Max(16, SystemInformation.SmallIconSize.Width);
+        // From Stop until the ZIP is on the clipboard: a turning arc (Bran, 2026-11-22).
+        if (!on && state.ZipBusy)
+        {
+            ShowBusyIcon(px);
+            return;
+        }
+        busyTimer.Stop();
         using (Bitmap bmp = TrayIcons.Draw(px, on))
         {
             IntPtr handle = bmp.GetHicon();
@@ -1781,6 +1988,47 @@ static class TrayIcons
         return bmp;
     }
 
+    public const int BusyFrames = 8;
+
+    // The "busy" icon (from Stop until the ZIP is on the clipboard): the idle brackets, a faint ring and a bright
+    // arc that turns by 45 degrees in each frame.
+    public static Bitmap DrawBusy(int size, int frame)
+    {
+        Bitmap bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.Clear(Color.Transparent);
+            float k = size / 16f;
+            bool small = size < 24;
+            float stroke = Math.Max(1f, (float)Math.Round(1.2f * k));
+            float glow = stroke * (small ? 2.2f : 2.6f);
+            int glowAlpha = small ? 40 : 60;
+            float inset = stroke / 2f + 1f;
+            float len = 4.2f * k;
+            float far = size - inset;
+            PointF[][] brackets =
+            {
+                new[] { new PointF(inset, inset + len), new PointF(inset, inset), new PointF(inset + len, inset) },
+                new[] { new PointF(far - len, inset), new PointF(far, inset), new PointF(far, inset + len) },
+                new[] { new PointF(inset, far - len), new PointF(inset, far), new PointF(inset + len, far) },
+                new[] { new PointF(far - len, far), new PointF(far, far), new PointF(far, far - len) },
+            };
+            foreach (PointF[] p in brackets) GlowLines(g, p, IdleBlue, stroke, glow, glowAlpha);
+            float c = size / 2f, ring = 4.3f * k;
+            RectangleF ringRect = new RectangleF(c - ring, c - ring, 2 * ring, 2 * ring);
+            float ringStroke = Math.Max(1.2f, 1.4f * k);
+            using (Pen faint = new Pen(Color.FromArgb(70, IdleBlue), ringStroke)) g.DrawEllipse(faint, ringRect);
+            using (Pen arc = new Pen(Blue, ringStroke * 1.15f))
+            {
+                arc.StartCap = arc.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                g.DrawArc(arc, ringRect, -90f + frame * (360f / BusyFrames), 110f);
+            }
+        }
+        return bmp;
+    }
+
     // Draws a wide, half-transparent copy of the line (the glow), then the line itself.
     static void GlowLines(Graphics g, PointF[] points, Color color, float stroke, float glow, int glowAlpha)
     {
@@ -1813,4 +2061,14 @@ sealed class PassJob
     public bool NoteOpen;            // the note box is open: the folder stays
     public bool Cleaning, Cleaned;   // the folder is being deleted, or is deleted
     public bool NoNoteBox;           // Quit: no note box
+    // The "busy, then ready" indication (UI thread only, Bran 2026-11-22):
+    public ZipStep Step = ZipStep.Stopping;
+    public long ZipBytes;            // the size of the ZIP when it is ready
+    public bool ZipCopied;           // the ZIP is on the clipboard
+    public bool ZipUpdated;          // the ZIP was made again with a late note
+    public NoteForm NoteBox;         // the open note box of this recording, or null
+    public Rectangle Region;         // the recording region (the popup shows on its monitor); empty = whole desktop
+    public bool PlaceholderSet;      // the "wait" text went on the clipboard at Stop
+    public bool ToastDismissed;      // the user closed the busy popup: show it again only for ready or failed
+    public string CopyError;         // why the ready ZIP is not on the clipboard, or null
 }

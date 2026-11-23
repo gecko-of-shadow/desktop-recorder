@@ -40,6 +40,8 @@ sealed class AfterRecordingInput
     public string WhisperReason;             // why Whisper is null
     public string WhisperLanguage = "auto";
     public bool AudioIntoKeptWorkFile = true;  // false in the test tool: it must not change its input file
+    // Called on the pass thread when a step starts (StepFrames, StepTranscript), for the "busy" indication. Can be null.
+    public Action<string> Step;
 }
 
 sealed class AfterRecordingResult
@@ -73,6 +75,15 @@ static class AfterRecording
     public const string WorkFileName = "work_lossless.mp4";
     public const string ClipFileName = "clip.mp4";
     public const string IndexFileName = "index.md";
+    public const string StepFrames = "frames";
+    public const string StepTranscript = "transcript";
+
+    static void ReportStep(AfterRecordingInput input, string step)
+    {
+        Action<string> handler = input.Step;
+        if (handler == null) return;
+        try { handler(step); } catch (Exception) { }
+    }
 
     public static AfterRecordingResult Run(AfterRecordingInput input)
     {
@@ -80,6 +91,7 @@ static class AfterRecording
         r.ClipPath = Path.Combine(input.Folder, ClipFileName);
         r.IndexPath = Path.Combine(input.Folder, IndexFileName);
         Stopwatch watch = Stopwatch.StartNew();
+        ReportStep(input, StepFrames);
         try
         {
             Analyze(input, r);
@@ -105,6 +117,7 @@ static class AfterRecording
             // The transcript comes last. A missing or failed Whisper never makes the pass fail.
             if (r.AudioRecorded)
             {
+                ReportStep(input, StepTranscript);
                 MakeTranscript(input, r);
                 WriteIndex(input, r, null);
             }

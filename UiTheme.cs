@@ -15,7 +15,7 @@ sealed class UiPalette
     public Color Text, TextSecondary, TextDisabled;
     public Color Accent, AccentHover, AccentPressed, AccentText;
     public Color ControlFill, ControlHover, ControlPressed, ControlBorder;
-    public Color Selection, Danger, Caution;
+    public Color Selection, Danger, Caution, Success;
 
     // Colors after the Windows 11 (Fluent) light and dark themes, with the default Windows blue accent.
     public static UiPalette Light()
@@ -25,7 +25,7 @@ sealed class UiPalette
         p.Text = Rgb(0x1B1B1B); p.TextSecondary = Rgb(0x5D5D5D); p.TextDisabled = Rgb(0x9E9E9E);
         p.Accent = Rgb(0x005FB8); p.AccentHover = Rgb(0x1A6FC0); p.AccentPressed = Rgb(0x3380C8); p.AccentText = Color.White;
         p.ControlFill = Rgb(0xFEFEFE); p.ControlHover = Rgb(0xF5F5F5); p.ControlPressed = Rgb(0xEDEDED); p.ControlBorder = Rgb(0xCFCFCF);
-        p.Selection = Rgb(0xE8E8E8); p.Danger = Rgb(0xC42B1C); p.Caution = Rgb(0x9D5D00);
+        p.Selection = Rgb(0xE8E8E8); p.Danger = Rgb(0xC42B1C); p.Caution = Rgb(0x9D5D00); p.Success = Rgb(0x0F7B0F);
         return p;
     }
 
@@ -37,7 +37,7 @@ sealed class UiPalette
         p.Text = Color.White; p.TextSecondary = Rgb(0xC8C8C8); p.TextDisabled = Rgb(0x7A7A7A);
         p.Accent = Rgb(0x60CDFF); p.AccentHover = Rgb(0x5AB8E6); p.AccentPressed = Rgb(0x4FA3CC); p.AccentText = Color.Black;
         p.ControlFill = Rgb(0x2D2D2D); p.ControlHover = Rgb(0x333333); p.ControlPressed = Rgb(0x282828); p.ControlBorder = Rgb(0x454545);
-        p.Selection = Rgb(0x383838); p.Danger = Rgb(0xFF99A4); p.Caution = Rgb(0xFCE100);
+        p.Selection = Rgb(0x383838); p.Danger = Rgb(0xFF99A4); p.Caution = Rgb(0xFCE100); p.Success = Rgb(0x6CCB5F);
         return p;
     }
 
@@ -109,6 +109,9 @@ static class Ui
     public const string GlyphKeyboard = "";
     public const string GlyphRobot = "";
     public const string GlyphPower = "";
+
+    public const string GlyphCheck = "";
+    public const string GlyphWarning = "";
 
     public static int S(float scale, int epx)
     {
@@ -182,6 +185,19 @@ static class Ui
         try
         {
             int corner = DWMWCP_ROUNDSMALL;
+            DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, 4);
+            int colorRef = border.R | (border.G << 8) | (border.B << 16);
+            DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref colorRef, 4);
+        }
+        catch (Exception) { }
+    }
+
+    // Rounded corners (the normal radius) and the border color for a popup window (Windows 11; Windows 10 ignores it).
+    public static void PopupCorners(IntPtr hwnd, Color border)
+    {
+        try
+        {
+            int corner = 2;   // DWMWCP_ROUND
             DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, 4);
             int colorRef = border.R | (border.G << 8) | (border.B << 16);
             DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref colorRef, 4);
@@ -406,6 +422,60 @@ sealed class ToggleSwitch : CheckBox
             Rectangle ring = Rectangle.Inflate(track, Ui.S(scale, 3), Ui.S(scale, 3));
             Ui.FocusRing(g, ring, ring.Height / 2f, palette.Text, scale);
         }
+    }
+}
+
+// An indeterminate progress bar (Microsoft: use one when the time of the work is not known): a short accent part
+// that moves along a thin track while Running is true.
+sealed class BusyBar : Control
+{
+    readonly Timer timer = new Timer();
+    UiPalette palette = UiPalette.Light();
+    float position = 0.3f;   // the start of the moving part, as a part of the width
+
+    public BusyBar()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        TabStop = false;
+        timer.Interval = 30;
+        timer.Tick += delegate
+        {
+            position += 0.025f;
+            if (position > 1f) position = -0.4f;
+            Invalidate();
+        };
+    }
+
+    public void Style(UiPalette p, Color back)
+    {
+        palette = p;
+        BackColor = back;
+        Invalidate();
+    }
+
+    public bool Running
+    {
+        get { return timer.Enabled; }
+        set { if (value) timer.Start(); else timer.Stop(); Invalidate(); }
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(BackColor);
+        int h = Math.Max(2, Height);
+        Rectangle track = new Rectangle(0, (Height - h) / 2, Width, h);
+        Ui.Box(g, track, h / 2f, palette.ControlBorder, Color.Empty);
+        int part = Math.Max(h, (int)(Width * 0.4f));
+        int x = (int)(position * Width);
+        Rectangle moving = Rectangle.Intersect(track, new Rectangle(x, track.Y, part, h));
+        if (moving.Width > 0) Ui.Box(g, moving, h / 2f, palette.Accent, Color.Empty);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) timer.Dispose();
+        base.Dispose(disposing);
     }
 }
 

@@ -6,6 +6,11 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ## [Unreleased]
 
+### Added
+
+- Windows, folder mode: a "busy, then ready" indication for the ZIP (Bran, 2026-11-22). From Stop until the ZIP is on the clipboard, the tray icon turns, and the tray menu, the tooltip and the note box show "Making the ZIP... (step: frames)" (then transcript, then ZIP). A small popup at the bottom of the screen shows the same when the note box is closed. When the ZIP is ready, the note box and the popup say "ZIP ready: Ctrl+V to paste" with the size, and a short ready sound plays when "Play sounds" is on. A failed ZIP shows the reason. The popup does not take the focus, is not in the video, and closes after 4 s or with a click.
+- Windows, folder mode: when "Copy to the clipboard" is on, the clipboard gets a "still making the ZIP, wait" text at Stop, so an early Ctrl+V does not paste the recording before.
+
 ### Changed
 
 - Windows, note box after Stop (Bran, 2026-11-22): it opens in the middle of the monitor of the recording, larger, with a title, a line that says what the note is for, the recording name and length, and a text box with several lines. "Save note" (default) and "No note". Enter saves; Shift+Enter or Ctrl+Enter starts a new line (`index.md` still shows the note on one line). Esc, the X button, Alt+F4 and "No note" close an empty box at once. When the box has text, they ask "Save this note?" in the box: Save, Discard or Back. Exit in the tray menu asks the same question, and Back cancels the Exit. A Windows shutdown saves the text. The box stays on top, is in the taskbar, does not close when it loses the focus, and flashes its taskbar button when it opens without the focus. It follows the app theme (light or dark).
@@ -22,6 +27,7 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ### Fixed
 
+- Windows, folder mode: a good ZIP after a failed ZIP (for example after a note) now lets the app delete the recording folder. Before, the folder stayed.
 - Windows, transcript: the app leaves out rows that Whisper wrote on silent or almost silent audio, for example "Thank you." (seen in three recordings by Bran on 2026-11-22). The app measures the sound in the time of each row: a row with sound in less than 10% of its time and for less than 1 s is left out, and a known Whisper text for silence in a long row (10 s or more, or most of a short recording) needs sound in half of its time. `index.md` gives the number of rows that the app left out. When no row is left, it says "No speech was found", and the folder has no `transcript.srt`. The whisper.cpp options for silence did not stop these rows on the test PC, and Silero VAD also removed quiet real speech, so the app does not use them.
 - Windows, folder mode: a moving mouse pointer no longer gives the warning "the picture changed during N% of the recording". Only a frame pair with a large change counts as moving content: 96 px or more on the short side of one connected changed area (half the short side of the region, when the region is smaller), or many small changed parts that together cover 96 x 96 px or more. The area in the warning now covers only that moving content. The frame rules are not changed.
 
@@ -31,6 +37,7 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ### Notes
 
+- ZIP indication: built, unit tested, drawn offscreen and reviewed (HANDOFF 7.21). Not tested on the screen.
 - UI redesign (note box, Settings, tray menu): built and unit tested, and drawn offscreen at 100%, 125% and 150% (HANDOFF 7.20). Not tested: the windows on the screen, the keys, the mouse, Windows dark mode, and a real recording with this build.
 - Tested on one PC: unit tests, the app build, and the ZIP file made from a test folder. Not tested: a real recording with this build, the note box with a late note, a paste of the ZIP into a chat app or a Claude cloud session, and the Settings window at 125%.
 - Transcript and motion fixes: tested offline on the same PC with the `clip.mp4` files of three real recordings and with synthetic test videos (HANDOFF 7.19). Not tested: a real recording with this build.

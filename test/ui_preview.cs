@@ -31,6 +31,7 @@ static class UiPreview
         float[] scales = { 1f, 1.25f, 1.5f };
         foreach (float s in scales) NotePreviews(s);
         Previews2(scales);
+        ZipPreviews(scales);
         Console.WriteLine(problems == 0 ? "preview ok" : problems + " problems");
         return problems == 0 ? 0 : 1;
     }
@@ -344,5 +345,68 @@ static class UiPreview
         s.HotkeyText = "Win+Shift+D";
         s.HotkeyActive = true;
         return s;
+    }
+
+    // The "busy, then ready" indication of the ZIP (HANDOFF 7.21): note box line, popup, tray menu, busy icon.
+    static void ZipPreviews(float[] scales)
+    {
+        long bytes = 35337011;   // 33.7 MB
+        Rectangle area = new Rectangle(0, 0, 1920, 1032);
+        foreach (float s in scales)
+        {
+            foreach (bool dark in new[] { false, true })
+            {
+                UiPalette p = dark ? UiPalette.DarkPalette() : UiPalette.Light();
+                string tag = Pct(s) + "-" + (dark ? "dark" : "light");
+                using (NoteForm f = new NoteForm("desktop_2026-11-22_19-40-12", 30.2, area, s, 0, p))
+                {
+                    f.SetZipStatus(ZipStep.Transcript, ZipStatus.NoteText(ZipStep.Transcript, 0, true, false, null));
+                    Render(f, "note-zip-busy-" + tag);
+                    f.SetZipStatus(ZipStep.Ready, ZipStatus.NoteText(ZipStep.Ready, bytes, true, false, null));
+                    Render(f, "note-zip-ready-" + tag);
+                    f.SetZipStatus(ZipStep.Failed, ZipStatus.NoteText(ZipStep.Failed, 0, true, false, "Access to the path is denied."));
+                    Render(f, "note-zip-failed-" + tag);
+                }
+                using (ZipToast t = new ZipToast(area, s, p))
+                {
+                    t.Set(ZipStep.Frames, ZipStatus.PopupText(ZipStep.Frames, 0, true, false), ZipStatus.PopupDetail(ZipStep.Frames, null));
+                    Render(t, "toast-busy-" + tag);
+                    t.Set(ZipStep.Ready, ZipStatus.PopupText(ZipStep.Ready, bytes, true, false), ZipStatus.PopupDetail(ZipStep.Ready, null));
+                    Render(t, "toast-ready-" + tag);
+                    t.Set(ZipStep.Failed, ZipStatus.PopupText(ZipStep.Failed, 0, true, false), ZipStatus.PopupDetail(ZipStep.Failed, "Not enough space on the disk."));
+                    Render(t, "toast-failed-" + tag);
+                    if (t.Bottom > area.Bottom || t.Left < area.Left || t.Right > area.Right) Problem("toast-" + tag + ": outside the work area " + t.Bounds);
+                }
+                using (TrayMenu menu = new TrayMenu())
+                {
+                    menu.ApplyLook(s, p);
+                    menu.CreateWindow();
+                    TrayState z = MenuState(TrayPhase.Processing);
+                    z.ZipBusy = true;
+                    z.ZipStep = ZipStep.Transcript;
+                    z.LastResult = "Last recording: Frames: 7. clip.mp4: 4.10 MB. Ready 6.2 s after Stop.";
+                    menu.Update(z);
+                    Render(menu.Strip, "tray-zip-" + tag);
+                }
+            }
+        }
+        // The 8 frames of the busy tray icon at 20 px (125%), 4 times larger, on a dark and a light taskbar color.
+        int px = 20, zoom = 4, n = TrayIcons.BusyFrames;
+        using (Bitmap sheet = new Bitmap(n * (px * zoom + 8) + 8, 2 * (px * zoom + 8) + 8))
+        using (Graphics g = Graphics.FromImage(sheet))
+        {
+            g.Clear(Color.White);
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+            for (int row = 0; row < 2; row++)
+                for (int i = 0; i < n; i++)
+                    using (Bitmap icon = TrayIcons.DrawBusy(px, i))
+                    {
+                        Rectangle r = new Rectangle(8 + i * (px * zoom + 8), 8 + row * (px * zoom + 8), px * zoom, px * zoom);
+                        using (SolidBrush b = new SolidBrush(row == 0 ? Color.FromArgb(32, 32, 32) : Color.FromArgb(243, 243, 243))) g.FillRectangle(b, r);
+                        g.DrawImage(icon, r);
+                    }
+            sheet.Save(Path.Combine(outDir, "tray-icon-busy-20.png"), ImageFormat.Png);
+        }
     }
 }

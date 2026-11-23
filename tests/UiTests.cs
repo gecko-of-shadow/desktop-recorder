@@ -35,6 +35,7 @@ static class UiTests
         TestTrayPhase();
         TestTrayEntries();
         TestTrayText();
+        TestZipStatus();
         return failures;
     }
 
@@ -247,6 +248,64 @@ static class UiTests
         taken.HotkeyActive = false;
         Expect(TrayModel.Entries(taken)[0].Shortcut == null, "no hotkey text when the hotkey is off");
         Expect(TrayModel.StatusDetail(taken).Contains("another program"), "status says the hotkey is taken");
+    }
+
+    static void TestZipStatus()
+    {
+        ZipStep[] busy = { ZipStep.Stopping, ZipStep.Frames, ZipStep.Transcript, ZipStep.Zip };
+        foreach (ZipStep z0 in busy)
+        {
+            Expect(ZipStatus.Busy(z0), "busy: " + z0);
+            ExpectEqual(ZipStatus.BusyText(z0), "Making the ZIP... (step: " + ZipStatus.StepName(z0) + ")", "busy text: " + z0);
+            ExpectEqual(ZipStatus.NoteText(z0, 0, true, false, null), ZipStatus.BusyText(z0), "note busy: " + z0);
+            Expect(ZipStatus.PopupSeconds(z0) == 0, "busy popup stays: " + z0);
+            ExpectEqual(ZipStatus.PopupDetail(z0, null), ZipStatus.WaitText, "busy popup detail: " + z0);
+        }
+        ExpectEqual(ZipStatus.StepName(ZipStep.Frames), "frames", "step frames");
+        ExpectEqual(ZipStatus.StepName(ZipStep.Transcript), "transcript", "step transcript");
+        ExpectEqual(ZipStatus.StepName(ZipStep.Zip), "ZIP", "step zip");
+        Expect(!ZipStatus.Busy(ZipStep.Ready) && !ZipStatus.Busy(ZipStep.Failed), "ready and failed are not busy");
+        long bytes = 35337011;   // 33.7 MB, the Twitch ZIP of 2026-11-22
+        ExpectEqual(ZipStatus.Megabytes(bytes), "33.7 MB", "megabytes");
+        ExpectEqual(ZipStatus.Megabytes(-5), "0.0 MB", "megabytes negative");
+        ExpectEqual(ZipStatus.NoteText(ZipStep.Ready, bytes, true, false, null), "ZIP ready. Press Ctrl+V to paste (33.7 MB).", "note ready");
+        Expect(ZipStatus.NoteText(ZipStep.Ready, bytes, false, false, null).Contains("clipboard copy is off"), "note ready, no copy");
+        Expect(ZipStatus.NoteText(ZipStep.Ready, bytes, true, true, null).StartsWith("ZIP with your note ready"), "note ready after a note");
+        Expect(ZipStatus.NoteText(ZipStep.Failed, 0, true, false, "disk full").Contains("disk full"), "note failed has the error");
+        ExpectEqual(ZipStatus.PopupText(ZipStep.Ready, bytes, true, false), "ZIP ready: Ctrl+V to paste (33.7 MB)", "popup ready");
+        Expect(!ZipStatus.PopupText(ZipStep.Ready, bytes, false, false).Contains("Ctrl+V"), "popup ready, no copy: no Ctrl+V");
+        ExpectEqual(ZipStatus.PopupText(ZipStep.Failed, 0, true, false), "Could not make the ZIP", "popup failed");
+        Expect(ZipStatus.PopupDetail(ZipStep.Failed, "disk full").Contains("disk full"), "popup failed detail");
+        Expect(ZipStatus.PopupDetail(ZipStep.Ready, null) == null, "popup ready has no detail");
+        Expect(ZipStatus.PopupSeconds(ZipStep.Ready) == 4 && ZipStatus.PopupSeconds(ZipStep.Failed) > 4, "popup times");
+        Expect(ZipStatus.ClipboardPlaceholder.Contains("ZIP ready"), "placeholder says what to wait for");
+        // A ready ZIP that is not on the clipboard says why, and where to get it.
+        string ne = ZipStatus.NoteText(ZipStep.Ready, bytes, false, false, null, "the clipboard is in use.");
+        Expect(ne.Contains("not on the clipboard") && ne.Contains("Copy ZIP of last recording"), "note copy error");
+        Expect(!ne.Contains("off in Settings"), "note copy error does not blame Settings");
+        Expect(ZipStatus.PopupText(ZipStep.Ready, bytes, false, false, "x").Contains("not on the clipboard"), "popup copy error");
+        Expect(ZipStatus.PopupDetail(ZipStep.Ready, null, "x").Contains("Copy ZIP of last recording"), "popup copy error detail");
+        // Tray: the ZIP work shows when the app does not record and does not close.
+        TrayState s = State(TrayPhase.Processing);
+        s.ZipBusy = true;
+        s.ZipStep = ZipStep.Transcript;
+        ExpectEqual(TrayModel.StatusTitle(s), "Making the ZIP... (step: transcript)", "tray title zip");
+        ExpectEqual(TrayModel.StatusDetail(s), ZipStatus.WaitText, "tray detail zip");
+        ExpectEqual(TrayModel.Tooltip(s), "Desktop Recorder: making the ZIP (transcript)", "tray tooltip zip");
+        s.Phase = TrayPhase.Stopping;
+        s.ZipStep = ZipStep.Stopping;
+        ExpectEqual(TrayModel.StatusTitle(s), "Making the ZIP... (step: stopping)", "tray title stopping");
+        s.Phase = TrayPhase.Recording;
+        Expect(TrayModel.StatusTitle(s).StartsWith("Recording"), "a new recording wins over the ZIP");
+        s.Phase = TrayPhase.Exiting;
+        Expect(TrayModel.StatusTitle(s).StartsWith("Closing"), "closing wins over the ZIP");
+        foreach (ZipStep z in busy)
+        {
+            TrayState t = State(TrayPhase.Processing);
+            t.ZipBusy = true;
+            t.ZipStep = z;
+            Expect(TrayModel.Tooltip(t).Length <= TrayModel.TooltipMax, "zip tooltip fits: " + z);
+        }
     }
 
     static void TestTrayText()

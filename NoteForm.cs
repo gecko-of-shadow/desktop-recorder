@@ -16,6 +16,10 @@ sealed class NoteForm : Form
     readonly UiPalette palette;
     readonly UiFonts fonts;
     readonly Label title, intro, recording, hint, question, questionDetail;
+    // The "busy, then ready" line of the ZIP (Bran, 2026-11-22): a busy bar, or a mark, and the text.
+    readonly Label zipGlyph, zipText;
+    readonly BusyBar zipBar = new BusyBar();
+    int padX, innerWidth;
     readonly TextFrame frame = new TextFrame();
     readonly FluentButton save = new FluentButton(), noNote = new FluentButton();
     readonly FluentButton answerSave = new FluentButton(), answerDiscard = new FluentButton(), answerBack = new FluentButton();
@@ -50,6 +54,12 @@ sealed class NoteForm : Form
         title = Ui.Text(this, NoteRules.Title, fonts.Subtitle, palette.Text, palette.Window, 0, 0, 10);
         intro = Ui.Text(this, NoteRules.Intro, fonts.Body, palette.TextSecondary, palette.Window, 0, 0, 10);
         recording = Ui.Text(this, NoteRules.RecordingLine(recordingName, seconds) ?? "", fonts.Caption, palette.TextSecondary, palette.Window, 0, 0, 10);
+        zipGlyph = Ui.Text(this, Ui.GlyphCheck, fonts.Icons ?? fonts.Body, palette.Success, palette.Window, 0, 0, 10);
+        zipText = Ui.Text(this, ZipStatus.BusyText(ZipStep.Stopping), fonts.Body, palette.TextSecondary, palette.Window, 0, 0, 10);
+        zipText.AutoEllipsis = true;
+        zipBar.Style(palette, palette.Window);
+        Controls.Add(zipBar);
+        zipGlyph.Visible = false;
         hint = Ui.Text(this, NoteRules.Hint, fonts.Caption, palette.TextSecondary, palette.Window, 0, 0, 10);
         question = Ui.Text(this, NoteRules.Question, fonts.BodyStrong, palette.Text, palette.Window, 0, 0, 10);
         questionDetail = Ui.Text(this, "", fonts.Body, palette.Text, palette.Window, 0, 0, 10);
@@ -84,6 +94,25 @@ sealed class NoteForm : Form
         ResumeLayout(false);
     }
 
+    // Shows the state of the ZIP work. text comes from ZipStatus.NoteText.
+    public void SetZipStatus(ZipStep step, string text)
+    {
+        bool busy = ZipStatus.Busy(step);
+        bool failed = step == ZipStep.Failed;
+        zipBar.Visible = busy;
+        zipBar.Running = busy;
+        bool mark = !busy && fonts.Icons != null;
+        zipGlyph.Visible = mark;
+        zipGlyph.Text = failed ? Ui.GlyphWarning : Ui.GlyphCheck;
+        zipGlyph.ForeColor = failed ? palette.Danger : palette.Success;
+        zipText.Font = busy ? fonts.Body : fonts.BodyStrong;
+        zipText.ForeColor = failed ? palette.Danger : busy ? palette.TextSecondary : palette.Text;
+        zipText.Text = text ?? "";
+        zipText.AccessibleName = zipText.Text;
+        int x = padX + (busy ? S(68) : mark ? S(34) : 0);
+        zipText.SetBounds(x, zipText.Top, innerWidth - (x - padX), zipText.Height);
+    }
+
     void SetUpButton(FluentButton b, string text, bool accent, EventHandler click)
     {
         b.Text = text;
@@ -103,6 +132,15 @@ sealed class NoteForm : Form
         Place(title, pad, ref y, inner, S(8));
         Place(intro, pad, ref y, inner, S(12));
         if (hasRecordingLine) Place(recording, pad, ref y, inner, S(8));
+        // The ZIP line: room for two lines of text, so the box does not grow when the text changes.
+        padX = pad;
+        innerWidth = inner;
+        int lineH = Ui.Measure("Ag", fonts.Body, inner).Height;
+        int rowH = Ui.Measure("Ag\nAg", fonts.BodyStrong, inner).Height;
+        zipBar.SetBounds(pad, y + (lineH - S(4)) / 2, S(56), S(4));
+        zipGlyph.SetBounds(pad, y, S(28), lineH);
+        zipText.SetBounds(pad + S(68), y, inner - S(68), rowH);
+        y += rowH + S(8);
         frame.Place(pad, y, inner, S(132));
         y += S(132) + S(10);
         int hintTop = y;
@@ -319,5 +357,138 @@ sealed class NoteForm : Form
         askedFor = trigger;
         questionDetail.Text = NoteRules.QuestionDetail(trigger);
         SetMode(true);
+    }
+}
+
+// The small popup at the bottom center of the monitor of the recording (Bran, 2026-11-22). While the work runs and
+// the note box is closed: "Making the ZIP... (step: ...)". When the ZIP is on the clipboard: "ZIP ready: Ctrl+V to
+// paste (33.7 MB)" for 4 s. It does not take the focus (WS_EX_NOACTIVATE), it stays on top, it is not in the video
+// (ExcludeFromCapture), and a click closes it. Tray balloons do not show on Bran's PC (HANDOFF 6.7), so the app does
+// not use them for this.
+sealed class ZipToast : Form
+{
+    public readonly Rectangle WorkArea;
+    public bool ClosedByUser;    // a click closed it
+    readonly UiPalette palette;
+    readonly UiFonts fonts;
+    readonly Label glyph, line, detail;
+    readonly BusyBar bar = new BusyBar();
+    readonly Timer closeTimer = new Timer();
+    const int WS_EX_TOPMOST = 0x00000008, WS_EX_TOOLWINDOW = 0x00000080, WS_EX_NOACTIVATE = 0x08000000;
+
+    // workArea: physical px (the popup is per-monitor DPI aware, like the note box). scale: the DPI scale there.
+    public ZipToast(Rectangle workArea, float scale, UiPalette palette)
+    {
+        WorkArea = workArea;
+        this.palette = palette;
+        fonts = new UiFonts(scale);
+        SuspendLayout();
+        AutoScaleMode = AutoScaleMode.None;
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        StartPosition = FormStartPosition.Manual;
+        Text = "Desktop Recorder";
+        BackColor = palette.Surface;
+        Font = fonts.Body;
+        glyph = Ui.Text(this, Ui.GlyphCheck, fonts.Icons ?? fonts.Body, palette.Success, palette.Surface, 0, 0, 10);
+        line = Ui.Text(this, "", fonts.BodyStrong, palette.Text, palette.Surface, 0, 0, 10);
+        detail = Ui.Text(this, "", fonts.Caption, palette.TextSecondary, palette.Surface, 0, 0, 10);
+        bar.Style(palette, palette.Surface);
+        Controls.Add(bar);
+        foreach (Control c in new Control[] { this, glyph, line, detail, bar })
+            c.MouseUp += delegate
+            {
+                ClosedByUser = true;
+                Close();
+            };
+        closeTimer.Tick += delegate
+        {
+            closeTimer.Stop();
+            Close();
+        };
+        ResumeLayout(false);
+    }
+
+    // Shown without the focus. TopMost is set with the window style, not with the TopMost property: the property
+    // calls SetWindowPos without SWP_NOACTIVATE and can take the focus.
+    protected override bool ShowWithoutActivation { get { return true; } }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+            return cp;
+        }
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        NativeMethods.ExcludeFromCapture(Handle);
+        Ui.PopupCorners(Handle, palette.SurfaceBorder);
+    }
+
+    int S(int epx) { return fonts.S(epx); }
+
+    // text and detailText come from ZipStatus.PopupText and PopupDetail. The popup closes by itself after
+    // ZipStatus.PopupSeconds (ready, failed), or stays (busy).
+    public void Set(ZipStep step, string text, string detailText)
+    {
+        bool busy = ZipStatus.Busy(step);
+        bool failed = step == ZipStep.Failed;
+        bar.Visible = busy;
+        bar.Running = busy;
+        bool mark = !busy && fonts.Icons != null;
+        glyph.Visible = mark;
+        glyph.Text = failed ? Ui.GlyphWarning : Ui.GlyphCheck;
+        glyph.ForeColor = failed ? palette.Danger : palette.Success;
+        line.Text = text ?? "";
+        line.ForeColor = failed ? palette.Danger : palette.Text;
+        detail.Text = detailText ?? "";
+        bool hasDetail = detail.Text.Length > 0;
+        detail.Visible = hasDetail;
+        AccessibleName = line.Text + (hasDetail ? ". " + detail.Text : "");
+        int pad = S(16), lead = busy ? S(56) + S(12) : mark ? S(28) + S(8) : 0;
+        int textW = Math.Max(TextRenderer.MeasureText(line.Text, line.Font).Width, S(220));
+        if (hasDetail) textW = Math.Max(textW, Math.Min(S(420), TextRenderer.MeasureText(detail.Text, detail.Font).Width));
+        textW = Math.Min(textW + S(4), Math.Max(S(220), WorkArea.Width - 2 * pad - lead - S(48)));
+        int lineH = Ui.Measure(line.Text, line.Font, textW).Height;
+        int detailH = hasDetail ? Ui.Measure(detail.Text, detail.Font, textW).Height : 0;
+        int y = S(12);
+        line.SetBounds(pad + lead, y, textW, lineH);
+        if (hasDetail) detail.SetBounds(pad + lead, y + lineH + S(2), textW, detailH);
+        int height = y + lineH + (hasDetail ? S(2) + detailH : 0) + S(12);
+        int firstLine = Ui.Measure("Ag", line.Font, textW).Height;
+        bar.SetBounds(pad, y + (firstLine - S(4)) / 2, S(56), S(4));
+        glyph.SetBounds(pad, y, S(28), firstLine);
+        ClientSize = new Size(pad + lead + textW + pad, height);
+        Location = new Point(WorkArea.X + (WorkArea.Width - Width) / 2, WorkArea.Bottom - Height - S(24));
+        int seconds = ZipStatus.PopupSeconds(step);
+        closeTimer.Stop();
+        if (seconds > 0)
+        {
+            closeTimer.Interval = seconds * 1000;
+            closeTimer.Start();
+        }
+        Invalidate();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        // A 1 px border, also where Windows does not round the corners (Windows 10).
+        using (Pen p = new Pen(palette.SurfaceBorder)) e.Graphics.DrawRectangle(p, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            closeTimer.Dispose();
+            fonts.Dispose();
+        }
+        base.Dispose(disposing);
     }
 }

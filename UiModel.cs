@@ -310,6 +310,111 @@ static class SettingsCatalog
     }
 }
 
+// ------------------------------------------------------------------------------------------------ ZIP status
+
+// The work after Stop in folder mode, in the order that it runs (Bran, 2026-11-22: "Some sort of indication that
+// the zip is being created would be helpful. So I don't try to paste too soon.").
+enum ZipStep { Stopping, Frames, Transcript, Zip, Ready, Failed }
+
+// The texts of the "busy, then ready" indication: tray menu, tooltip, note box and the ready popup.
+static class ZipStatus
+{
+    // Put on the clipboard at Stop (only when the clipboard copy is on): an early Ctrl+V then pastes this text,
+    // not the ZIP of the recording before.
+    public const string ClipboardPlaceholder =
+        "Desktop Recorder is still making the ZIP of the last recording. Wait for \"ZIP ready\", then paste again.";
+    public const string WaitText = "Wait for \"ZIP ready\" before you paste.";
+    public const int ReadySeconds = 4;    // the ready popup closes after this time
+    public const int FailedSeconds = 10;
+
+    public static bool Busy(ZipStep step)
+    {
+        return step != ZipStep.Ready && step != ZipStep.Failed;
+    }
+
+    public static string StepName(ZipStep step)
+    {
+        switch (step)
+        {
+            case ZipStep.Stopping: return "stopping";
+            case ZipStep.Frames: return "frames";
+            case ZipStep.Transcript: return "transcript";
+            case ZipStep.Zip: return "ZIP";
+            case ZipStep.Ready: return "ready";
+            default: return "failed";
+        }
+    }
+
+    // "Making the ZIP... (step: frames)"
+    public static string BusyText(ZipStep step)
+    {
+        return "Making the ZIP... (step: " + StepName(step) + ")";
+    }
+
+    // "33.7 MB" (1 MB = 1024 x 1024 bytes, as in the status line).
+    public static string Megabytes(long bytes)
+    {
+        if (bytes < 0) bytes = 0;
+        return (bytes / (1024.0 * 1024.0)).ToString("0.0", CultureInfo.InvariantCulture) + " MB";
+    }
+
+    public const string CopyHint = "Use \"Copy ZIP of last recording\" in the tray menu.";
+
+    public static string NoteText(ZipStep step, long bytes, bool copied, bool updated, string error)
+    {
+        return NoteText(step, bytes, copied, updated, error, null);
+    }
+
+    // The line in the note box. copyError: why a ready ZIP is not on the clipboard (null: the copy is off in Settings).
+    public static string NoteText(ZipStep step, long bytes, bool copied, bool updated, string error, string copyError)
+    {
+        if (Busy(step)) return BusyText(step);
+        if (step == ZipStep.Failed) return "Could not make the ZIP. The recording folder stays. " + (error ?? "");
+        string what = updated ? "ZIP with your note ready" : "ZIP ready";
+        if (copied) return what + ". Press Ctrl+V to paste (" + Megabytes(bytes) + ").";
+        if (copyError != null) return what + " (" + Megabytes(bytes) + "), but it is not on the clipboard: " + copyError + " " + CopyHint;
+        return what + " (" + Megabytes(bytes) + "). The clipboard copy is off in Settings.";
+    }
+
+    public static string PopupText(ZipStep step, long bytes, bool copied, bool updated)
+    {
+        return PopupText(step, bytes, copied, updated, null);
+    }
+
+    // The line in the popup at the bottom of the screen.
+    public static string PopupText(ZipStep step, long bytes, bool copied, bool updated, string copyError)
+    {
+        if (Busy(step)) return BusyText(step);
+        if (step == ZipStep.Failed) return "Could not make the ZIP";
+        string what = updated ? "ZIP with your note ready" : "ZIP ready";
+        if (copied) return what + ": Ctrl+V to paste (" + Megabytes(bytes) + ")";
+        if (copyError != null) return what + ", not on the clipboard (" + Megabytes(bytes) + ")";
+        return what + " (" + Megabytes(bytes) + ")";
+    }
+
+    public static string PopupDetail(ZipStep step, string error)
+    {
+        return PopupDetail(step, error, null);
+    }
+
+    // The smaller second line of the popup: why, or what to do.
+    public static string PopupDetail(ZipStep step, string error, string copyError)
+    {
+        if (Busy(step)) return WaitText;
+        if (step == ZipStep.Failed) return "The recording folder stays. " + (error ?? "");
+        if (copyError != null) return copyError + " " + CopyHint;
+        return null;
+    }
+
+    // Seconds until the popup closes by itself. 0 = it stays (the work is not done).
+    public static int PopupSeconds(ZipStep step)
+    {
+        if (step == ZipStep.Ready) return ReadySeconds;
+        if (step == ZipStep.Failed) return FailedSeconds;
+        return 0;
+    }
+}
+
 // ------------------------------------------------------------------------------------------------ tray menu
 
 enum TrayPhase { Idle, Recording, Stopping, Processing, Exiting }
@@ -327,6 +432,8 @@ sealed class TrayState
     public bool HotkeyActive;        // false: another program uses the hotkey
     public bool HasLastZip;
     public string LastResult;        // "Last recording: ...", or null
+    public bool ZipBusy;             // the ZIP of the last recording is not on the clipboard yet
+    public ZipStep ZipStep;
 }
 
 sealed class TrayEntry
@@ -365,8 +472,15 @@ static class TrayModel
         return TrayPhase.Idle;
     }
 
+    // The ZIP work shows when the app does not record and does not close.
+    static bool ShowZip(TrayState s)
+    {
+        return s.ZipBusy && s.Phase != TrayPhase.Recording && s.Phase != TrayPhase.Exiting;
+    }
+
     public static string StatusTitle(TrayState s)
     {
+        if (ShowZip(s)) return ZipStatus.BusyText(s.ZipStep);
         switch (s.Phase)
         {
             case TrayPhase.Recording: return "Recording  " + UiText.Duration(s.ElapsedSeconds);
@@ -379,6 +493,7 @@ static class TrayModel
 
     public static string StatusDetail(TrayState s)
     {
+        if (ShowZip(s)) return ZipStatus.WaitText;
         switch (s.Phase)
         {
             case TrayPhase.Recording:
@@ -399,7 +514,8 @@ static class TrayModel
     public static string Tooltip(TrayState s)
     {
         string text;
-        switch (s.Phase)
+        if (ShowZip(s)) text = "Desktop Recorder: making the ZIP (" + ZipStatus.StepName(s.ZipStep) + ")";
+        else switch (s.Phase)
         {
             case TrayPhase.Recording: text = "Desktop Recorder: recording"; break;
             case TrayPhase.Stopping:
