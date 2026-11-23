@@ -156,7 +156,7 @@ Other rules:
 8. Icons: Bran's 3D icon for the exe, and his tray icon set for the tray (6.7).
 9. Mouse pointer: hidden by default (`show_pointer=0`). The "Hide the mouse pointer" check box in Settings is on by default. Bran decided on 2026-11-20 (7.13). Before that, the default was "shown" (Bran, 2026-11-14, 6.9).
 10. Default frame rate: 10 fps (was 2). Bran decided on 2026-11-14. Reason: the 6.8 rule needs 2.3 fps for 1000 CSS px/s at 125% in an 892 px area. 10 fps is safe up to about 4400 CSS px/s. Bran's settings file already had `fps=10`.
-11. Quality default: keep Balanced (CQ 23). More reads of B3, B9 and B11 are put off to a later date (Bran, 2026-11-14).
+11. Quality default: keep Balanced (CQ 23). More reads of B3, B9 and B11 are put off to a later date (Bran, 2026-11-14). Data in 6.11; Bran decides.
 12. Release: push `test-kit`, merge it into `main`, publish v2.0.0 (Bran, 2026-11-14). The version is 2.0.0 because the hotkey now opens the selector, not a full-desktop recording.
 13. "Start recording (saved region) when Desktop Recorder starts": off by default (`record_on_launch=0`). Bran decided on 2026-11-20 (7.13).
 
@@ -474,6 +474,119 @@ App check (`test/app_runs.ps1`, `counter.html`, region 20,120,1880x860, 10 fps, 
 
 Not checked: look-alike changes in a real screen capture (the states were drawn offline, not captured); the file size of a long still recording with the new filter (the offline test shows the same frame count); fps other than 10.
 
+### 6.11 More reads of B3, B9 and B11 for the quality default (run on Bran's PC on 2026-11-22)
+
+Goal: decision 11. In 6.8, each run had one read, and the reader noise was larger than the quality effect. This test reads the same frames more times. B11 = CQ 17 (Sharpest), B3 = CQ 23 (Balanced), B9 = CQ 28 (Smallest), LL = lossless control.
+
+Setup (checked):
+
+- Frames: `test/prep_frames.py` with the 6.8 settings (threshold 0.1, min dark 0.002, no crop). The new reports are equal to the 6.8 prep files in all keys, also `kept_index`. Frames: B11 75, B3 74, B9 75, LL 75, each a 1120x892 PNG.
+- The PNG images that the 6.8 readers got are byte-equal to the new files (B3 68, B9 53, B11 67, LL 75 images, compared in the 6.8 subagent transcripts).
+- Reader: Claude Sonnet 5.5 (`claude-sonnet-5-5`) through the Message Batches API. One request for each read: the prompt, then for each frame a text label (`f001.png`, `f002.png` ...) and the frame as PNG through the Files API (`file_id`). Thinking: adaptive (the default), display summarized. Effort: not set (the API default). The 6.8 effort is not known. `max_tokens`: 100000 for the first two LL reads, 40000 for all other reads (cost limit; the model does not see this value). No fallbacks: batches do not allow them.
+- Prompt: the 6.8 prompt, found in the 6.8 transcripts (16 subagents, all `claude-sonnet-5-5`, one prompt). Rules 2 to 6 are the same. Only the input and output lines changed: no folder, no Read or Write tool, the reply is the copy, and the frame and tag count is the last line after a blank line. Files: `reads2/prompt.txt` and `reads2/prompt_diff.txt`.
+- Full size: each frame cost 1283 input tokens (40 x 32 patches of 28 px, plus 3). Thus the API did not scale the frames down. Each request had 97,060 input tokens (B3: 95,772), equal to the token count before the run.
+- Blind: a request holds no run name, no set name and no CQ value. Set names S1 to S4 in random order (`reads2/blind_map2.json`: S1 LL, S2 B11, S3 B3, S4 B9).
+- Rules written before the first lossy read (`reads2/rules.md`): 6 reads for each run; the job table uses r1 to r3; a read counts only with `stop_reason` = `end_turn`; a complete copy with errors is data and is not replaced.
+- Scoring: `test/score.py`, with the 6.8 columns (rules of `test/phase_b_table.py`). The 6.8 copies, scored again with the same code, give the 6.8 values: B11 6/1, B3 11/5, B9 9/4, LL 6/2 and 4/0.
+- All 24 reads count: `end_turn`, 300 different tags in tag order, no repeated tag, 300 of 300 lines caught. Each reader gave the correct frame count (74 for B3, 75 for the others).
+
+Finding about the 6.8 reads (checked in the 6.8 transcripts): the Claude Code Read tool gave each frame file above about 500 KB to the model as a JPEG (full size, 1120x892), not as a PNG. Lower quality gives larger PNG files. Frames sent as JPEG: B9 (CQ 28) 24 of the 70 frames that its reader opened (it did not open f071 to f075), B3 (CQ 23) 16 of 74, B11 (CQ 17) 8 of 75, LL 0 of 75. Thus the 6.8 reads had one more lossy step, and the step was larger at a higher CQ. Its effect on those reads is not checked. The new reads send all frames as PNG.
+
+Method difference (checked): on the same LL frames, the API reader made more errors than the 6.8 reader. Error lines outside L221-L240: 5.33 (mean of 6 new reads) against 1.0 (mean of the 2 reads in 6.8). Most of them are Base64 slips. Twice the reader changed a word inside the Base64 ("beside" to "near", "during" to "duping"). The API reader thinks little on clean frames (LL: 980 to 6,624 thinking tokens). With effort `max`, one LL read used all 100,000 output tokens for thinking and wrote no copy ($0.60; not counted). Thus Table D mixes two methods. Its spread shows the method gap too, not only the reader noise.
+
+Flags (L232, checked in a crop): the screen shows the flags as letter pairs "DE FR JP ..." (6.4), in LL and in B9 (`reads2/visual/L231_L235_f056_x2.png`). The reads of the lossy runs copied the letters (3 to 4 of 6 reads of each run). The new LL reads wrote flag emoji in 6 of 6 reads, and `score.py` counts that as correct. Thus the reader rebuilt the flags from the letters on the clean frames. This is reader behavior, not a picture error. The cause is not checked.
+
+Table B: the 3 new reads r1 to r3 (the job table). Values: mean (SD) [min-max].
+
+| Run | Reads | Lines caught | Err. lines (no Zalgo) | Err. lines outside L221-L240 | CER | WER | MB (6.8 file) | MB/min during the scroll |
+|---|---|---|---|---|---|---|---|---|
+| B11, CQ 17 | 3 | 300 | 5.00 (1.00) [4-6] | 2.33 (1.53) [1-4] | 0.10% (0.04) | 0.37% (0.11) | 6.34 | 53.0 |
+| B3, CQ 23 | 3 | 300 | 7.67 (3.06) [5-11] | 3.67 (2.52) [1-6] | 0.24% (0.09) | 0.60% (0.21) | 4.33 | 36.7 |
+| B9, CQ 28 | 3 | 300 | 6.00 (1.73) [5-8] | 1.67 (1.15) [1-3] | 0.13% (0.11) | 0.42% (0.20) | 3.08 | 25.8 |
+| LL, lossless | 3 | 300 | 9.67 (0.58) [9-10] | 6.00 (1.00) [5-7] | 0.23% (0.02) | 0.52% (0.06) | 9.97 | 82.5 |
+
+Table C: all 6 new reads r1 to r6 (extended; decided before the first lossy read).
+
+| Run | Reads | Lines caught | Err. lines (no Zalgo) | Err. lines outside L221-L240 | CER | WER |
+|---|---|---|---|---|---|---|
+| B11, CQ 17 | 6 | 300 | 6.83 (2.64) [4-11] | 3.33 (2.16) [1-7] | 0.17% (0.13) | 0.49% (0.20) |
+| B3, CQ 23 | 6 | 300 | 7.83 (2.04) [5-11] | 3.83 (1.94) [1-6] | 0.27% (0.09) | 0.61% (0.14) |
+| B9, CQ 28 | 6 | 300 | 7.33 (2.73) [5-11] | 2.50 (1.97) [1-6] | 0.18% (0.11) | 0.52% (0.24) |
+| LL, lossless | 6 | 300 | 9.17 (0.98) [8-10] | 5.33 (1.21) [4-7] | 0.22% (0.07) | 0.50% (0.05) |
+
+Table D: the 6.8 read and the new reads r1 to r3 (4 reads; LL 5 reads: R04, R04b and 3 new). The job asked for this table. It mixes two methods (see above).
+
+| Run | Reads | Err. lines (no Zalgo) | Err. lines outside L221-L240 | CER | WER |
+|---|---|---|---|---|---|
+| B11, CQ 17 | 4 | 5.25 (0.96) [4-6] | 2.00 (1.41) [1-4] | 0.16% (0.12) | 0.45% (0.19) |
+| B3, CQ 23 | 4 | 8.50 (3.00) [5-11] | 4.00 (2.16) [1-6] | 0.28% (0.11) | 0.66% (0.21) |
+| B9, CQ 28 | 4 | 6.75 (2.06) [5-9] | 2.25 (1.50) [1-4] | 0.20% (0.18) | 0.55% (0.31) |
+| LL, lossless | 5 | 7.80 (2.68) [4-10] | 4.00 (2.92) [0-7] | 0.22% (0.05) | 0.56% (0.07) |
+
+Column notes:
+
+- Columns as in 6.8. CER and WER: outside Zalgo, a missed line counts as wrong. No read missed a line.
+- MB (6.8 file) = the full file, also the still page before and after the scroll. MB/min during the scroll = the video packets from the first to the last kept frame (7.4 to 7.5 s of scroll; `reads2/scroll_bitrate.json`). Against CQ 23: CQ 17 is 1.44 x (1.46 x for the file), CQ 28 is 0.70 x (0.71 x for the file).
+- Error lines by section (Table C reads, mean for each read): Base64 B11 2.00, B3 2.50, B9 1.17, LL 4.33. Look-alike B11 1.33, B3 1.33, B9 1.33, LL 1.00. SHA-256, code, prose, table, colored and mixed lines: 0 in all reads.
+
+Is the difference between CQ 17, 23 and 28 larger than the spread? **No.**
+
+- Main column (error lines outside L221-L240), 6 reads for each run: CQ 17 3.33, CQ 23 3.83, CQ 28 2.50. The largest difference is 1.33 lines. The SD inside each run is 1.9 to 2.2 lines. The ranges overlap (1-7, 1-6, 1-6). The order is not the CQ order: CQ 28 has the lowest mean.
+- Exact permutation tests (two-sided), 6 against 6 reads: main column p = 0.36 to 0.79, error lines without Zalgo p = 0.54 to 0.84, CER p = 0.15 to 0.93. With 3 against 3 reads, a p below 0.10 is not possible; the tests gave p = 0.40 to 0.70 for the main column. Table D, main column: p = 0.29 to 1.00.
+- LL is not better than the lossy runs. In the main column it is worse (5.33; against CQ 28: p = 0.026, not corrected for the number of tests), mostly from Base64 slips.
+- The reader thinks more on lossy frames (mean thinking tokens: CQ 17 6,088, CQ 23 7,052, CQ 28 8,829, LL 2,530). More thinking goes with fewer errors (Spearman rho = -0.68 over the 24 reads, permutation p about 0.0005). Thus the error count measures the work of the reader too, not only the picture. The cause is not checked.
+
+Repeated errors (post hoc). Most errors move from read to read. Some errors repeat in most reads of one run and never occur in LL. Rule (made after a look at the data): the same wrong copy in 3 or more of the 6 new reads of a run, and never in the 6 new LL reads. L232 (flags) is left out (see above).
+
+| Run | Lines with a repeated error | Wrong copy |
+|---|---|---|
+| B11, CQ 17 | 0 | - |
+| B3, CQ 23 | 1: L198 (4 of 6) | "B00K8" as "B0OK8" (a zero as the letter O) |
+| B9, CQ 28 | 2: L191 (4 of 6; also the 6.8 read), L234 (6 of 6) | L191 "0Il" as "0I1" (l as the digit 1); L234 one skin tone a shade too dark (🏽 as 🏾) |
+
+- The count goes up with CQ: 0, 1, 2 lines. L191 and L198 are look-alike errors, the error type that the Grok test reported in 3.1. L234 is inside L221-L240. Thus the main column has one repeated line for CQ 23 (L198) and one for CQ 28 (L191).
+- L234: the 6.8 B3 read (R05, CQ 23) made the same shade change. Thus L234 is CQ 28-only in the new method only.
+- The reader thinks less on LL frames, so "never in LL" is a weak filter. The stronger comparison is B9 against B11 (recorded one after the other, 75 frames each): L191 is wrong in 4 of 6 against 1 of 6 new reads.
+- L191 for B9: 5 of 7 reads (6.8 + new) against 1 of 22 reads of the other runs: Fisher exact p = 0.001. L198 for B3: 4 of 7 against 0 of 22: p = 0.0015. Both p values are not corrected for the about 40 lines that had an error.
+- Only one recording for each CQ. B3 came from another time of the session than B9 and B11, so the text sits at other positions in its frames. Thus a CQ effect and a frame-position effect cannot be separated.
+- Pixels: frame f046 at 3x zoom shows the same shapes of "0Il" and "B00K8" in all four runs, with light ringing at CQ 28 (`reads2/visual/L191_L198_f046_x3.png`). Frame f056 at 2x zoom shows softer emoji colors at CQ 28 than in LL (`reads2/visual/L231_L235_f056_x2.png`). The other frames that show these lines are not checked.
+
+Recommendation (Bran decides):
+
+1. Keep Balanced (CQ 23) as the default. The error lines for each read do not differ between CQ 17, 23 and 28 by more than the read-to-read spread.
+2. Smallest (CQ 28): by the columns fixed in `reads2/rules.md`, it reads as well as CQ 23, and it is 29% smaller. Against it: 2 repeated errors (one look-alike character, one color shade), post hoc, from one recording. Advice: do not make it the default yet. This point is not settled.
+3. Sharpest (CQ 17) had no repeated error line, but it is 1.46 x the size of CQ 23, and the evidence is weak (post hoc rule, one recording for each CQ). Keep it as a manual choice for recordings in which single characters must be exact (IDs, keys, hashes).
+4. In folder mode (the default output since 3.0.0), the AI reads lossless PNG frames, and the quality setting changes only `clip.mp4` (7.12). Thus this choice matters mostly for "MP4 only".
+5. If Bran wants a firm answer about look-alike characters: make 3 new recordings at each CQ (other frame positions) and read each one 3 to 6 times with `test/quality_reads.py`. Each read costs about $0.18 at batch price.
+
+Cost (checked, from the `usage` fields of the API, batch price $1 / $5 per million input / output tokens): $4.81 for all 25 requests (2,418,772 input and 478,291 output tokens). The 24 reads that count: $4.21 (mean $0.18; 10,625 to 28,519 output tokens). The effort `max` read: $0.60. The limit was $12. The 299 frames on the Files API (free) expire by themselves on 2026-11-30 at 00:40 UTC. No deletion is necessary.
+
+Checked:
+
+- The frames, the prompt, full size (token count), the blind set names, the 24 reads with the checks above, the scores, the tables, the tests, the repeated-error rule, the cost.
+- The JPEG step and the missing B9 frames of the 6.8 reads.
+
+Not checked:
+
+- The cause of the repeated errors (L191, L198, L234) in the pixels. Only one frame for each line was looked at.
+- Why the reader rebuilt the flags of L232 on the LL frames only.
+- A CQ effect separate from a frame-position effect (one recording for each CQ).
+- Other AI readers (Gemini, ChatGPT, Grok), other effort levels, and the 6.8 method with all frames as PNG.
+- Font sizes other than 100%, other scroll speeds, 4:4:4 at these CQ values, dark pages, other content.
+- The effect of the JPEG step on the 6.8 reads.
+- The cause of the link between thinking tokens and errors.
+
+Files (Git ignores them): `test/results/phase_b/reads2/`: `rules.md`, `blind_map2.json`, `prompt.txt`, `prompt_diff.txt`, `files.json`, `count.json`, `batches.json`, `results.json` (status, usage, cost and checks of each request), `raw/` (full batch results), `reads/` (copies and full replies), `thinking/` (thinking summaries), `scores/` (24 new and 5 old copies), `table.md` (tables A to H), `summary.json`, `line_tests.txt`, `check_68_frames.json`, `scroll_bitrate.json`, `prep/`, `frames_by_run/`, `visual/`.
+Scripts: `test/quality_reads.py`, `test/check_68_frames.py` and `test/scroll_bitrate.py`. Each has the repository paths at the top (and `check_68_frames.py` the path of the 6.8 transcripts).
+
+Commands of this run, in order (`quality_reads.py`; the defaults are `--reads 1-3` and `--max-tokens 100000`):
+
+1. `python test/prep_frames.py VIDEO test/results/phase_b/reads2/frames_by_run/RUN` for B3, B9, B11 and LL (VIDEO from `RUN.prep.json`).
+2. `blind`, then `score` (scores the 6.8 copies), `upload`, `count`.
+3. Pilot: `submit --sets S1 --reads 1`. Diagnostics: `submit --sets S1 --reads 2` and `submit --sets S1 --reads 1 --id-prefix m --effort max`.
+4. Main batch: `submit --sets S1,S2,S3,S4 --reads 1-6 --max-tokens 40000` (S1 r1 and r2 are skipped as done).
+5. `wait --then-collect`, `score`, `table`.
+
 ## 7. Tracker
 
 | Item | Status |
@@ -511,7 +624,7 @@ Not checked: look-alike changes in a real screen capture (the states were drawn 
 
 ### 7.1 Later and future work (Bran, 2026-11-14)
 
-- Later: more reads of B3, B9 and B11 to decide the quality default (decision 11).
+- Done (2026-11-22): more reads of B3, B9 and B11 to decide the quality default (decision 11). See 6.11.
 - Later: Phase A run A6.
 - Later: selector keys `~`, C, M, P, and Shift and Ctrl while dragging. Not checked yet.
 - Later: the tray icons in Bran's real tray. Not checked yet.
