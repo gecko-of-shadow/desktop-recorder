@@ -1499,6 +1499,8 @@ Checked: unit tests `ok` (new `TestMayHaveSpeech`, `TestStartupRule`; they faile
 
 Not checked: a click on the switch and the offer on the screen, a recording with the installed build, the cold case, the Mono build and the GitHub CI.
 
+Install (2026-11-23, 17:27): the build of e8ae851 (SHA-256 starts with A49C2C8B8D1FD03A) is installed and started through Explorer. The 9FF36ADA build is kept as `DesktopRecorder-9FF36ADA-backup.exe`. Checked: no recording, no ZIP work and no window was open before the swap; the app runs from the install path and responds. The exe still says version 3.1.0.
+
 Open for Bran: a recording with speech still waits for Whisper (2 to 32 s seen). An option: put the ZIP on the clipboard first, and add the transcript after.
 
 ## 8. Rules for the agent
