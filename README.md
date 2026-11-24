@@ -1,8 +1,8 @@
 # Desktop Recorder
 
-A small tray program that records a part of your screen, so that an AI model can read the text on it. On Windows, one recording gives one folder: the settled frames as PNG files, an `index.md` that describes each frame, and `clip.mp4` for people.
+A small tray program that records a part of your screen, so that an AI model can read the text on it. On Windows, one recording gives one ZIP file: the settled frames as PNG files, an `index.md` that describes each frame, and `clip.mp4` for people.
 
-Current version: **3.1.0** (2026-11-22). See [CHANGELOG.md](CHANGELOG.md) for the version history.
+Current version: **3.1.0** (2026-11-22). Download it from the [newest release](https://github.com/gecko-of-shadow/desktop-recorder/releases/latest). See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 You select the area with the text. The program records that area at full resolution, so each character stays sharp. A still screen costs almost no space, so the files stay small.
 
@@ -19,7 +19,7 @@ Windows:
 - **GPU capture and encode.** `ddagrab` capture and `h264_nvenc` encode by default. The program uses `gdigrab` and `libx264` when the GPU path is not available.
 - **"Changes only" mode** (default). Frames that do not change are dropped. A still screen costs almost nothing.
 - **Status line** after each recording: the frame count, the `clip.mp4` size and the time until the files are ready (folder mode), or real frames, duplicates, dropped frames and file size ("MP4 only").
-- **Folder for an AI** (default, new in 3.0.0). Each recording gives one ZIP file. It holds a folder with `frames\001.png` and so on, `index.md` and `clip.mp4`. See [Recording folder](#recording-folder-windows). "MP4 only" gives one MP4 file, as in version 2.0.2.
+- **Folder for an AI** (default, new in 3.0.0). Each recording gives one ZIP file (since 3.1.0). It holds a folder with `frames\001.png` and so on, `index.md` and `clip.mp4`. See [Recording folder](#recording-folder-windows). "MP4 only" gives one MP4 file, as in version 2.0.2.
 - **System audio and transcript** (optional, off by default, new in 3.0.0). The sound of the PC goes into the video. When a local Whisper program is present, `index.md` gets a transcript. See [Audio and transcript](#audio-and-transcript-windows).
 - The finished recording goes on the **clipboard**: one ZIP file in folder mode, or the video in "MP4 only" mode. Press Ctrl+V to paste it into a chat or a folder.
 - **Per-monitor DPI aware.** All positions and sizes are physical pixels.
@@ -36,7 +36,7 @@ Ubuntu 24.04:
 
 Download a portable archive from the [Releases page](https://github.com/gecko-of-shadow/desktop-recorder/releases/latest). Unzip or untar it and run it. Nothing is copied into Program Files, and the Linux archive does not need root.
 
-The Releases page keeps only the latest version. The source of each earlier version stays available as a Git tag (`v1.0.0` to `v3.0.0`). [CHANGELOG.md](CHANGELOG.md) lists the changes in each version.
+The Releases page keeps only the latest version. The source of each earlier version stays available as a Git tag (`v1.0.0` to `v3.0.1`). [CHANGELOG.md](CHANGELOG.md) lists the changes in each version.
 
 | Platform | Archive | Start |
 |---|---|---|
@@ -182,7 +182,7 @@ A lower number gives a sharper picture and a larger file. The AI read test read 
 
 ## Recording folder (Windows)
 
-This is the default output since version 3.0.0. In the next version (not released yet), the app makes one ZIP of this folder after the frame pass, and then deletes the folder. The structure below is the structure inside the ZIP. The folder stays only when the frame pass fails.
+This is the default output since version 3.0.0. Since version 3.1.0, the app makes one ZIP of this folder after the frame pass, and then deletes the folder. The structure below is the structure inside the ZIP. The folder stays only when the frame pass fails.
 
 ```
 desktop_2026-11-19_13-01-41\
