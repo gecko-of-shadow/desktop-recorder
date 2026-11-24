@@ -54,6 +54,8 @@ static class ProcessClip
             string lang = Environment.GetEnvironmentVariable("WHISPER_LANGUAGE");
             if (!string.IsNullOrEmpty(lang)) input.WhisperLanguage = lang;
         }
+        // TRANSCRIPT_WAIT_MS: as in the app (8000), the pass does not wait longer for Whisper. Default: until it is done.
+        input.TranscriptWaitMs = (int)EnvDouble("TRANSCRIPT_WAIT_MS", -1);
         Directory.CreateDirectory(input.Folder);
         if (Environment.GetEnvironmentVariable("SETTLED_DEBUG") == "1") SettledFrameFinder.Debug = delegate(string m) { Console.WriteLine("dbg " + m); };
         DateTime t0 = DateTime.UtcNow;
@@ -85,6 +87,13 @@ static class ProcessClip
             Console.WriteLine("audio_in_clip=" + r.AudioInClip + " audio_shift=" + r.AudioShift.ToString("0.000", CultureInfo.InvariantCulture)
                 + " transcript=" + (r.Transcript == null ? "none (" + r.TranscriptNote + ")" : r.Transcript.Count + " segments, " + r.TranscriptRowsDropped + " left out")
                 + " transcript_s=" + r.TranscriptSeconds.ToString("0.00", CultureInfo.InvariantCulture));
+        if (r.TranscriptPending)
+        {
+            Console.WriteLine("zip_ready_s=" + (DateTime.UtcNow - t0).TotalSeconds.ToString("0.00", CultureInfo.InvariantCulture) + " transcript pending, zip " + AfterRecording.MakeZip(input.Folder));
+            r.Work.Done.WaitOne();
+            AfterRecording.AddLateTranscript(input, r, null);
+            Console.WriteLine("zip_with_transcript_s=" + (DateTime.UtcNow - t0).TotalSeconds.ToString("0.00", CultureInfo.InvariantCulture) + " segments " + (r.Transcript == null ? 0 : r.Transcript.Count) + ", zip " + AfterRecording.MakeZip(input.Folder));
+        }
         if (Environment.GetEnvironmentVariable("NOTE_ZIP") == "1")
         {
             Console.WriteLine("note_file=" + AfterRecording.SaveNote(input, r, "test note from process_clip"));

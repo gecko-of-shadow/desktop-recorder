@@ -334,6 +334,8 @@ static class ZipStatus
     public const string ClipboardPlaceholder =
         "Desktop Recorder is still making the ZIP of the last recording. Wait for \"ZIP ready\", then paste again.";
     public const string WaitText = "Wait for \"ZIP ready\" before you paste.";
+    // The ZIP is ready, and Whisper is still at work (Bran, 2026-11-24: the ZIP must not hang).
+    public const string PendingText = "The transcript is not in it yet. The app adds it when it is done.";
     public const int ReadySeconds = 4;    // the ready popup closes after this time
     public const int FailedSeconds = 10;
 
@@ -378,9 +380,20 @@ static class ZipStatus
     // The line in the note box. copyError: why a ready ZIP is not on the clipboard (null: the copy is off in Settings).
     public static string NoteText(ZipStep step, long bytes, bool copied, bool updated, string error, string copyError)
     {
+        return NoteText(step, bytes, copied, What(updated, false), error, copyError);
+    }
+
+    // "ZIP ready", or what came into it after the first "ready".
+    public static string What(bool note, bool transcript)
+    {
+        if (note && transcript) return "ZIP with your note and the transcript ready";
+        return note ? "ZIP with your note ready" : transcript ? "ZIP with the transcript ready" : "ZIP ready";
+    }
+
+    public static string NoteText(ZipStep step, long bytes, bool copied, string what, string error, string copyError)
+    {
         if (Busy(step)) return BusyText(step);
         if (step == ZipStep.Failed) return "Could not make the ZIP. The recording folder stays. " + (error ?? "");
-        string what = updated ? "ZIP with your note ready" : "ZIP ready";
         if (copied) return what + ". Press Ctrl+V to paste (" + Megabytes(bytes) + ").";
         if (copyError != null) return what + " (" + Megabytes(bytes) + "), but it is not on the clipboard: " + copyError + " " + CopyHint;
         return what + " (" + Megabytes(bytes) + "). The clipboard copy is off in Settings.";
@@ -394,9 +407,13 @@ static class ZipStatus
     // The line in the popup at the bottom of the screen.
     public static string PopupText(ZipStep step, long bytes, bool copied, bool updated, string copyError)
     {
+        return PopupText(step, bytes, copied, What(updated, false), copyError);
+    }
+
+    public static string PopupText(ZipStep step, long bytes, bool copied, string what, string copyError)
+    {
         if (Busy(step)) return BusyText(step);
         if (step == ZipStep.Failed) return "Could not make the ZIP";
-        string what = updated ? "ZIP with your note ready" : "ZIP ready";
         if (copied) return what + ": Ctrl+V to paste (" + Megabytes(bytes) + ")";
         if (copyError != null) return what + ", not on the clipboard (" + Megabytes(bytes) + ")";
         return what + " (" + Megabytes(bytes) + ")";

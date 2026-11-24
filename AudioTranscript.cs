@@ -679,7 +679,7 @@ static class Transcript
         List<string> a = new List<string>();
         if (tool.Kind == WhisperTool.KindCpp)
         {
-            string outBase = System.IO.Path.Combine(outputDirectory, "transcript_whisper");
+            string outBase = System.IO.Path.Combine(outputDirectory, AfterRecording.WhisperOutputName);
             a.Add("-m"); a.Add(tool.Model);
             a.Add("-f"); a.Add(wav);
             a.Add("-l"); a.Add(lang);

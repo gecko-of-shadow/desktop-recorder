@@ -1121,6 +1121,10 @@ class TrayApp : ApplicationContext
         return t;
     }
 
+    // The ZIP waits at most this time for the transcript when everything else is ready. Whisper starts at Stop, next
+    // to the frames and clip.mp4, so a normal transcript is in the first ZIP. A slower one is added later.
+    const int TranscriptWaitMs = 8000;
+
     PassJob CreateJob(string problem)
     {
         Settings s = recordingSettings ?? settings;
@@ -1138,6 +1142,7 @@ class TrayApp : ApplicationContext
         // Test switch: with DESKTOP_RECORDER_KEEP_WORK=1 in the environment, the lossless work file stays
         // in the folder. The pass can then run again on the same capture (test\process_clip.cs).
         input.DeleteWorkFile = Environment.GetEnvironmentVariable("DESKTOP_RECORDER_KEEP_WORK") != "1";
+        input.TranscriptWaitMs = TranscriptWaitMs;
         input.Titles = BuildTitles();
         // The clip encode uses libx264 when the capture plan did (NVENC cannot encode this size, or it failed).
         input.ForceX264 = (recordingPlan != null && recordingPlan.Encoder == RecorderCore.EncoderX264) || forcedX264;
@@ -1230,6 +1235,7 @@ class TrayApp : ApplicationContext
         if (r.AudioRecorded)
             text += r.HasTranscript ? " Transcript: " + r.Transcript.Count.ToString(CultureInfo.InvariantCulture) + " lines ("
                     + r.TranscriptSeconds.ToString("0", CultureInfo.InvariantCulture) + " s)."
+                : r.TranscriptPending ? " The transcript is still being made."
                 : r.Ok ? " No transcript: " + (r.TranscriptNote ?? "") + "." : "";
         if (r.MotionNote != null) text += " The screen did not settle (moving content): the frames are samples.";
         if (job.Problem != null) text = job.Problem + "\n" + text;
@@ -1237,31 +1243,96 @@ class TrayApp : ApplicationContext
         // Exit waits for it (passesRunning). The folder is deleted when the ZIP is done and the note box is closed.
         job.ZipPending++;
         SetStep(job, ZipStep.Zip);
-        MakeZipAsync(job, delegate(string error)
+        job.TranscriptPending = r.TranscriptPending;
+        MakeZipAsync(job, null, delegate(string error)
         {
             FinishPass(job, fromStop, r, text, error);
+            if (job.TranscriptPending) AddTranscriptLater(job, r);
             TryCleanup(job);
         });
+    }
+
+    // Whisper was slower than the wait limit: the ZIP is ready without the transcript. When Whisper ends, index.md and
+    // the ZIP are made again (same path). Exit waits for it (passesRunning).
+    void AddTranscriptLater(PassJob job, AfterRecordingResult r)
+    {
+        passesRunning++;
+        Refresh();
+        System.Threading.ThreadPool.QueueUserWorkItem(delegate
+        {
+            try { r.Work.Done.WaitOne(); } catch (Exception) { }
+            try
+            {
+                ui.BeginInvoke((MethodInvoker)delegate
+                {
+                    passesRunning--;
+                    job.ZipPending++;
+                    SetStep(job, ZipStep.Zip);
+                    MakeZipAsync(job, delegate { AfterRecording.AddLateTranscript(job.Input, r, job.Note); }, delegate(string error)
+                    {
+                        job.TranscriptPending = false;
+                        job.TranscriptAdded = error == null && r.HasTranscript;
+                        job.ZipBytes = FileBytes(job.Zip);
+                        if (error == null && r.HasTranscript) RefreshClipboardMessage(job, r);
+                        SetStep(job, error == null ? ZipStep.Ready : ZipStep.Failed);
+                        TryCleanup(job);
+                    });
+                });
+            }
+            catch (InvalidOperationException) { }
+        });
+    }
+
+    // The AI message names the transcript. Only when the clipboard still holds the ZIP of this recording.
+    void RefreshClipboardMessage(PassJob job, AfterRecordingResult r)
+    {
+        if (!job.ZipCopied || job.Zip == null) return;
+        try
+        {
+            if (!Clipboard.ContainsFileDropList()) return;
+            System.Collections.Specialized.StringCollection now = Clipboard.GetFileDropList();
+            if (now.Count != 1 || !string.Equals(now[0], job.Zip, StringComparison.OrdinalIgnoreCase)) return;
+            PutZipOnClipboard(job.Zip, r);
+        }
+        catch (Exception) { }
+    }
+
+    // Two formats: a text paste (Claude Code, terminal) gets the message with the path of the ZIP, and a file paste
+    // (chat app, Explorer) gets the ZIP. Never the loose files.
+    static void PutZipOnClipboard(string zip, AfterRecordingResult r)
+    {
+        System.Collections.Specialized.StringCollection list = new System.Collections.Specialized.StringCollection();
+        list.Add(zip);
+        DataObject data = new DataObject();
+        data.SetFileDropList(list);
+        data.SetText(RecordingIndex.AiMessage(zip, r.Ok, r.AudioInClip, r.HasTranscript), TextDataFormat.UnicodeText);
+        // Another program can hold the clipboard for a moment.
+        Clipboard.SetDataObject(data, true, 10, 100);
     }
 
     // Only one ZIP at a time: MakeZip uses one temporary file next to the folder.
     static readonly object zipLock = new object();
 
-    static string MakeZipLocked(string folder)
+    // before (can be null) writes index.md or the note. It runs in the same lock: no ZIP reads a half-written file.
+    static string MakeZipLocked(string folder, Action before)
     {
-        lock (zipLock) return AfterRecording.MakeZip(folder);
+        lock (zipLock)
+        {
+            if (before != null) before();
+            return AfterRecording.MakeZip(folder);
+        }
     }
 
     // Makes the ZIP of the job folder on a background thread. done runs on the UI thread with the error text (null = good).
     // The caller has counted job.ZipPending. This method counts passesRunning, so Exit waits.
-    void MakeZipAsync(PassJob job, Action<string> done)
+    void MakeZipAsync(PassJob job, Action before, Action<string> done)
     {
         passesRunning++;
         Refresh();
         System.Threading.ThreadPool.QueueUserWorkItem(delegate
         {
             string zip = null, error = null;
-            try { zip = MakeZipLocked(job.Input.Folder); }
+            try { zip = MakeZipLocked(job.Input.Folder, before); }
             catch (Exception e) { error = e.Message; }
             try
             {
@@ -1294,7 +1365,7 @@ class TrayApp : ApplicationContext
         bool zipExists = false;
         try { zipExists = job.Zip != null && File.Exists(job.Zip); }
         catch (Exception) { }
-        if (!RecordingIndex.CanDeleteFolder(job.Done, job.Result.Ok, zipExists, job.ZipPending, job.ZipError != null, job.NoteOpen)) return;
+        if (!RecordingIndex.CanDeleteFolder(job.Done, job.Result.Ok, zipExists, job.ZipPending, job.ZipError != null, job.NoteOpen, job.TranscriptPending)) return;
         string folder = job.Input.Folder;
         job.Cleaning = true;
         passesRunning++;
@@ -1347,14 +1418,7 @@ class TrayApp : ApplicationContext
         {
             try
             {
-                // Two formats: a text paste (Claude Code, terminal) gets the message with the path of the ZIP,
-                // and a file paste (chat app, Explorer) gets the ZIP. Never the loose files.
-                System.Collections.Specialized.StringCollection list = new System.Collections.Specialized.StringCollection();
-                list.Add(zip);
-                DataObject data = new DataObject();
-                data.SetFileDropList(list);
-                data.SetText(RecordingIndex.AiMessage(zip, r.Ok, r.AudioInClip, r.HasTranscript), TextDataFormat.UnicodeText);
-                Clipboard.SetDataObject(data, true);
+                PutZipOnClipboard(zip, r);
                 copied = true;
             }
             catch (Exception e)
@@ -1442,7 +1506,8 @@ class TrayApp : ApplicationContext
         if (job == null) return;
         bool busy = ZipStatus.Busy(job.Step);
         if (job.NoteBox != null && !job.NoteBox.IsDisposed)
-            job.NoteBox.SetZipStatus(job.Step, ZipStatus.NoteText(job.Step, job.ZipBytes, job.ZipCopied, job.ZipUpdated, job.ZipError, job.CopyError));
+            job.NoteBox.SetZipStatus(job.Step, ZipStatus.NoteText(job.Step, job.ZipBytes, job.ZipCopied, ZipStatus.What(job.ZipUpdated, job.TranscriptAdded), job.ZipError, job.CopyError)
+                + (job.Step == ZipStep.Ready && job.TranscriptPending ? " " + ZipStatus.PendingText : ""));
         // No popup while the app closes: ExitNow follows at once.
         if (quitRequested) { CloseToast(); return; }
         // The popup: while busy only when the note box is closed (the box shows it) and the user did not close the
@@ -1470,8 +1535,9 @@ class TrayApp : ApplicationContext
                 };
                 toast = created;
             }
-            toast.Set(job.Step, ZipStatus.PopupText(job.Step, job.ZipBytes, job.ZipCopied, job.ZipUpdated, job.CopyError),
-                ZipStatus.PopupDetail(job.Step, job.ZipError, job.CopyError));
+            toast.Set(job.Step, ZipStatus.PopupText(job.Step, job.ZipBytes, job.ZipCopied, ZipStatus.What(job.ZipUpdated, job.TranscriptAdded), job.CopyError),
+                ZipStatus.PopupDetail(job.Step, job.ZipError, job.CopyError)
+                ?? (job.Step == ZipStep.Ready && job.TranscriptPending ? ZipStatus.PendingText : null));
             if (!toast.Visible) toast.Show();
         }
         catch (Exception) { CloseToast(); }
@@ -1511,13 +1577,13 @@ class TrayApp : ApplicationContext
                 {
                     try
                     {
-                        string where = AfterRecording.SaveNote(job.Input, job.Result, note);
                         // The ZIP path stays the same. Make the ZIP again, so that it has the note.
                         // The folder is deleted after this ZIP (TryCleanup).
+                        string where = job.Result.Ok ? AfterRecording.IndexFileName : "note.txt";
                         job.ZipPending++;
                         job.ZipUpdated = true;
                         SetStep(job, ZipStep.Zip);
-                        MakeZipAsync(job, delegate(string error)
+                        MakeZipAsync(job, delegate { AfterRecording.SaveNote(job.Input, job.Result, note); }, delegate(string error)
                         {
                             if (error != null)
                                 tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("Cannot make the ZIP again, so it has no note. The folder stays: " + error), ToolTipIcon.Warning);
@@ -2069,6 +2135,8 @@ sealed class PassJob
     public long ZipBytes;            // the size of the ZIP when it is ready
     public bool ZipCopied;           // the ZIP is on the clipboard
     public bool ZipUpdated;          // the ZIP was made again with a late note
+    public bool TranscriptPending;   // the ZIP is ready, and Whisper still works: the folder stays
+    public bool TranscriptAdded;     // the ZIP was made again with the transcript
     public NoteForm NoteBox;         // the open note box of this recording, or null
     public Rectangle Region;         // the recording region (the popup shows on its monitor); empty = whole desktop
     public bool PlaceholderSet;      // the "wait" text went on the clipboard at Stop

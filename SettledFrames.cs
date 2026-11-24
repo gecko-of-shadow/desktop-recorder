@@ -932,7 +932,13 @@ static class RecordingIndex
     // (a note makes the ZIP again), when the last ZIP failed, and while the note box is open.
     public static bool CanDeleteFolder(bool passDone, bool passOk, bool zipExists, int zipPending, bool zipFailed, bool noteOpen)
     {
-        return passDone && passOk && zipExists && zipPending == 0 && !zipFailed && !noteOpen;
+        return CanDeleteFolder(passDone, passOk, zipExists, zipPending, zipFailed, noteOpen, false);
+    }
+
+    // transcriptPending: Whisper still reads and writes files in the folder.
+    public static bool CanDeleteFolder(bool passDone, bool passOk, bool zipExists, int zipPending, bool zipFailed, bool noteOpen, bool transcriptPending)
+    {
+        return passDone && passOk && zipExists && zipPending == 0 && !zipFailed && !noteOpen && !transcriptPending;
     }
 
     // Text for the clipboard: a message for the AI and the path of the ZIP (Bran, 2026-11-22).

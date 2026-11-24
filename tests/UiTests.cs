@@ -287,6 +287,10 @@ static class UiTests
         ExpectEqual(ZipStatus.NoteText(ZipStep.Ready, bytes, true, false, null), "ZIP ready. Press Ctrl+V to paste (33.7 MB).", "note ready");
         Expect(ZipStatus.NoteText(ZipStep.Ready, bytes, false, false, null).Contains("clipboard copy is off"), "note ready, no copy");
         Expect(ZipStatus.NoteText(ZipStep.Ready, bytes, true, true, null).StartsWith("ZIP with your note ready"), "note ready after a note");
+        ExpectEqual(ZipStatus.What(false, false), "ZIP ready", "what: first");
+        ExpectEqual(ZipStatus.What(false, true), "ZIP with the transcript ready", "what: transcript");
+        ExpectEqual(ZipStatus.What(true, true), "ZIP with your note and the transcript ready", "what: both");
+        ExpectEqual(ZipStatus.PopupText(ZipStep.Ready, bytes, true, ZipStatus.What(false, true), null), "ZIP with the transcript ready: Ctrl+V to paste (33.7 MB)", "popup transcript");
         Expect(ZipStatus.NoteText(ZipStep.Failed, 0, true, false, "disk full").Contains("disk full"), "note failed has the error");
         ExpectEqual(ZipStatus.PopupText(ZipStep.Ready, bytes, true, false), "ZIP ready: Ctrl+V to paste (33.7 MB)", "popup ready");
         Expect(!ZipStatus.PopupText(ZipStep.Ready, bytes, false, false).Contains("Ctrl+V"), "popup ready, no copy: no Ctrl+V");

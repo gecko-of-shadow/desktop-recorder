@@ -42,6 +42,18 @@ sealed class AfterRecordingInput
     public bool AudioIntoKeptWorkFile = true;  // false in the test tool: it must not change its input file
     // Called on the pass thread when a step starts (StepFrames, StepTranscript), for the "busy" indication. Can be null.
     public Action<string> Step;
+    // How long Run waits for the transcript when the rest is ready (ms). -1 = until it is done (the test tool).
+    // A transcript that needs more time is added later (AfterRecordingResult.TranscriptPending).
+    public int TranscriptWaitMs = -1;
+}
+
+// The transcript runs on its own thread, next to the frames and clip.mp4 (Bran, 2026-11-24: the ZIP must not hang).
+// Whisper took 1 to 84 s on the same PC. Out gets the transcript fields; Done is set when the thread ends.
+sealed class TranscriptWork
+{
+    public readonly ManualResetEvent Done = new ManualResetEvent(false);
+    public readonly AfterRecordingResult Out = new AfterRecordingResult();
+    public bool Merged;
 }
 
 sealed class AfterRecordingResult
@@ -66,6 +78,10 @@ sealed class AfterRecordingResult
     public string TranscriptNote;
     public string TranscriptTool;
     public double TranscriptSeconds;
+    public TranscriptWork Work;                  // the transcript thread, or null (no audio)
+    public bool WorkFileStays;
+    // True while the transcript is not in this result yet.
+    public bool TranscriptPending { get { return Work != null && !Work.Merged; } }
     public int TranscriptRowsDropped;            // rows that Whisper wrote on silent or almost silent audio (SpeechCheck)
     public bool HasTranscript { get { return Transcript != null && Transcript.Count > 0; } }
 }
@@ -77,6 +93,10 @@ static class AfterRecording
     public const string IndexFileName = "index.md";
     public const string StepFrames = "frames";
     public const string StepTranscript = "transcript";
+    // In the first ZIP, when Whisper needs more time.
+    public const string PendingNote = "the transcript is still being made. The app makes this ZIP again when it is done";
+    // The output file of whisper.cpp, before transcript.srt is written.
+    public const string WhisperOutputName = "transcript_whisper";
 
     static void ReportStep(AfterRecordingInput input, string step)
     {
@@ -94,11 +114,13 @@ static class AfterRecording
         ReportStep(input, StepFrames);
         try
         {
+            ReadTimes(input, r);
+            SetUpAudio(input, r);
+            StartTranscript(input, r);
             Analyze(input, r);
             r.AnalyzeSeconds = watch.Elapsed.TotalSeconds;
             watch.Reset();
             watch.Start();
-            SetUpAudio(input, r);
             bool audio = r.AudioRecorded;
             string error = EncodeClipWithFallback(input, r, true, audio);
             if (error != null && audio)
@@ -114,13 +136,6 @@ static class AfterRecording
             r.ClipWritten = true;
             WriteIndex(input, r, null);
             r.Ok = true;
-            // The transcript comes last. A missing or failed Whisper never makes the pass fail.
-            if (r.AudioRecorded)
-            {
-                ReportStep(input, StepTranscript);
-                MakeTranscript(input, r);
-                WriteIndex(input, r, null);
-            }
         }
         catch (Exception e)
         {
@@ -131,7 +146,7 @@ static class AfterRecording
             // Condition D (Bran, 2026-11-19): still give a normal clip.mp4.
             try
             {
-                SetUpAudio(input, r);
+                if (r.Work == null) SetUpAudio(input, r);
                 string error = EncodeClipWithFallback(input, r, false, r.AudioRecorded);
                 if (error != null && r.AudioRecorded) error = EncodeClipWithFallback(input, r, false, false);
                 else if (error == null) r.AudioInClip = r.AudioRecorded;
@@ -149,8 +164,62 @@ static class AfterRecording
             try { File.Delete(input.WorkFile); }
             catch (Exception e) { r.Warnings.Add("Cannot delete the work file: " + e.Message); }
         }
-        CleanUpAudio(input, r, workStays);
+        r.WorkFileStays = workStays;
+        // A missing, failed or slow Whisper never makes the pass fail, and the ZIP does not wait for a slow one.
+        if (r.Work != null)
+        {
+            if (!r.Work.Done.WaitOne(0)) ReportStep(input, StepTranscript);
+            if (r.Work.Done.WaitOne(input.TranscriptWaitMs)) MergeTranscript(r);
+            if (r.Ok)
+            {
+                try { WriteIndex(input, r, null); }
+                catch (Exception e) { r.Warnings.Add("index.md has no transcript: " + e.Message); }
+            }
+        }
+        if (!r.TranscriptPending) CleanUpAudio(input, r, workStays);
         return r;
+    }
+
+    // ------------------------------------------------------------ the transcript thread
+
+    static void StartTranscript(AfterRecordingInput input, AfterRecordingResult r)
+    {
+        if (!r.AudioRecorded) return;
+        TranscriptWork work = new TranscriptWork();
+        work.Out.AudioShift = r.AudioShift;
+        work.Out.FirstTime = r.FirstTime;
+        work.Out.EndTime = r.EndTime;
+        Thread t = new Thread(delegate()
+        {
+            try { MakeTranscript(input, work.Out); }
+            catch (Exception) { }
+            finally { work.Done.Set(); }
+        });
+        t.IsBackground = true;
+        t.Name = "transcript";
+        t.Start();
+        r.Work = work;
+    }
+
+    // Puts the finished transcript into the result. Call it when r.Work.Done is set.
+    public static void MergeTranscript(AfterRecordingResult r)
+    {
+        TranscriptWork w = r.Work;
+        if (w == null || w.Merged) return;
+        r.Transcript = w.Out.Transcript;
+        r.TranscriptNote = w.Out.TranscriptNote;
+        r.TranscriptTool = w.Out.TranscriptTool;
+        r.TranscriptSeconds = w.Out.TranscriptSeconds;
+        r.TranscriptRowsDropped = w.Out.TranscriptRowsDropped;
+        w.Merged = true;
+    }
+
+    // The late transcript: into the result, then index.md (with the note), then the audio files that are not needed.
+    public static void AddLateTranscript(AfterRecordingInput input, AfterRecordingResult r, string note)
+    {
+        MergeTranscript(r);
+        if (r.Ok) WriteIndex(input, r, note);
+        CleanUpAudio(input, r, r.WorkFileStays);
     }
 
     // ------------------------------------------------------------ audio and transcript
@@ -297,7 +366,7 @@ static class AfterRecording
             r.Frames, input.Titles, input.SizeLimit, r.Warnings, r.FirstTime);
         if (r.AudioRecorded)
             text += Transcript.IndexSection(r.AudioInClip, r.Transcript, r.TranscriptTool,
-                r.Transcript == null ? (r.TranscriptNote ?? "the transcript was not made yet") : null, r.TranscriptRowsDropped);
+                r.Transcript == null ? (r.TranscriptPending ? PendingNote : r.TranscriptNote ?? "the transcript was not made") : null, r.TranscriptRowsDropped);
         RecorderCore.AtomicWrite(r.IndexPath, text);
     }
 
@@ -325,8 +394,7 @@ static class AfterRecording
         try
         {
             WriteZip(folder, root, temp);
-            if (File.Exists(zip)) File.Delete(zip);
-            File.Move(temp, zip);
+            ReplaceFile(temp, zip);
         }
         catch (Exception)
         {
@@ -336,6 +404,26 @@ static class AfterRecording
             throw;
         }
         return zip;
+    }
+
+    // Puts temp in the place of path. The old file stays until the new one is complete. A chat app, a virus scanner or
+    // Explorer can hold the old ZIP for a moment (a late note or transcript makes it again): try for 3 s.
+    static void ReplaceFile(string temp, string path)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Replace(temp, path, null);
+                else File.Move(temp, path);
+                return;
+            }
+            catch (Exception)
+            {
+                if (attempt >= 12 || !File.Exists(temp)) throw;
+            }
+            Thread.Sleep(250);
+        }
     }
 
     static void WriteZip(string folder, string root, string temp)
@@ -349,6 +437,9 @@ static class AfterRecording
                 string name = Path.GetFileName(file);
                 if (name.StartsWith("work_lossless", StringComparison.OrdinalIgnoreCase)) continue;
                 if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
+                // Whisper can still write its file while the first ZIP is made.
+                if (name.StartsWith(WhisperOutputName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (name.Equals("transcript_16k.srt", StringComparison.OrdinalIgnoreCase)) continue;
                 // The WAV files are large, and clip.mp4 has the audio.
                 if (name.Equals(AudioMux.AudioFileName, StringComparison.OrdinalIgnoreCase)
                     || name.Equals(AudioMux.TranscriptWavName, StringComparison.OrdinalIgnoreCase)) continue;
@@ -361,7 +452,8 @@ static class AfterRecording
         }
     }
 
-    static void Analyze(AfterRecordingInput input, AfterRecordingResult r)
+    // The frame size and the time line of the work file.
+    static void ReadTimes(AfterRecordingInput input, AfterRecordingResult r)
     {
         int width, height;
         List<double> times = ReadFrameTimes(input.Ffmpeg, input.WorkFile, out width, out height);
@@ -375,7 +467,11 @@ static class AfterRecording
         // EndTimeHint is on the stats clock, which starts at 0 at the first frame.
         double hint = input.EndTimeHint >= 0 ? input.EndTimeHint + r.FirstTime : -1;
         if (hint > r.EndTime && hint < r.EndTime + 5) r.EndTime = hint;
+    }
 
+    static void Analyze(AfterRecordingInput input, AfterRecordingResult r)
+    {
+        int width = r.Width, height = r.Height;
         string framesDir = Path.Combine(input.Folder, "frames");
         Directory.CreateDirectory(framesDir);
         SettledFrameFinder finder = new SettledFrameFinder(width, height, input.Options);

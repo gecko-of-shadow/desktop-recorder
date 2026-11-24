@@ -1377,6 +1377,8 @@ static class RecorderCore
                 p.OutputDataReceived += collect;
                 p.ErrorDataReceived += collect;
                 p.Start();
+                // It ends with the app, as the recording FFmpeg does.
+                try { ChildProcessJob.Add(p); } catch (Exception) { }
                 p.BeginOutputReadLine();
                 p.BeginErrorReadLine();
                 p.StandardInput.Close();

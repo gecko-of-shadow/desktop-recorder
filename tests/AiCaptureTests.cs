@@ -33,6 +33,7 @@ static class AiCaptureTests
         TestScrollTurnsBack();
         TestAiMessage();
         TestZipOnly();
+        TestLateTranscript();
         TestZipFailLeavesNoTemp();
         TestVideoIsNotScroll();
         TestNoisyShiftIsNotScroll();
@@ -74,6 +75,62 @@ static class AiCaptureTests
         System.IO.Directory.Delete(dir, true);
     }
 
+    // Bran, 2026-11-24: the ZIP must not wait for a slow Whisper, and the transcript must not be lost.
+    static void TestLateTranscript()
+    {
+        string folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dr-late-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(folder);
+        try
+        {
+            AfterRecordingInput input = new AfterRecordingInput();
+            input.Folder = folder;
+            input.Start = new DateTime(2026, 11, 24, 12, 0, 0);
+            input.Titles = new TitleTimeline();
+            input.AudioFile = System.IO.Path.Combine(folder, AudioMux.AudioFileName);
+            AfterRecordingResult r = new AfterRecordingResult();
+            r.Ok = true;
+            r.AudioRecorded = true;
+            r.AudioInClip = true;
+            r.IndexPath = System.IO.Path.Combine(folder, AfterRecording.IndexFileName);
+            r.Width = 640; r.Height = 480; r.EndTime = 10;
+            Expect(!r.TranscriptPending, "no transcript thread: not pending");
+            r.Work = new TranscriptWork();
+            Expect(r.TranscriptPending, "transcript thread not merged: pending");
+            System.IO.File.WriteAllText(input.AudioFile, "x");
+            System.IO.File.WriteAllText(System.IO.Path.Combine(folder, AfterRecording.WhisperOutputName + ".srt"), "half");
+            AfterRecording.WriteIndex(input, r, null);
+            string first = System.IO.File.ReadAllText(r.IndexPath);
+            Expect(first.Contains("No transcript: " + AfterRecording.PendingNote + "."), "first index.md says that the transcript is still being made");
+            string zip = AfterRecording.MakeZip(folder);
+            using (System.IO.Compression.ZipArchive z = System.IO.Compression.ZipFile.OpenRead(zip))
+                Expect(z.Entries.Count == 1 && z.Entries[0].FullName.EndsWith("index.md"), "first ZIP: no half-written Whisper file");
+            // Whisper ends.
+            TranscriptSegment s = new TranscriptSegment();
+            s.Start = 1; s.End = 2; s.Text = "late words";
+            r.Work.Out.Transcript = new List<TranscriptSegment>();
+            r.Work.Out.Transcript.Add(s);
+            r.Work.Out.TranscriptTool = "whisper-cli";
+            r.Work.Done.Set();
+            AfterRecording.AddLateTranscript(input, r, "my note");
+            string second = System.IO.File.ReadAllText(r.IndexPath);
+            Expect(second.Contains("late words") && second.Contains("my note"), "second index.md has the transcript and the note");
+            Expect(!r.TranscriptPending && r.HasTranscript, "merged");
+            Expect(!System.IO.File.Exists(input.AudioFile), "the WAV file goes after the transcript (clip.mp4 has the audio)");
+            // The old ZIP is open in another program for a moment: the new ZIP still takes its place.
+            System.IO.FileStream hold = new System.IO.FileStream(zip, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read);
+            System.Threading.Thread release = new System.Threading.Thread(delegate() { System.Threading.Thread.Sleep(700); hold.Dispose(); });
+            release.Start();
+            AfterRecording.MakeZip(folder);
+            release.Join();
+            using (System.IO.Compression.ZipArchive z = System.IO.Compression.ZipFile.OpenRead(zip))
+            using (System.IO.StreamReader text = new System.IO.StreamReader(z.Entries[0].Open()))
+                Expect(text.ReadToEnd().Contains("late words"), "the ZIP that was open has the transcript");
+            Expect(!System.IO.File.Exists(zip + ".tmp"), "no temporary ZIP left");
+            System.IO.File.Delete(zip);
+        }
+        finally { System.IO.Directory.Delete(folder, true); }
+    }
+
     static void TestZipOnly()
     {
         // The folder is deleted only when the ZIP is done and good, the pass is good, and the note box is closed.
@@ -84,6 +141,8 @@ static class AiCaptureTests
         Expect(!RecordingIndex.CanDeleteFolder(true, true, true, 1, false, false), "cleanup: a ZIP is still made (note)");
         Expect(!RecordingIndex.CanDeleteFolder(true, true, true, 0, true, false), "cleanup: the last ZIP failed");
         Expect(!RecordingIndex.CanDeleteFolder(true, true, true, 0, false, true), "cleanup: note box open");
+        Expect(!RecordingIndex.CanDeleteFolder(true, true, true, 0, false, false, true), "cleanup: Whisper still works in the folder");
+        Expect(RecordingIndex.CanDeleteFolder(true, true, true, 0, false, false, false), "cleanup: Whisper is done");
 
         // The messages describe a ZIP, not a folder.
         string zip = @"C:\rec\desktop_2026-11-22_10-00-00.zip";
