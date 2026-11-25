@@ -9,9 +9,21 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 ### Changed
 
 - Windows, transcript: Whisper does not run when the recording has less than 0.5 s of sound, and sound in less than 10% of its time. Before, Whisper ran on recordings that had only the stop sound, and "Making the ZIP" stayed for up to 88 s with no transcript row as the result.
+- Windows, folder mode: the ZIP does not wait for a slow Whisper. Whisper starts at Stop, next to the frames and the clip, and the ZIP waits at most 8 s for it. A slower transcript goes into the same ZIP later.
+- Windows: FFmpeg and the program run above normal priority (Whisper does not). On a busy PC, the frame pass of a 15 s recording took 31 to 52 s before, and 7 to 11 s after.
+- Windows, folder mode: the lossless capture uses `-delay 0` (up to 30 fps) and 0.5 s fragments. A killed FFmpeg loses less, and the sound, the transcript and the window titles fit the video better on a still screen.
+- Windows, frames: a lower pixel tolerance (12, before 24), so light selection colors and slow fades count as changes.
+- Windows: errors go into `error.log` next to `settings.txt`. An error of the window code does not end the program.
 
 ### Fixed
 
+- Windows, hang: every helper program (ffprobe, the decode, the clip encode) has a time limit. An NVENC encode that hangs goes to libx264 one time. Exit can be forced after 30 s.
+- Windows, lost recordings: the part before an FFmpeg failure is now a recording of its own (before, it stayed out of the ZIP). After a UAC prompt, the lock screen or a display change, the recording goes on in a new ZIP. The program makes the ZIP of a recording that was not finished at its next start. A refused sign-out does not stop the recording. Stop waits up to 15 s for FFmpeg (before 4 s).
+- Windows, sound: the capture follows a new default playback device. The Stop sound is not in the audio. The recording folder stays when the WAV file is the only copy of the sound. `index.md` says why there is no sound. Short real speech on a silent PC stays in the transcript. One bad sample does not make the audio encode fail.
+- Windows, clipboard and status: an older ZIP does not replace a newer one. A failed frame pass is not "ZIP ready", and an empty ZIP is not made. Each note box shows the state of its own recording.
+- Windows, files: the program deletes only its own files from a recording folder, and tries again when another program holds a file. A note is on the disk at once. A `settings.txt` that cannot be read is not replaced with the defaults; `settings.txt.bak` is the backup.
+- Windows, frames that were missed: a page or a menu under a moving pointer; a page of 0.33 s; the last value of a counter or a spinner; a small text that stayed and then went away; a slow fade; a change at the left 8 px or the last rows; a scroll beside a sidebar with text.
+- Windows, note box: the question "Save this note?" takes a letter only with Alt. Before, a typed "d" discarded the note.
 - Windows, Settings: "Start with Windows" shows Off when Windows has the app turned off in its startup list. Before, it showed On. Save changes the startup entry only when the switch was changed. When you turn the switch on while Windows has the app off, the program offers to open the startup list of Windows; it does not change that list.
 
 ## [3.1.0] - 2026-11-22

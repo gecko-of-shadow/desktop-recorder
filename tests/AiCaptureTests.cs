@@ -142,12 +142,11 @@ static class AiCaptureTests
         Expect(RecordingIndex.TryFolderTime("desktop_2026-11-24_12-30-05", out t) && t == new DateTime(2026, 11, 24, 12, 30, 5), "folder time");
         Expect(RecordingIndex.TryFolderTime("desktop_2026-11-24_12-30-05_2", out t) && !RecordingIndex.TryFolderTime("desktop_2026-11-24_12-30-05x", out t)
             && !RecordingIndex.TryFolderTime("live-test-2026-11-22", out t) && !RecordingIndex.TryFolderTime(null, out t), "other folder names");
-        Expect(RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, false, false, 90), "unfinished recording");
-        Expect(!RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", false, false, false, 90)
-            && !RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, true, false, 90)
-            && !RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, false, true, 90)
-            && !RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, false, false, 5)
-            && !RecordingIndex.NeedsRecovery("other", true, false, false, 90), "no work file, a ZIP, a marker, a running recording, another folder");
+        Expect(RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, false, false), "unfinished recording");
+        Expect(!RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", false, false, false)
+            && !RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, true, false)
+            && !RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, false, true)
+            && !RecordingIndex.NeedsRecovery("other", true, false, false), "no work file, a ZIP, a marker, another folder");
         Expect(!RecordingIndex.CanDeleteFolder(true, true, true, 0, false, false, false, true), "cleanup: the WAV file is the only copy of the sound");
         Expect(RecorderCore.IsCaptureLoss("[ddagrab @ 0] AcquireNextFrame failed: 887a0026") && !RecorderCore.IsCaptureLoss("No space left") && !RecorderCore.IsCaptureLoss(null), "capture loss");
         Expect(AfterRecording.EncodeLimitMs(15, true) == 90000 && AfterRecording.EncodeLimitMs(double.NaN, true) == 60000

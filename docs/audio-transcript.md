@@ -75,7 +75,7 @@ Checked (FFmpeg 6.1, `test/process_clip.cs` with a test WAV from `WavWriter`, be
 | −0.45 s (audio 0.35 s before the clock, offset 0.10 s) | 0.550, 3.550, 6.550 s | 0.55, 3.55, 6.55 s |
 | +0.30 s | 1.300, 4.300, 7.300 s | 1.30, 4.30, 7.30 s |
 
-UNVERIFIED: the error of `ClockOffset` on a real recording. It is the smallest (clock − stats time) of all stats lines, so it is too large by the delay of the fastest stats line. Probable size: some tens of ms. A test on Bran's PC must measure it (section 9).
+Update 2026-11-24 (HANDOFF 7.27): NVENC held frames back, so the value was up to 0.9 s too large on a slow-changing screen. The lossless capture now has `-delay 0`, and the rule takes one frame time off the stats time. Measured with a realtime FFmpeg source at 6 fps: the error is 0.03 to 0.04 s (still, slow and moving picture). Not measured with ddagrab. Old text: UNVERIFIED: the error of `ClockOffset` on a real recording. It is the smallest (clock − stats time) of all stats lines, so it is too large by the delay of the fastest stats line. Probable size: some tens of ms. A test on Bran's PC must measure it (section 9).
 
 UNVERIFIED: drift between the audio device clock and QPC over a long recording. The writer keeps the file within 50 ms of QPC, so drift cannot grow. Not tested.
 
@@ -233,7 +233,7 @@ Checked on synthetic files (before → after):
 
 New unit test `TestNoisyShiftIsNotScroll`: a shift with noise of ±48 on each pixel. The old rule measured a false scroll of −824 px. The new rule measures 0.
 
-Known limit (not changed): `PixelError` compares the full width of the frame. A static column WITH text (a sidebar) adds error at the true shift, so the 75% rule can miss some steps of a real scroll. A synthetic test with a 20 px text column in a 96 px frame lost steps with the old and the new rule. The 640 px test with a 120 px sidebar lost no rows. Possible fix: compare only the changed columns, as the new match check does. Not done, because it changes the scroll measure for all recordings and needs the real test files.
+Fixed on 2026-11-24 (HANDOFF 7.27): `PixelError` compares the changed columns only. Old text: Known limit (not changed): `PixelError` compares the full width of the frame. A static column WITH text (a sidebar) adds error at the true shift, so the 75% rule can miss some steps of a real scroll. A synthetic test with a 20 px text column in a 96 px frame lost steps with the old and the new rule. The 640 px test with a 120 px sidebar lost no rows. Possible fix: compare only the changed columns, as the new match check does. Not done, because it changes the scroll measure for all recordings and needs the real test files.
 
 UNVERIFIED: the Twitch recording itself.
 

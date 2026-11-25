@@ -1503,6 +1503,42 @@ Install (2026-11-23, 17:27): the build of e8ae851 (SHA-256 starts with A49C2C8B8
 
 Open for Bran: a recording with speech still waits for Whisper (2 to 32 s seen). An option: put the ZIP on the clipboard first, and add the transcript after.
 
+### 7.27 Fast ZIP and the bug hunt (2026-11-24, branch `fast-zip-and-bug-hunt`, not pushed, not released)
+
+Bran: "i just dont want the zip hanging like it did. it should be fast but not miss anything ... very broad bug check". Then, after the limit incident: fix the critical and high bugs without a fan-out of agents ("Yes, fix them").
+
+**Limit incident.** A workflow with 90 agents used up Bran's Claude limit at 13:38 and started again by itself at 18:00. It was stopped at 18:06. Do not start a fan-out of agents again without a limit that Bran gives. The findings are in `C:\Users\Bran\agent-jobs\out\bug-hunt\findings-2026-11-24.md` and `.json` (171 findings with duplicates, 58 of them checked by a second agent, 57 of those real).
+
+**Commits:** 7b83e1d (Whisper at Stop, the ZIP waits at most 8 s), f6c7f91 (time limits, priority, clock), 5128225 (lost recordings, sound, clipboard, settings), a4c5e40 and 541cdad (frame selection), c765c0f (note question), and the fixes after the review.
+
+| Area | What changed | Where |
+|---|---|---|
+| Hang | Limits: ffprobe and decode 120 s + size + 10 x length; clip encode 60 s + 2 x length (NVENC), 300 s + 10 x length (libx264). A timeout sets `ForceX264` and skips the try without audio. `RunProgram` does not wait without a limit for a pipe. | `AfterRecording.cs`, `RecorderCore.cs` |
+| Busy PC | FFmpeg and the app above normal (`ChildProcessJob.Raise`). Whisper stays normal. Stop waits 15 s + 2 s / fps (at most 25 s). `KilledAtStop` gives a warning in `index.md`. | `RecordingSession.cs` |
+| Clock | `-delay 0` (up to 30 fps), `-frag_duration 500000`, and one frame time off the stats time (`HasNoEncoderDelay`). | `RecorderCore.cs`, `RecordingSession.cs` |
+| FFmpeg failure | Part with video = its own job (`StartPass`), then the fallback in a new folder. Capture loss (`IsCaptureLoss`): `ResumeLater`, each 1 s for 120 s, only when the input desktop is accessible. The hotkey cancels the wait. | `DesktopRecorder.cs` |
+| Not finished | `RecoverOldRecordings` 5 s after the start: folder `desktop_<time>` with video in `work_lossless.mp4`, no ZIP, no `work_lossless.done`, not the running recording. A folder with `work_lossless.pending` and `index.md` but no work file gets only the ZIP. | `DesktopRecorder.cs`, `SettledFrames.cs` |
+| Sign-out | `SessionEnded` (not `SessionEnding`). | `DesktopRecorder.cs` |
+| Clipboard, status | `PassJob.Number`; `ZipStatus.FinalStep`, `Problem`; `UpdateNoteBox` for each job; `toastJob`. | `DesktopRecorder.cs`, `UiModel.cs` |
+| Files | `AfterRecording.DeleteFolder` (own files only, 8 tries), `ReplaceFile`, `ReadSettingsText`, `WriteSettingsText` (`settings.txt.bak`). | |
+| Sound | Endpoint poll each 0.25 s, silence written 2 s behind the clock, `MarkEnd` at Stop, `AacFilter` (s32), `MinRowSoundSeconds` 0.4. | `AudioCapture.cs`, `AudioTranscript.cs` |
+| Frames | Large-change settle timer, `BriefSeconds` 0.3, limit `MaxBrief` 60 then 1 each second, `IsRepeat`, slow fades (`drifting`), end masks, mask expiry refresh, `PixelTolerance` 12, pad and crop around `mpdecimate`, `PixelError` on the changed columns. | `SettledFrames.cs`, `RecorderCore.cs` |
+
+**Checked (on Bran's PC, no app start, no screen capture, no input):**
+
+- The app builds. Unit tests `ok`, with new tests for each area (`TestLateTranscript`, `TestLostRecordings`, `TestZipProblems`, `TestMissedScreens`, `TestLargeScrollSteps`, `TestSmallChangeNearTheEnd`). `test\ui_preview.cs`: `preview ok`.
+- Recovery: a real FFmpeg (lavfi source, NVENC lossless) killed after 7 s. `RecoverOne` gave a ZIP with 6.9 s, 3 frames and the note, and deleted the folder.
+- Clock, realtime lavfi source, 8 s, 6 fps (true value / old / new): still 0.036 / 0.212 / 0.073; slow 0.034 / 0.039 / 0.065; motion 0.036 / 0.042 / 0.064 s.
+- Frames, old code against new code on 100 test videos: every baseline stays (status 6, caret 1, look-alike 15, scroll 10, pages 11, pointer 9, video 5). Menu and page under a moving pointer 1 -> 3 or 4. Pages of 0.33 s 3 -> 20. Split view scroll 2 -> 5 to 9. Pulsing text 1 -> 7 in 20 s. A 6 s or 10 s fade gives up to 19 frames (limit of the capture filter, not separable).
+- Sidebar scroll (16 synthetic cases): the old code found the full scroll in 1 case (seed 4 at 40 px), the new code in 16.
+- Four real recordings (lossy clips, Whisper on), pass with transcript: 1.5, 6.7 and 1.0 s new against 1.5, 7.0 and 1.2 s old (the fourth not timed). Frames 9 -> 20, 20 -> 20, 22 -> 56, 6 -> 6. The lossy clips add some frames.
+
+**Not checked:** the app on the screen; a real ddagrab capture with `-delay 0` and the pad filter (frame rate); a real UAC prompt, lock screen or device change; a real sign-out; the sound with ddagrab; the Mono build and the GitHub CI. `PassTests.cs` (end-to-end tests of the hunters) is not added: it uses libx264 (rule 8).
+
+**Review** (one code-reviewer agent, no critical fault). Corrected: a late transcript was dropped when Exit was cancelled; a folder younger than 60 s was not recovered; one bad folder stopped the recovery; the audio step of a failed pass could take 30 min; a folder with no work file and no ZIP was not recovered. Not changed: a restart after a capture loss that fails at once (FFmpeg missing) is not tried again, because each try makes a folder. Known limit, not changed: a recovery that runs while a new recording starts uses CPU time (no data loss).
+
+**Not done (medium and low findings, see the findings file):** one channel for sound with opposite phase, `SilentPeak`, Whisper in a folder name outside the code page, doubtful-row mark, `-t` for Whisper on the CPU, NVENC probe race, fallback when ddagrab gives no frame, ZIP name with `_note` when the ZIP is held for more than 3 s.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.

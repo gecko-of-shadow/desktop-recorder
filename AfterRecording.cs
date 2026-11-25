@@ -97,6 +97,8 @@ static class AfterRecording
     public const string NoteFileName = "note.txt";
     // The pass ran to its end, and the work file stays (not in the ZIP: the name starts with work_lossless).
     public const string DoneMarkerName = "work_lossless.done";
+    // The pass started, and the ZIP is not made yet.
+    public const string PendingMarkerName = "work_lossless.pending";
     public const string StepFrames = "frames";
     public const string StepTranscript = "transcript";
     // In the first ZIP, when Whisper needs more time.
@@ -273,7 +275,7 @@ static class AfterRecording
         string output;
         int exit;
         string[] prep = AudioMux.BuildTranscriptWavArguments(input.AudioFile, r.AudioShift, wav);
-        if (!RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(prep), 10 * 60 * 1000, out output, out exit) || exit != 0)
+        if (!RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(prep), ReadLimitMs(FileLength(input.AudioFile), 0), out output, out exit) || exit != 0)
         {
             r.TranscriptNote = "FFmpeg could not make the 16 kHz audio for Whisper: " + Trim(output);
             return;
@@ -336,7 +338,8 @@ static class AfterRecording
             string output;
             int exit;
             string[] a = AudioMux.BuildRemuxArguments(input.WorkFile, input.AudioFile, r.AudioShift, temp);
-            if (RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(a), 30 * 60 * 1000, out output, out exit)
+            if (RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(a),
+                ReadLimitMs(FileLength(input.WorkFile) + FileLength(input.AudioFile), 0), out output, out exit)
                 && exit == 0 && File.Exists(temp) && new FileInfo(temp).Length > 0)
             {
                 ReplaceFile(temp, input.WorkFile);

@@ -203,7 +203,6 @@ static class NativeMethods
         }
     }
 
-    /// <summary>The bounds of all monitors together.</summary>
     [DllImport("user32.dll", SetLastError = true)]
     static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
     [DllImport("user32.dll")]
@@ -222,6 +221,7 @@ static class NativeMethods
         catch (Exception) { return true; }
     }
 
+    /// <summary>The bounds of all monitors together.</summary>
     public static Rectangle GetVirtualScreen()
     {
         return new Rectangle(

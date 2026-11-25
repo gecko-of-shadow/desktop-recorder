@@ -840,14 +840,21 @@ class TrayApp : ApplicationContext
                 foreach (string dir in Directory.GetDirectories(copy.Folder, "desktop_*"))
                 {
                     string work = Path.Combine(dir, AfterRecording.WorkFileName);
-                    if (!File.Exists(work)) continue;
+                    string pending = Path.Combine(dir, AfterRecording.PendingMarkerName);
+                    if (!File.Exists(work) && !File.Exists(pending)) continue;
                     // A new recording and its ZIP come first.
                     while (!quitRequested && (recorder.IsRecording || stopping || passesRunning > 0)) System.Threading.Thread.Sleep(2000);
                     if (quitRequested || sessionEnding) return;
-                    double age = (DateTime.UtcNow - File.GetLastWriteTimeUtc(work)).TotalSeconds;
-                    if (!RecordingIndex.NeedsRecovery(Path.GetFileName(dir), AfterRecording.HasVideo(work), File.Exists(dir + ".zip"),
-                        File.Exists(Path.Combine(dir, AfterRecording.DoneMarkerName)), age)) continue;
-                    RecoverOne(dir, copy);
+                    if (string.Equals(dir, recordingFolder, StringComparison.OrdinalIgnoreCase)) continue;
+                    bool zip = File.Exists(dir + ".zip");
+                    bool marker = File.Exists(Path.Combine(dir, AfterRecording.DoneMarkerName));
+                    try
+                    {
+                        if (RecordingIndex.NeedsRecovery(Path.GetFileName(dir), AfterRecording.HasVideo(work), zip, marker)) RecoverOne(dir, copy);
+                        else if (File.Exists(pending) && !File.Exists(work) && !zip && File.Exists(Path.Combine(dir, AfterRecording.IndexFileName)))
+                            RecoverZip(dir);
+                    }
+                    catch (Exception e) { Program.LogError(e); }   // the next folder must not wait for this one
                 }
             }
             catch (Exception e) { Program.LogError(e); }
@@ -857,8 +864,24 @@ class TrayApp : ApplicationContext
         t.Start();
     }
 
+    // The app ended after the pass and before the ZIP. The folder stays: what the WAV file has is not known here.
+    void RecoverZip(string dir)
+    {
+        MakeZipLocked(dir, null);
+        try
+        {
+            ui.BeginInvoke((MethodInvoker)delegate
+            {
+                lastResult = "Recovered recording: " + Path.GetFileName(dir) + ".zip";
+                UpdateMenu();
+            });
+        }
+        catch (InvalidOperationException) { }
+    }
+
     void RecoverOne(string dir, Settings s)
     {
+        if (Recorder.FindFfmpeg() == null) return;
         DateTime start;
         RecordingIndex.TryFolderTime(Path.GetFileName(dir), out start);
         AfterRecordingInput input = NewInput(dir, start, s, s.Fps);
@@ -1371,6 +1394,9 @@ class TrayApp : ApplicationContext
         try
         {
             if (job.Input.Ffmpeg == null) throw new IOException("ffmpeg.exe was not found.");
+            // Until the ZIP is there (RecoverOldRecordings). It goes with the folder.
+            try { File.WriteAllText(Path.Combine(job.Input.Folder, AfterRecording.PendingMarkerName), ""); }
+            catch (Exception) { }
             job.Input.NvencAvailable = Recorder.NvencForClip(job.Input.Settings == null ? new Settings() : SettingsFrom(job.Input.Settings));
             job.Result = AfterRecording.Run(job.Input);
             // The pass ran to its end and the work file stays: RecoverOldRecordings must not try again at each start.
@@ -1486,6 +1512,8 @@ class TrayApp : ApplicationContext
                     passesRunning--;
                     if (!done)
                     {
+                        // Exit was cancelled (Back in the note box), or a note box still asks: wait again.
+                        if (!quitRequested || openNotes.Count > 0) { AddTranscriptLater(job, r); return; }
                         Refresh();
                         ExitIfDone();
                         return;
@@ -1544,7 +1572,9 @@ class TrayApp : ApplicationContext
         lock (zipLock)
         {
             if (before != null) before();
-            return AfterRecording.MakeZip(folder);
+            string zip = AfterRecording.MakeZip(folder);
+            try { File.Delete(Path.Combine(folder, AfterRecording.PendingMarkerName)); } catch (Exception) { }
+            return zip;
         }
     }
 

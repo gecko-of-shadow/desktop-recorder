@@ -1072,11 +1072,10 @@ static class RecordingIndex
 
     // A recording folder that the app did not finish (the app or the PC stopped): the work file is there, and no ZIP.
     // marker: the pass ran to its end on this folder (a failed pass keeps its work file), so do not try again.
-    // ageSeconds: since the last write. A young file can belong to a running recording.
-    public static bool NeedsRecovery(string folderName, bool workFileHasVideo, bool zipExists, bool marker, double ageSeconds)
+    public static bool NeedsRecovery(string folderName, bool workFileHasVideo, bool zipExists, bool marker)
     {
         DateTime start;
-        return workFileHasVideo && !zipExists && !marker && ageSeconds >= 60 && TryFolderTime(folderName, out start);
+        return workFileHasVideo && !zipExists && !marker && TryFolderTime(folderName, out start);
     }
 
     // The start time in a folder name such as desktop_2026-11-24_12-30-05 or desktop_2026-11-24_12-30-05_2.
