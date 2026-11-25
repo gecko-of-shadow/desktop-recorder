@@ -290,6 +290,13 @@ sealed class NoteForm : Form
         if (box.TextLength - box.SelectionLength + 2 <= box.MaxLength) box.SelectedText = "\r\n";
     }
 
+    // Alt is necessary for the letters of the buttons. When a button has the focus, WinForms takes the plain letter too:
+    // a typed "d" discarded the note (bug hunt, 2026-11-24).
+    protected override bool ProcessDialogChar(char charCode)
+    {
+        return (ModifierKeys & Keys.Alt) != 0 && base.ProcessDialogChar(charCode);
+    }
+
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         if (keyData == Keys.Escape)
