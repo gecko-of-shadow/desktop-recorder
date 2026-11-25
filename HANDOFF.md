@@ -616,6 +616,7 @@ Commands of this run, in order (`quality_reads.py`; the defaults are `--reads 1-
 | README and release notes for v3.0.0 | Done (7.12). |
 | New defaults and index.md warnings | Done (7.13, 7.14). |
 | Release v3.0.1 | Done (7.15). The exe from the zip is not run on a PC. |
+| Release v3.2.0 (7.28) | Done. Build and Release workflows passed. The exe from the zip is not run on a PC. |
 | Release v3.1.0 (7.25) | Done. Build and Release workflows passed. The exe from the zip is not run on a PC. |
 | ZIP on the clipboard (7.16) | Code done, test build installed. Cloud paste test open. Not released. |
 | One ZIP only in folder mode (7.18) | Code, unit tests and a ZIP check done on branch `zip-only`. Not installed, not pushed, not released. No real recording and no paste test yet. Replaces 7.16. |
@@ -1503,7 +1504,7 @@ Install (2026-11-23, 17:27): the build of e8ae851 (SHA-256 starts with A49C2C8B8
 
 Open for Bran: a recording with speech still waits for Whisper (2 to 32 s seen). An option: put the ZIP on the clipboard first, and add the transcript after.
 
-### 7.27 Fast ZIP and the bug hunt (2026-11-24, branch `fast-zip-and-bug-hunt`, not pushed, not released)
+### 7.27 Fast ZIP and the bug hunt (2026-11-24, branch `fast-zip-and-bug-hunt`, released in v3.2.0, see 7.28)
 
 Bran: "i just dont want the zip hanging like it did. it should be fast but not miss anything ... very broad bug check". Then, after the limit incident: fix the critical and high bugs without a fan-out of agents ("Yes, fix them").
 
@@ -1544,6 +1545,18 @@ Bran: "i just dont want the zip hanging like it did. it should be fast but not m
 **Second install** (2026-11-24, 21:40, Bran: "Yes, install it"): the build of 892b0fe (SHA-256 starts with 0DC2226CF130F7A6) is installed and started through Explorer. The 1cc03e3 build is kept as `DesktopRecorder-F3BD71EE-backup.exe`. Unit tests `ok` before the install. Checked: the recorder had no child process and no window before the swap; after 12 s it responds, runs above normal priority, has no child process, wrote no `error.log` and did not change `settings.txt`. An FFmpeg of another program ran at the time and was not touched. Not checked: a recording with this build.
 
 **Not done (medium and low findings, see the findings file):** one channel for sound with opposite phase, `SilentPeak`, Whisper in a folder name outside the code page, doubtful-row mark, `-t` for Whisper on the CPU, NVENC probe race, fallback when ddagrab gives no frame, ZIP name with `_note` when the ZIP is held for more than 3 s.
+
+### 7.28 Release v3.2.0 (2026-11-24, 2026-11-25 UTC)
+
+Published (Bran: "merge it and release it once CI passes"): https://github.com/gecko-of-shadow/desktop-recorder/releases/tag/v3.2.0
+
+- Content: 7.26 and 7.27. Version 3.2.0 in the manifest, `README.md` and the two archive README files. CHANGELOG section [3.2.0]. The version is 3.2.0 because the recovery and the recording that goes on after a capture loss are new behavior (agent's choice).
+- Pull request 5 (draft, for the CI run). `main` had one commit that the branch did not have (a079db7, README front page). It was merged into the branch (ad220c8). After the Build workflow passed on 131f9b9, `main` was fast-forwarded to the same commit, and the pull request shows as merged.
+- Before the tag: unit tests `ok` and the app build on Bran's PC (manifest version 3.2.0.0). No `.cs` file changed after 892b0fe, the build that is installed on Bran's PC.
+- Tag v3.2.0 = 131f9b9 (annotated, `--cleanup=verbatim`, message from `release-notes-3.2.0.md`, which is not in Git). The Release workflow passed (windows, linux, publish).
+- Checked: the release is Latest, not a draft, and its body equals the notes file. Assets: `desktop-recorder-3.2.0-windows-x64.zip` (345870 bytes) and `desktop-recorder-3.2.0-linux-x86_64.tar.gz` (21499 bytes). The exe in the zip has the manifest version 3.2.0.0 (SHA-256 starts with A07379FC46874C3B) and both README files show 3.2.0.
+- Not checked: the exe from the release zip on a PC; a recording with the final code. The installed build on Bran's PC (0DC2226C) has the same code, but says 3.1.0.
+- The releases v3.0.1 and v3.1.0 still exist (a deletion needs Bran's approval). The README does not say any more that only the latest release stays. The branch `fast-zip-and-bug-hunt` still exists.
 
 ## 8. Rules for the agent
 
