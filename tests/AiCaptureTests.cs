@@ -31,6 +31,7 @@ static class AiCaptureTests
         TestCounterStops();
         TestMissedScreens();
         TestLargeScrollSteps();
+        TestLoadIsNotScroll();
         TestSmallChangeNearTheEnd();
         TestPendingThenScroll();
         TestScrollTurnsBack();
@@ -606,6 +607,28 @@ static class AiCaptureTests
         }
         s.Finish(9 / 15.0);
         Expect(s.TotalScroll >= 140, "a scroll beside a sidebar: " + s.TotalScroll + " of 160");
+    }
+
+    // A page that loads: new content at the top, and only a few straight borders in the small overlap of a large shift.
+    static void TestLoadIsNotScroll()
+    {
+        SettledFrameFinder f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        byte[] a = Big(20), b = Big(20);
+        Random r = new Random(5);
+        for (int y = 4; y < 250; y += 2) for (int x = 4; x < BW - 4; x++) if (r.Next(3) == 0) b = Dot(b, x, y, 230);
+        for (int y = 0; y < BH; y++) { Dot(a, 100, y, 200); Dot(b, 100, y, 200); }
+        double match = f.MatchedEdgeFraction(a, b, -260, 0, BH, 0, BW - 1);
+        Expect(match == 0, "an almost empty overlap proves no scroll: " + match);
+        byte[] same = new byte[b.Length];
+        Buffer.BlockCopy(b, 0, same, 260 * BW * 3, (BH - 260) * BW * 3);
+        Expect(f.MatchedEdgeFraction(b, same, -260, 0, BH, 0, BW - 1) > 0.9, "a dense overlap still proves a scroll");
+    }
+
+    static byte[] Dot(byte[] f, int x, int y, byte v)
+    {
+        int i = (y * BW + x) * 3;
+        f[i] = v; f[i + 1] = v; f[i + 2] = v;
+        return f;
     }
 
     static void TestLargeScrollSteps()

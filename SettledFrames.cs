@@ -850,11 +850,13 @@ sealed class SettledFrameFinder
         x1 = Math.Min(width - 2, x1);    // the pixel to the right must exist
         if (hi <= lo || x1 < x0) return 0;
         int stride = width * 3;
-        int tol = o.PixelTolerance;
-        long edges = 0, matched = 0;
-        for (int y = lo; y < hi; y += 2)
+        int tol = Math.Max(24, o.PixelTolerance);   // tested with 24 (false scrolls of video content)
+        long edges = 0, matched = 0, others = 0;   // others: edge pixels of the rows outside the overlap
+        int last = Math.Min(y0 + rows, height - 1);
+        for (int y = y0; y < last; y += 2)
         {
-            int rb = y * stride, ra = (y + s) * stride;
+            bool inside = y >= lo && y < hi;
+            int rb = y * stride, ra = inside ? (y + s) * stride : 0;
             for (int x = x0; x <= x1; x += 2)
             {
                 int i = rb + x * 3;
@@ -864,6 +866,7 @@ sealed class SettledFrameFinder
                 int dx = g - gr; if (dx < 0) dx = -dx;
                 int dyv = g - gd; if (dyv < 0) dyv = -dyv;
                 if (dx < 96 && dyv < 96) continue;   // 96 = a step of 24 in each channel (gray x 4)
+                if (!inside) { others++; continue; }
                 edges++;
                 int j = ra + x * 3;
                 int c0 = a[j] - b[i]; if (c0 < 0) c0 = -c0;
@@ -873,6 +876,10 @@ sealed class SettledFrameFinder
             }
         }
         if (edges < 64) return 0;
+        // A small overlap that is almost empty proves nothing: a page that loads gave "scroll, 752 px up", because a few
+        // straight borders matched (Bran's recording of 2026-11-24: 9% of the edge density of the whole area).
+        double overlap = (hi - lo) / (double)Math.Max(1, last - y0);
+        if (overlap < 0.4 && edges < 0.12 * (edges + others) * overlap) return 0;
         return matched / (double)edges;
     }
 

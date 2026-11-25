@@ -297,7 +297,7 @@ static class NativeMethods
     [DllImport("user32.dll")]
     static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
-    const uint GA_ROOT = 2;
+    const uint GA_ROOT = 2, GA_ROOTOWNER = 3;
 
     /// <summary>
     /// The title of the top-level window at the screen point (physical px). When that window belongs to this
@@ -318,6 +318,9 @@ static class NativeMethods
             {
                 IntPtr f = GetForegroundWindow();
                 if (f != IntPtr.Zero && !IsOwnWindow(f)) title = TitleOf(f);
+                // A popup without a title (a menu, a browser extension): the window that it belongs to.
+                if (title.Length == 0 && h != IntPtr.Zero && !IsOwnWindow(h)) title = TitleOf(GetAncestor(h, GA_ROOTOWNER));
+                if (title.Length == 0 && f != IntPtr.Zero && !IsOwnWindow(f)) title = TitleOf(GetAncestor(f, GA_ROOTOWNER));
             }
             return title;
         }
