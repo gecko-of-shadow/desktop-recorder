@@ -639,7 +639,7 @@ static class AfterRecording
         // (a lossless still screen). This makes the pipe much smaller in fixed-rate mode. showinfo gives the
         // time of each frame that stays; the reader thread puts the times in a queue, in frame order.
         string args = "-hide_banner -nostats -loglevel info -copyts -i " + RecorderCore.QuoteWindowsArgument(input.WorkFile)
-            + " -map 0:v:0 -vf mpdecimate=hi=0:lo=0:frac=0,showinfo -fps_mode passthrough -f rawvideo -pix_fmt bgr24 pipe:1";
+            + " -map 0:v:0 -vf " + RecorderCore.DecimatePad + ",mpdecimate=hi=0:lo=0:frac=0," + RecorderCore.DecimateCrop + ",showinfo -fps_mode passthrough -f rawvideo -pix_fmt bgr24 pipe:1";
         Process p = StartProcess(input.Ffmpeg, args);
         StringBuilder errors = new StringBuilder();
         Queue<double> frameTimes = new Queue<double>();

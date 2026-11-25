@@ -1082,7 +1082,9 @@ static class RecorderCore
             // (x.y to x,y, a:b to a;b, a'b to a`b) when the change stayed less than 1 s, and caught a longer
             // change up to 0.7 s late. The lower values caught 15 of 15 changes at once, with the same frame
             // count on a still page (test/lookalike.py, HANDOFF 6.10).
+            vf.Add(DecimatePad);
             vf.Add("mpdecimate=hi=256:lo=128:frac=0.33:max=" + maxDrop.ToString(CultureInfo.InvariantCulture));
+            vf.Add(DecimateCrop);
         }
         if (vf.Count > 0)
         {
@@ -1237,6 +1239,12 @@ static class RecorderCore
         }
         return a.ToArray();
     }
+
+    // mpdecimate does not look at the left 8 px of each plane (16 px in 4:2:0 color) and at the last rows and columns. A
+    // change there was lost. The pad moves the picture into the part that it looks at; the crop takes the pad away again
+    // (the pixels stay exactly the same, checked with MD5; bug hunt, 2026-11-24).
+    public const string DecimatePad = "pad=iw+32:ih+16:16:0";
+    public const string DecimateCrop = "crop=iw-32:ih-16:16:0";
 
     // True for a capture command whose encoder holds no frames back (RecordingSession: the clock of the recording).
     public static bool HasNoEncoderDelay(string arguments)

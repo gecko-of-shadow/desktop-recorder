@@ -29,6 +29,9 @@ static class AiCaptureTests
         TestScroll();
         TestIndex();
         TestCounterStops();
+        TestMissedScreens();
+        TestLargeScrollSteps();
+        TestSmallChangeNearTheEnd();
         TestPendingThenScroll();
         TestScrollTurnsBack();
         TestAiMessage();
@@ -309,7 +312,7 @@ static class AiCaptureTests
         Expect(j.IndexOf("-bf 0", StringComparison.Ordinal) >= 0, "no B-frames in the work file");
         Expect(RecorderCore.HasNoEncoderDelay(j) && j.IndexOf("-frag_duration 500000", StringComparison.Ordinal) >= 0, "no encoder delay and short fragments in the work file: " + j);
         Expect(j.IndexOf("high444p", StringComparison.Ordinal) >= 0, "444 profile");
-        Expect(j.IndexOf("format=yuv444p,mpdecimate", StringComparison.Ordinal) >= 0, "444 before mpdecimate");
+        Expect(j.IndexOf("format=yuv444p,pad=iw+32:ih+16:16:0,mpdecimate", StringComparison.Ordinal) >= 0, "444 before mpdecimate");
         Expect(j.IndexOf("segment", StringComparison.Ordinal) < 0, "no split in folder mode");
         Expect(j.IndexOf("-cq", StringComparison.Ordinal) < 0, "no cq when lossless");
         Expect(j.IndexOf("frag_keyframe", StringComparison.Ordinal) >= 0, "fragmented work file");
@@ -495,6 +498,138 @@ static class AiCaptureTests
     }
 
     // Review 2026-11-19, finding 1: a value that changes 3 times fast and then stays must be in a frame.
+    const int BW = 480, BH = 360;
+
+    static byte[] Big(byte v)
+    {
+        byte[] f = new byte[BW * BH * 3];
+        for (int i = 0; i < f.Length; i++) f[i] = v;
+        return f;
+    }
+
+    static byte[] Draw(byte[] f, int x0, int y0, int w, int h, byte v)
+    {
+        byte[] c = (byte[])f.Clone();
+        for (int y = y0; y < y0 + h; y++) for (int x = x0; x < x0 + w; x++)
+        {
+            int i = (y * BW + x) * 3;
+            c[i] = v; c[i + 1] = v; c[i + 2] = v;
+        }
+        return c;
+    }
+
+    static bool Shows(SettledFrameFinder f, int x, int y, byte v)
+    {
+        foreach (SettledFrame s in f.Written)
+            if (s.Pixels != null && s.Pixels[(y * BW + x) * 3] == v) return true;
+        return false;
+    }
+
+    // Bug hunt, 2026-11-24. The pass gets no equal frames, so each case feeds changed frames only (6 fps).
+    static void TestMissedScreens()
+    {
+        byte[] page = Big(255);
+
+        // A menu shows 1 s while the pointer moves all the time.
+        SettledFrameFinder f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        byte[] menu = Draw(page, 40, 40, 200, 200, 90);
+        for (int i = 0; i < 24; i++)
+            f.Feed(Draw(i >= 12 && i < 18 ? menu : page, 260 + i * 5, 280 - i, 12, 18, 0), i / 6.0);
+        f.Finish(4);
+        Expect(Shows(f, 100, 100, 90), "a menu under a moving pointer is written");
+        Expect(f.Written.Count <= 5, "a moving pointer gives few frames: " + f.Written.Count);
+
+        // Two pages of 0.33 s each (2 captures at 6 fps), then a third one.
+        f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        byte[] p1 = Draw(page, 0, 0, 400, 300, 200), p2 = Draw(page, 0, 0, 400, 300, 120), p3 = Draw(page, 0, 0, 400, 300, 40);
+        f.Feed(page, 0); f.Feed(p1, 2.0); f.Feed(p2, 2.333); f.Feed(p3, 2.667);
+        f.Finish(5);
+        Expect(Shows(f, 10, 10, 200) && Shows(f, 10, 10, 120) && Shows(f, 10, 10, 40), "pages of 0.33 s are written: " + f.Written.Count);
+
+        // Content that changes each 0.33 s for 2 min: limited.
+        f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        for (int i = 0; i < 360; i++) f.Feed(Draw(page, 0, 0, 200, 200, (byte)(i % 2 == 0 ? 60 + i % 90 : 200)), i / 3.0);
+        f.Finish(120);
+        Expect(f.Written.Count < 60 + 125, "a slow animation has a limit: " + f.Written.Count);
+
+        // A small text shows for 9 s, then goes away, with no other change.
+        f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        byte[] small = Draw(page, 100, 100, 20, 12, 0);
+        f.Feed(page, 0); f.Feed(small, 1); f.Feed(page, 10); f.Feed(page, 11);
+        f.Finish(12);
+        Expect(Shows(f, 105, 105, 0), "a small state of 9 s is written");
+
+        // A slow blinking caret (1 s) stays at one frame.
+        f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        for (int i = 0; i < 30; i++) f.Feed(i % 2 == 0 ? page : Draw(page, 100, 100, 2, 16, 0), i);
+        f.Finish(30);
+        Expect(f.Written.Count == 1, "a 1 s caret: 1 frame, got " + f.Written.Count);
+
+        // A spinner runs for 3 s in the same place, then a check mark stays there until Stop 2 s later.
+        f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        double t = 0;
+        f.Feed(page, 0);
+        for (int i = 0; i < 18; i++) { t = 1 + i / 6.0; f.Feed(Draw(page, 100 + (i % 4) * 2, 100, 10, 16, (byte)(i % 3 * 40)), t); }
+        byte[] check = Draw(page, 100, 100, 16, 16, 150);
+        f.Feed(check, t + 1 / 6.0);
+        f.Finish(t + 2);
+        Expect(Shows(f, 105, 105, 150), "the result of a spinner is written");
+
+        // A light gray selection (13 below white), and a fade in 20 steps.
+        f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        f.Feed(page, 0); f.Feed(Draw(page, 0, 0, 300, 40, 236), 2);
+        f.Finish(4);
+        Expect(Shows(f, 10, 10, 236), "a light selection color is written");
+        f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        f.Feed(page, 0);
+        for (int i = 1; i <= 20; i++) f.Feed(Draw(page, 0, 0, 300, 200, (byte)(255 - i * 10)), 1 + i / 6.0);
+        f.Finish(8);
+        Expect(Shows(f, 10, 10, 55), "the end of a slow fade is written");
+        // A placeholder that pulses slowly for 40 s: samples, not a frame for each step. A text that comes is written.
+        f = new SettledFrameFinder(BW, BH, new SettledOptions());
+        for (int i = 0; i < 240; i++)
+        {
+            byte[] pulse = Draw(page, 0, 0, 300, 200, (byte)(230 + 20 * Math.Sin(i / 6.0 * 2)));
+            f.Feed(i >= 120 ? Draw(pulse, 20, 300, 200, 20, 0) : pulse, i / 6.0);
+        }
+        f.Finish(40);
+        Expect(f.Written.Count <= 14 && Shows(f, 30, 310, 0), "a slow pulse: " + f.Written.Count);
+
+        // A scroll beside a sidebar with text that stands still.
+        SettledFrameFinder s = Finder();
+        byte[] content = RandomContent(H * 5, 7);
+        for (int k = 0; k <= 8; k++)
+        {
+            byte[] v = View(content, k * 20);
+            byte[] side = Page(3);
+            for (int y = 0; y < H; y++) for (int x = 0; x < W / 2; x++) Set(v, x, y, side[(y * W + x) * 3]);
+            s.Feed(v, k / 15.0);
+        }
+        s.Finish(9 / 15.0);
+        Expect(s.TotalScroll >= 140, "a scroll beside a sidebar: " + s.TotalScroll + " of 160");
+    }
+
+    static void TestLargeScrollSteps()
+    {
+        byte[] content = RandomContent(H * 5, 3);
+        SettledFrameFinder f = Finder();
+        int pos = 0;
+        f.Feed(View(content, 0), 0);
+        for (int k = 1; k <= 3; k++) { pos += 66; f.Feed(View(content, pos), k / 15.0); }
+        f.Finish(4 / 15.0);
+        Expect(f.TotalScroll == pos && NoGap(f, 0, pos + H), "two steps of 55 percent: no gap");
+    }
+
+    static void TestSmallChangeNearTheEnd()
+    {
+        SettledFrameFinder f = Finder();
+        byte[] a = Page(1), b = Page(1);
+        Fill(b, 40, 50, 5, 7, 0);
+        for (int i = 0; i < 60; i++) f.Feed(i < 50 ? a : b, i / 10.0);
+        f.Finish(6);
+        Expect(f.Written.Count == 2, "a small change 1 s before Stop is written: " + f.Written.Count);
+    }
+
     static void TestCounterStops()
     {
         SettledFrameFinder f = Finder();

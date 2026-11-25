@@ -27,7 +27,9 @@ sealed class SettledOptions
     public double SettleSeconds = 0.4;
     public double StillIntervalSeconds = 5;
     public double ScrollFraction = 0.6;
-    public int PixelTolerance = 24;
+    // Lossless work files have no encoder noise, so a small value is safe. With 24, a light selection color or a slow fade
+    // was "no change" (bug hunt, 2026-11-24).
+    public int PixelTolerance = 12;
     public int MinChangedPixels = 3;
     public double ShiftAcceptRatio = 0.75;  // a shift counts when it lowers the pixel error below this part
     // A shift counts only when this part of the edge pixels in the changed columns matches after the shift.
@@ -50,6 +52,13 @@ sealed class SettledOptions
     // Reason: a moving mouse pointer gave "the picture changed during 81%" on still pages (Bran's recordings of
     // 2026-11-22, pointer shown). The largest group of most of those pairs had a short side of 16 to 40 px at 125%.
     public int MotionMinSide = 96;
+    // Bug hunt, 2026-11-24. A large state (a page, a menu, a dialog) counts as settled when no LARGE change came for
+    // SettleSeconds: a moving pointer or a small animation does not matter. A large state of BriefSeconds (2 captures at
+    // 6 fps) is written when another large state takes its place. After MaxBrief such frames, at most one each second.
+    public double BriefSeconds = 0.3;
+    public int MaxBrief = 60;
+    // At the end, a blink mask with no change for this time does not hide its area any more (a caret still blinks).
+    public double EndMaskQuietSeconds = 1.25;
 }
 
 // Kinds of written frames. The index text comes from RecordingIndex.Describe.
@@ -89,6 +98,7 @@ sealed class SettledFrameFinder
     {
         public int X0, Y0, X1, Y1;
         public double LastActive;
+        public bool Spinner;   // made by RegisterSmall (many changes), not by a blink
     }
 
     struct SmallEvent
@@ -127,6 +137,14 @@ sealed class SettledFrameFinder
     const int SmallSearch = 96;
     int scrollArea;           // height of the moving area during the scroll since the last written frame
     double firstTime;
+    double largeStart;        // the last large change
+    bool largeHandled = true;
+    int briefFrames;
+    readonly List<byte[]> recent = new List<byte[]>();   // pixels of the last written frames (RecentCount), the newest last
+    const int RecentCount = 6, RepeatTolerance = 40;
+    bool drifting;            // the state comes from a slow fade
+    bool finishing;
+    int tolerance = -1;       // -1 = PixelTolerance (CompareWith)
     double movingSeconds;     // time with changes that are not a scroll (frame pairs nearer than SettleSeconds)
     int moveX0 = int.MaxValue, moveY0 = int.MaxValue, moveX1 = -1, moveY1 = -1;   // box of those changes
 
@@ -206,8 +224,9 @@ sealed class SettledFrameFinder
         // Moving content needs a large group of changed blocks (MotionMinSide). Found here: the next Compare
         // changes blockCounts. Only frame pairs near in time can count as motion (see below).
         int gx0 = 0, gy0 = 0, gx1 = -1, gy1 = -1;
-        bool largeGroup = d.Pixels >= o.MinChangedPixels && time - prevTime <= o.SettleSeconds + 1e-9
-            && LargeGroups(Math.Max(8, Math.Min(o.MotionMinSide, Math.Min(width, height) / 2)), out gx0, out gy0, out gx1, out gy1);
+        int largeSide = Math.Max(8, Math.Min(o.MotionMinSide, Math.Min(width, height) / 2));
+        bool large = d.Pixels >= o.MinChangedPixels && LargeGroups(largeSide, out gx0, out gy0, out gx1, out gy1);
+        bool largeGroup = large && time - prevTime <= o.SettleSeconds + 1e-9;
         bool stateIsStill = time - stateStart >= o.SettleSeconds - 1e-9;
         if (!stateHandled && stateIsStill)
         {
@@ -216,6 +235,36 @@ sealed class SettledFrameFinder
         }
         // The screen was still until this frame: the interval for "screen still changing" starts again.
         if (stateIsStill && time > lastStillOrWrite) lastStillOrWrite = time;
+        // The same rule for large changes only: a page or a menu under a moving pointer never had a still moment, and it
+        // was lost when it went before the 5 s sample. Before the scroll code below, so ContentOffset belongs to prev.
+        if (!largeHandled && time - largeStart >= o.SettleSeconds - 1e-9 && BriefAllowed(time))
+        {
+            largeHandled = true;
+            Change lc = Compare(lastWritten, prev, prevTime, false);
+            int lx0, ly0, lx1, ly1;
+            if (lc.Pixels >= o.MinChangedPixels && LargeGroups(largeSide, out lx0, out ly0, out lx1, out ly1) && !IsRepeat(prev, time))
+            {
+                briefFrames++;
+                WriteFrame(prev, prevTime, FrameKind.StillChanging, lc);
+            }
+        }
+        if (large) { largeStart = time; largeHandled = false; }
+        // A slow fade: each step is below the tolerance, but the picture moves away from the state. It is a new state when
+        // the fade ends (no step of 2 or more). A state with a normal change is not delayed by a fade.
+        if (d.Pixels >= o.MinChangedPixels) drifting = false;
+        else if (drifting && !stateHandled ? CompareWith(1, prev, frame, time).Pixels >= o.MinChangedPixels
+            : stateHandled && Compare(stateFrame, frame, time, false).Pixels >= o.MinChangedPixels)
+        {
+            drifting = true;
+            Buffer.BlockCopy(frame, 0, stateFrame, 0, width * height * 3);
+            stateStart = time;
+            stateHandled = false;
+            if (time - lastStillOrWrite >= o.StillIntervalSeconds - 1e-9)
+            {
+                WriteFrame(frame, time, FrameKind.StillChanging, Compare(lastWritten, frame, time, false));
+                stateHandled = true;
+            }
+        }
         if (d.Pixels >= o.MinChangedPixels)
         {
             int dy = 0;
@@ -248,6 +297,20 @@ sealed class SettledFrameFinder
                 // back: that frame shows the furthest content. Without it, a large step or a turn can leave a gap
                 // (review 2026-11-19). The written frame is the previous frame, at its own offset.
                 if (crosses || reverses) WriteFrame(prev, prevTime, FrameKind.ScrollPart, Compare(lastWritten, prev, prevTime, false));
+            }
+            // A large state of 2 captures (BriefSeconds) that another large state replaces: a page, a tab or a dialog that
+            // shows for 0.33 s at 6 fps. Not in a scroll.
+            if (dy == 0 && largeGroup && !stateHandled && lastWritten != null && time - stateStart >= o.BriefSeconds - 1e-9 && BriefAllowed(time))
+            {
+                Change bc = Compare(lastWritten, stateFrame, time, false);
+                int bx0, by0, bx1, by1;
+                if (bc.Pixels >= o.MinChangedPixels && LargeGroups(largeSide, out bx0, out by0, out bx1, out by1) && !IsRepeat(stateFrame, time))
+                {
+                    briefFrames++;
+                    double keep = lastStillOrWrite;   // it must not delay the 5 s sample
+                    WriteFrame(stateFrame, stateStart, FrameKind.Settled, bc);
+                    lastStillOrWrite = keep;
+                }
             }
             scrollSinceWritten += dy;
             totalScroll += dy;
@@ -286,11 +349,30 @@ sealed class SettledFrameFinder
         prevTime = time;
     }
 
+    // True for a state that the last written frames show two times already (a placeholder that pulses, a blinking label):
+    // A, B, A, B, and now A again. It shows nothing new, so it is not written for StillIntervalSeconds. The large
+    // tolerance is for a pulse that the capture sees at different brightness. A text change has larger differences.
+    bool IsRepeat(byte[] s, double time)
+    {
+        if (written.Count < 4 || time - written[written.Count - 1].Time >= o.StillIntervalSeconds - 1e-9) return false;
+        int same = 0;
+        for (int i = 0; i < recent.Count - 1; i++)
+            if (CompareWith(RepeatTolerance, recent[i], s, time).Pixels < o.MinChangedPixels) same++;
+        return same >= 2;
+    }
+
+    // Content that changes each 0.3 s or more slowly for minutes (an animation) must not give thousands of frames.
+    bool BriefAllowed(double time)
+    {
+        return briefFrames < o.MaxBrief || written.Count == 0 || time - written[written.Count - 1].Time >= 1.0;
+    }
+
     // endTime: the end of the video (the time of the last frame plus its length).
     public void Finish(double endTime)
     {
         if (!started) return;
         if (endTime < lastTime) endTime = lastTime;
+        finishing = true;
         CheckPending(endTime);
         ExpireMasks(endTime);
         if (masksExpired && stateHandled && lastWritten != null)
@@ -312,6 +394,22 @@ sealed class SettledFrameFinder
             }
         }
         FlushPending();
+        // The result of a spinner or a counter can be inside a mask. Compare the last frame without the masks (but a
+        // caret that still blinks stays masked). prev, not stateFrame: a change inside a mask is not in stateFrame.
+        double t = stateStart;
+        bool dropped = false;
+        for (int i = masks.Count - 1; i >= 0; i--)
+        {
+            Mask m = masks[i];
+            if (!m.Spinner && endTime - m.LastActive < o.EndMaskQuietSeconds) continue;
+            if (m.LastActive > t) t = m.LastActive;
+            masks.RemoveAt(i);
+            dropped = true;
+        }
+        if (!dropped || lastWritten == null) return;
+        Change last = Compare(lastWritten, prev, endTime, false);
+        if (last.Pixels >= o.MinChangedPixels)
+            WriteFrame(prev, t, endTime - t >= o.SettleSeconds - 1e-9 ? FrameKind.Settled : FrameKind.Last, last);
     }
 
     void OnSettled(byte[] s, double t, double now)
@@ -328,7 +426,7 @@ sealed class SettledFrameFinder
             // Back to the last written frame. A pending small change was a blink.
             if (pending != null)
             {
-                AddMask(pending.BoxX, pending.BoxY, pending.BoxX + pending.BoxWidth - 1, pending.BoxY + pending.BoxHeight - 1, now);
+                AddMask(pending.BoxX, pending.BoxY, pending.BoxX + pending.BoxWidth - 1, pending.BoxY + pending.BoxHeight - 1, now, false);
                 pending = null;
             }
             scrollSinceWritten = (int)(totalScroll - lastWrittenOffset);
@@ -342,7 +440,11 @@ sealed class SettledFrameFinder
             d = Compare(lastWritten, s, now, false);
             if (d.Pixels < o.MinChangedPixels) return;
         }
-        if (IsSmall(d) && scrollSinceWritten == 0)
+        // Not at the end (the last state always counts), and not when the state stayed.
+        if (!finishing && scrollSinceWritten == 0 && now - t < o.BlinkSeconds - 1e-9 && IsRepeat(s, now)) return;
+        // A small state that stayed BlinkSeconds is not a blink: write it now. (The pass gets no equal frames, so "now"
+        // can be long after the state. Waiting longer lost the state when the next one went back.)
+        if (IsSmall(d) && scrollSinceWritten == 0 && now - t < o.BlinkSeconds - 1e-9)
         {
             pending = MakeFrame(s, t, FrameKind.Settled, d);
             pendingDeadline = now + o.BlinkSeconds;
@@ -406,6 +508,8 @@ sealed class SettledFrameFinder
         if (f.Time > lastStillOrWrite) lastStillOrWrite = f.Time;
         if (f.ChangedFraction > 0.3) masks.Clear();
         written.Add(f);
+        recent.Add(f.Pixels);
+        if (recent.Count > RecentCount) recent.RemoveAt(0);
         Action<SettledFrame> h = FrameWritten;
         if (h != null) h(f);
     }
@@ -435,7 +539,7 @@ sealed class SettledFrameFinder
         recentSmall.Add(e);
         if (same >= 3)
         {
-            AddMask(ux0, uy0, ux1, uy1, time);
+            AddMask(ux0, uy0, ux1, uy1, time, true);
             if (pending != null && pending.BoxX >= ux0 - 2 && pending.BoxY >= uy0 - 2
                 && pending.BoxX + pending.BoxWidth - 1 <= ux1 + 2 && pending.BoxY + pending.BoxHeight - 1 <= uy1 + 2)
                 pending = null;
@@ -453,7 +557,7 @@ sealed class SettledFrameFinder
         return inter / (a + b - inter);
     }
 
-    void AddMask(int x0, int y0, int x1, int y1, double time)
+    void AddMask(int x0, int y0, int x1, int y1, double time, bool spinner)
     {
         Mask m = new Mask();
         m.X0 = Math.Max(0, x0 - 2);
@@ -461,13 +565,25 @@ sealed class SettledFrameFinder
         m.X1 = Math.Min(width - 1, x1 + 2);
         m.Y1 = Math.Min(height - 1, y1 + 2);
         m.LastActive = time;
+        m.Spinner = spinner;
         masks.Add(m);
         if (masks.Count > 8) masks.RemoveAt(0);
     }
 
     void ExpireMasks(double time)
     {
-        if (masks.RemoveAll(delegate(Mask m) { return time - m.LastActive > o.MaskExpirySeconds; }) > 0) masksExpired = true;
+        double last = -1;
+        if (masks.RemoveAll(delegate(Mask m)
+        {
+            if (time - m.LastActive <= o.MaskExpirySeconds) return false;
+            if (m.LastActive > last) last = m.LastActive;
+            return true;
+        }) == 0) return;
+        masksExpired = true;
+        // A change inside a mask is not in stateFrame. Take the screen as it was in the last frame, with the time of the
+        // last change in the mask: the final value of a counter was never written (bug hunt, 2026-11-24).
+        Buffer.BlockCopy(prev, 0, stateFrame, 0, width * height * 3);
+        if (last > stateStart) stateStart = last;
     }
 
     // Counts the pixels that differ (outside the masks) and the box around them.
@@ -512,9 +628,16 @@ sealed class SettledFrameFinder
         return c;
     }
 
+    Change CompareWith(int tol, byte[] a, byte[] b, double time)
+    {
+        tolerance = tol;
+        try { return Compare(a, b, time, false); }
+        finally { tolerance = -1; }
+    }
+
     void CompareBlockRow(byte[] a, byte[] b, int by, int bw, Mask[] maskArray, double time, bool track)
     {
-        int tol = o.PixelTolerance;
+        int tol = tolerance >= 0 ? tolerance : o.PixelTolerance;
         int stride = width * 3;
         int maskCount = maskArray.Length;
         int yEnd = Math.Min(height, by * 8 + 8);
@@ -653,7 +776,7 @@ sealed class SettledFrameFinder
         // synthetic "pages" video: 919 px found, 40 px true).
         if (lastShift != 0) candidates.Add(lastShift);
         if (candidates.Count == 0 && SmallSearch == 0) return 0;
-        double err0 = PixelError(a, b, 0, y0, rows, 2, 4);
+        double err0 = PixelError(a, b, 0, y0, rows, x0, x1, 2, 4);
         // Pass 1: a sparse grid for every candidate (each vote +-2 px, and every step up to SmallSearch px).
         List<int> shifts = new List<int>();
         foreach (int s in candidates)
@@ -664,7 +787,7 @@ sealed class SettledFrameFinder
         double[] coarseErr = new double[shifts.Count];
         System.Threading.Tasks.Parallel.For(0, shifts.Count, delegate(int k)
         {
-            coarseErr[k] = PixelError(a, b, shifts[k], y0, rows, 6, 8);
+            coarseErr[k] = PixelError(a, b, shifts[k], y0, rows, x0, x1, 6, 8);
         });
         List<KeyValuePair<int, double>> order = new List<KeyValuePair<int, double>>();
         for (int k = 0; k < shifts.Count; k++) order.Add(new KeyValuePair<int, double>(shifts[k], coarseErr[k]));
@@ -683,7 +806,7 @@ sealed class SettledFrameFinder
         double[] fineErr = new double[fineShifts.Count];
         System.Threading.Tasks.Parallel.For(0, fineShifts.Count, delegate(int k)
         {
-            fineErr[k] = PixelError(a, b, fineShifts[k], y0, rows, 2, 4);
+            fineErr[k] = PixelError(a, b, fineShifts[k], y0, rows, x0, x1, 2, 4);
         });
         Dictionary<int, double> tried = new Dictionary<int, double>();
         int best = 0;
@@ -754,8 +877,8 @@ sealed class SettledFrameFinder
     }
 
     // Mean gray difference between b[y] and a[y + s] for rows y0 to y0 + rows, on a grid
-    // (every 2nd row, every 4th pixel).
-    double PixelError(byte[] a, byte[] b, int s, int y0, int rows, int rowStep, int colStep)
+    // (every 2nd row, every 4th pixel). Only the changed columns x0 to x1: a sidebar that stands still hid the scroll.
+    double PixelError(byte[] a, byte[] b, int s, int y0, int rows, int x0, int x1, int rowStep, int colStep)
     {
         int lo = Math.Max(y0, y0 - s), hi = Math.Min(y0 + rows, y0 + rows - s);
         if (hi - lo < Math.Max(8, rows / 5)) return double.MaxValue;
@@ -764,7 +887,7 @@ sealed class SettledFrameFinder
         for (int y = lo; y < hi; y += rowStep)
         {
             int rb = y * stride, ra = (y + s) * stride;
-            for (int x = 0; x < width; x += colStep)
+            for (int x = x0; x <= x1; x += colStep)
             {
                 int i = x * 3;
                 int ga = a[ra + i] + 2 * a[ra + i + 1] + a[ra + i + 2];

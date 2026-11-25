@@ -632,17 +632,17 @@ static class CoreTests
         s.FrameRateMode = "changes";
         a = RecorderCore.BuildCaptureArguments(s, region, OneMonitor(), now, true);
         j = Joined(a);
-        Expect(a[IndexOf(a, "-vf") + 1] == "hwdownload,format=bgra,format=yuv420p,mpdecimate=hi=256:lo=128:frac=0.33:max=9", "dda changes chain: " + j);
+        Expect(a[IndexOf(a, "-vf") + 1] == "hwdownload,format=bgra,format=yuv420p,pad=iw+32:ih+16:16:0,mpdecimate=hi=256:lo=128:frac=0.33:max=9,crop=iw-32:ih-16:16:0", "dda changes chain: " + j);
         Expect(a[IndexOf(a, "-fps_mode") + 1] == "vfr", "changes vfr");
         Expect(IndexOf(a, "-rgb_mode") < 0, "changes 420 no rgb_mode");
         s.ChromaFormat = "yuv444";
         a = RecorderCore.BuildCaptureArguments(s, region, OneMonitor(), now, true);
-        Expect(a[IndexOf(a, "-vf") + 1] == "hwdownload,format=bgra,format=yuv444p,mpdecimate=hi=256:lo=128:frac=0.33:max=9", "dda changes 444 chain");
+        Expect(a[IndexOf(a, "-vf") + 1] == "hwdownload,format=bgra,format=yuv444p,pad=iw+32:ih+16:16:0,mpdecimate=hi=256:lo=128:frac=0.33:max=9,crop=iw-32:ih-16:16:0", "dda changes 444 chain");
         Expect(IndexOf(a, "-profile:v") >= 0 && IndexOf(a, "-rgb_mode") < 0, "changes 444 profile without rgb_mode");
         s.ChromaFormat = "yuv420";
         s.CaptureBackend = "gdigrab";
         a = RecorderCore.BuildCaptureArguments(s, new CaptureRegion(), OneMonitor(), now, false);
-        Expect(a[IndexOf(a, "-vf") + 1] == "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0,format=yuv420p,mpdecimate=hi=256:lo=128:frac=0.33:max=9", "gdigrab changes chain");
+        Expect(a[IndexOf(a, "-vf") + 1] == "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0,format=yuv420p,pad=iw+32:ih+16:16:0,mpdecimate=hi=256:lo=128:frac=0.33:max=9,crop=iw-32:ih-16:16:0", "gdigrab changes chain");
         Expect(a[IndexOf(a, "-framerate") + 1] == "10", "changes captures at the fps setting");
 
         // Split: same segment muxer as before. NVENC adds forced-idr.
