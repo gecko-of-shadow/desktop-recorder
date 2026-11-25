@@ -30,10 +30,28 @@ static class Program
                     "Desktop Recorder");
                 return;
             }
+            // Above normal, as FFmpeg (ChildProcessJob.Raise): the frame pass runs in this process. Idle, it uses nothing.
+            ChildProcessJob.Raise(Process.GetCurrentProcess());
+            // An error on the UI thread must not end the app (and the recording). It goes into error.log.
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += delegate(object sender, ThreadExceptionEventArgs e) { LogError(e.Exception); };
+            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e) { LogError(e.ExceptionObject as Exception); };
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new TrayApp());
         }
+    }
+
+    // %APPDATA%\DesktopRecorder\error.log, next to settings.txt. At most 200 KB.
+    public static void LogError(Exception e)
+    {
+        try
+        {
+            string path = Path.Combine(Path.GetDirectoryName(Settings.FilePath), "error.log");
+            if (File.Exists(path) && new FileInfo(path).Length > 200000) File.Delete(path);
+            File.AppendAllText(path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "\r\n" + e + "\r\n\r\n");
+        }
+        catch (Exception) { }
     }
 }
 
@@ -87,7 +105,7 @@ class Settings
             "Recordings");
     }
 
-    static string FilePath
+    public static string FilePath
     {
         get
         {
@@ -184,22 +202,26 @@ class Settings
         return copy;
     }
 
+    // True: settings.txt is there, but it could not be read. The app then does not save by itself (only Save in the
+    // Settings window does), or the default values would replace the settings of the user.
+    public bool LoadFailed;
+
     public static Settings Load()
     {
         Settings s = new Settings();
-        try
-        {
-            if (!File.Exists(FilePath)) return s;
-            s.Apply(RecorderCore.ParseSettings(File.ReadAllText(FilePath), s.ToStored()));
-        }
-        catch (Exception) { }
+        bool failed;
+        string text = RecorderCore.ReadSettingsText(FilePath, out failed);
+        s.LoadFailed = failed;
+        try { if (text != null) s.Apply(RecorderCore.ParseSettings(text, s.ToStored())); }
+        catch (Exception) { s.LoadFailed = true; }
         return s;
     }
 
     public void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath));
-        RecorderCore.AtomicWrite(FilePath, RecorderCore.SerializeSettings(ToStored()));
+        RecorderCore.WriteSettingsText(FilePath, RecorderCore.SerializeSettings(ToStored()));
+        LoadFailed = false;
     }
 
     // The hotkey as text, such as "Win+Shift+D".
@@ -491,6 +513,16 @@ class Recorder
         return session.LastStats();
     }
 
+    // FFmpeg did not end by itself at the last Stop.
+    public bool KilledAtStop { get { return session.KilledAtStop; } }
+
+    // The Stop sound must not be in the audio: the audio ends at this time.
+    public void MarkAudioEnd()
+    {
+        LoopbackCapture c = audio;
+        if (c != null) c.MarkEnd();
+    }
+
     public void Stop()
     {
         session.Stop();
@@ -525,7 +557,7 @@ class Recorder
             if (RecorderCore.RunFfmpeg(ffmpeg, RecorderCore.JoinWindowsArguments(args.ToArray()), 10 * 60 * 1000, out output, out exit)
                 && exit == 0 && File.Exists(temp) && new FileInfo(temp).Length > 0)
             {
-                try { File.Delete(files[i]); File.Move(temp, files[i]); continue; }
+                try { AfterRecording.ReplaceFile(temp, files[i]); continue; }
                 catch (Exception) { }
             }
             ok = false;
@@ -642,7 +674,9 @@ class TrayApp : ApplicationContext
     bool forcedGdigrab, forcedX264;
     const int FallbackWindowMs = 10000;
     bool selecting;
-    bool stopping;   // FFmpeg is finishing the file on a background thread
+    volatile bool stopping;   // FFmpeg is finishing the file on a background thread
+    bool stopRequested;       // the user stopped the current recording: a late Failed is not a failure
+    volatile bool sessionEnding;   // Windows signs out or shuts down
     // Folder mode (AI capture brief, Phase 1).
     string recordingFolder;                 // null in MP4 mode
     DateTime recordingStartTime;
@@ -670,7 +704,7 @@ class TrayApp : ApplicationContext
                 case TrayCommand.ShowLastZip: OpenLastFolder(); break;
                 case TrayCommand.CopyLastZip: CopyZip(); break;
                 case TrayCommand.Settings: ShowSettings(); break;
-                default: Quit(); break;
+                default: QuitCommand(); break;
             }
         };
         // Scale and theme before the menu opens: the right button down comes before the button up that opens it.
@@ -697,6 +731,8 @@ class TrayApp : ApplicationContext
             {
                 ui.BeginInvoke((MethodInvoker)delegate
                 {
+                    // The user stopped it (its own job has the file), or Windows ends the session (FFmpeg can end first).
+                    if (stopRequested || sessionEnding) return;
                     if (TryFallback(message)) return;
                     // No restart: the recording is over, so the audio capture stops too.
                     AudioTake take = recorder.StopAudio();
@@ -707,7 +743,11 @@ class TrayApp : ApplicationContext
                     if (recordingFolder != null && WorkFileHasData(recordingFolder))
                     {
                         // Keep what was recorded: the pass makes the frames and clip.mp4 from the work file.
-                        StartPass(null, "FFmpeg stopped: " + Shorten(message));
+                        Rectangle region = recordingRegion;
+                        bool seen = unchecked(Environment.TickCount - recordingStartTicks) >= 3000;
+                        StartPass("FFmpeg stopped: " + Shorten(message));
+                        // A UAC prompt, the lock screen or a display change ended the capture. Record on in a new folder.
+                        if (seen && RecorderCore.IsCaptureLoss(message)) ResumeLater(region);
                         return;
                     }
                     string stats = UpdateStats();
@@ -720,10 +760,19 @@ class TrayApp : ApplicationContext
             }
             catch (InvalidOperationException) { }
         };
-        SystemEvents.SessionEnding += delegate { recorder.Stop(); };
+        // SessionEnded, not SessionEnding: a program can refuse the sign-out, and the recording then goes on.
+        SystemEvents.SessionEnded += delegate
+        {
+            sessionEnding = true;
+            recorder.Stop();
+        };
+
+        resumeTimer.Interval = 1000;
+        resumeTimer.Tick += delegate { ResumeTick(); };
 
         hotkey.Pressed += delegate(int id)
         {
+            if (CancelResume()) return;
             if (recorder.IsRecording)
             {
                 StopRecording();
@@ -736,6 +785,124 @@ class TrayApp : ApplicationContext
         Recorder.WarmUp(settings);
         string warning = HotkeyWarning();
         if (warning != null) tray.ShowBalloonTip(6000, "Desktop Recorder", warning, ToolTipIcon.Warning);
+        RecoverOldRecordings();
+    }
+
+    // ------------------------------------------------------------ record on after a capture loss
+
+    readonly System.Windows.Forms.Timer resumeTimer = new System.Windows.Forms.Timer();
+    Rectangle resumeRegion;
+    DateTime resumeUntil;
+    const int ResumeSeconds = 120;   // not longer: after a long lock, the user does not expect a recording
+
+    void ResumeLater(Rectangle region)
+    {
+        resumeRegion = region;
+        resumeUntil = DateTime.Now.AddSeconds(ResumeSeconds);
+        resumeTimer.Start();
+    }
+
+    void ResumeTick()
+    {
+        if (quitRequested || sessionEnding || selecting || stopping || recorder.IsRecording || DateTime.Now > resumeUntil)
+        {
+            resumeTimer.Stop();
+            return;
+        }
+        if (!NativeMethods.InputDesktopAccessible()) return;
+        resumeTimer.Stop();
+        StartRecordingWith(resumeRegion, true, true, "The screen capture stopped. The recording goes on in a new ZIP.",
+            forcedGdigrab, forcedX264, null);
+    }
+
+    // The user pressed the hotkey to stop while the app waits to record on. True = it waited.
+    bool CancelResume()
+    {
+        if (!resumeTimer.Enabled) return false;
+        resumeTimer.Stop();
+        Refresh();
+        return true;
+    }
+
+    // ------------------------------------------------------------ recordings that were not finished
+
+    // The app or the PC stopped during a recording or its pass: the folder still has the lossless work file. Makes
+    // the ZIP in the background. Not on the clipboard: the user did not just stop it.
+    void RecoverOldRecordings()
+    {
+        Settings copy = settings.Copy();
+        System.Threading.Thread t = new System.Threading.Thread(delegate()
+        {
+            try
+            {
+                System.Threading.Thread.Sleep(5000);
+                if (!Directory.Exists(copy.Folder)) return;
+                foreach (string dir in Directory.GetDirectories(copy.Folder, "desktop_*"))
+                {
+                    string work = Path.Combine(dir, AfterRecording.WorkFileName);
+                    if (!File.Exists(work)) continue;
+                    // A new recording and its ZIP come first.
+                    while (!quitRequested && (recorder.IsRecording || stopping || passesRunning > 0)) System.Threading.Thread.Sleep(2000);
+                    if (quitRequested || sessionEnding) return;
+                    double age = (DateTime.UtcNow - File.GetLastWriteTimeUtc(work)).TotalSeconds;
+                    if (!RecordingIndex.NeedsRecovery(Path.GetFileName(dir), AfterRecording.HasVideo(work), File.Exists(dir + ".zip"),
+                        File.Exists(Path.Combine(dir, AfterRecording.DoneMarkerName)), age)) continue;
+                    RecoverOne(dir, copy);
+                }
+            }
+            catch (Exception e) { Program.LogError(e); }
+        });
+        t.IsBackground = true;
+        t.Name = "recovery";
+        t.Start();
+    }
+
+    void RecoverOne(string dir, Settings s)
+    {
+        DateTime start;
+        RecordingIndex.TryFolderTime(Path.GetFileName(dir), out start);
+        AfterRecordingInput input = NewInput(dir, start, s, s.Fps);
+        input.TranscriptWaitMs = -1;
+        input.Titles = new TitleTimeline();
+        input.Problem = "The app or the PC stopped before this recording was finished, so the end can be missing.";
+        string wav = Path.Combine(dir, AudioMux.AudioFileName);
+        if (File.Exists(wav)) input.AudioFile = wav;
+        // The frames of the pass that was cut off can be different ones.
+        string frames = Path.Combine(dir, "frames");
+        if (Directory.Exists(frames))
+            foreach (string f in Directory.GetFiles(frames, "*.png"))
+                if (AfterRecording.IsOwnFrame(Path.GetFileName(f))) File.Delete(f);
+        PassJob job = new PassJob();
+        job.Input = input;
+        job.Done = true;
+        job.Step = ZipStep.Zip;
+        job.CopyError = "this recording was not finished before.";
+        RunPass(job);
+        AfterRecordingResult r = job.Result;
+        string notePath = Path.Combine(dir, AfterRecording.NoteFileName);
+        if (r.Ok && File.Exists(notePath)) AfterRecording.SaveNote(input, r, File.ReadAllText(notePath).Trim());
+        if (HasContent(r)) job.Zip = MakeZipLocked(dir, null);
+        else job.ZipError = Shorten(r.Error);
+        job.ZipBytes = FileBytes(job.Zip);
+        job.FailText = ZipStatus.Problem(r.Ok, HasContent(r), job.Zip != null, job.ZipError);
+        try
+        {
+            ui.BeginInvoke((MethodInvoker)delegate
+            {
+                job.Step = ZipStatus.FinalStep(r.Ok, job.ZipError);
+                if (lastJob == null && job.Zip != null) lastJob = job;
+                lastResult = "Recovered recording: " + Path.GetFileName(dir) + (job.Zip != null ? ".zip" : " (failed)");
+                UpdateLastMenu();
+                if (!recorder.IsRecording && passesRunning == 0 && !quitRequested) ShowToast(job);
+                TryCleanup(job);
+            });
+        }
+        catch (InvalidOperationException) { }
+    }
+
+    static bool HasContent(AfterRecordingResult r)
+    {
+        return r != null && (r.Ok || r.ClipWritten || r.Frames.Count > 0);
     }
 
     // FFmpeg stopped by itself. When that happens in the first seconds and a fallback is left
@@ -748,13 +915,26 @@ class TrayApp : ApplicationContext
         string reason;
         if (!RecorderCore.ChooseFallback(recordingPlan, settings.Encoder, message,
             out useGdigrab, out useX264, out reason)) return false;
-        if (useX264) Recorder.MarkNvencUnusable();
+        bool hasVideo = recordingFolder != null && WorkFileHasData(recordingFolder);
+        // A UAC prompt in the first seconds is not a fault of ddagrab (ResumeLater).
+        if (hasVideo && RecorderCore.IsCaptureLoss(message)) return false;
+        if (useX264 && RecorderCore.LooksLikeNvencError(message)) Recorder.MarkNvencUnusable();
         Rectangle region = recordingRegion;
         DisposeFrame();
         string firstLine = (message ?? "").Replace("\r", "").Split('\n')[0];
-        StartRecordingWith(region, false, true, reason + "\nFFmpeg: " + firstLine,
-            forcedGdigrab || useGdigrab, forcedX264 || useX264, recordingFolder);
-        return true;
+        string reuse = recordingFolder;
+        if (hasVideo)
+        {
+            // The part before the failure is a recording of its own. Before, it stayed out of the ZIP and was lost.
+            recorder.StopAudio();
+            titleTimer.Stop();
+            StartPass("FFmpeg stopped: " + Shorten(message));
+            reuse = null;
+        }
+        bool started = StartRecordingWith(region, false, true, reason + "\nFFmpeg: " + firstLine,
+            forcedGdigrab || useGdigrab, forcedX264 || useX264, reuse);
+        if (!started && hasVideo && settings.PlaySounds) Sounds.PlayStop();
+        return started || hasVideo;
     }
 
     // A balloon text must be shorter than 256 characters.
@@ -781,6 +961,7 @@ class TrayApp : ApplicationContext
 
     void SaveSettingsQuietly()
     {
+        if (settings.LoadFailed) return;
         try { settings.Save(); }
         catch (Exception e)
         {
@@ -848,7 +1029,8 @@ class TrayApp : ApplicationContext
         StartRecordingWith(region, sound, balloon, note, forceGdigrab, forceX264, null);
     }
 
-    void StartRecordingWith(Rectangle region, bool sound, bool balloon, string note, bool forceGdigrab, bool forceX264,
+    // True = the recording started.
+    bool StartRecordingWith(Rectangle region, bool sound, bool balloon, string note, bool forceGdigrab, bool forceX264,
         string reuseFolder)
     {
         CapturePlan plan;
@@ -862,7 +1044,7 @@ class TrayApp : ApplicationContext
                 string old = Path.Combine(reuseFolder, AfterRecording.WorkFileName);
                 if (File.Exists(old))
                 {
-                    string kept = Path.Combine(reuseFolder, "work_lossless_failed_" + DateTime.Now.ToString("HHmmss", CultureInfo.InvariantCulture) + ".mp4");
+                    string kept = Path.Combine(reuseFolder, "work_lossless_failed_" + DateTime.Now.ToString("HHmmss_fff", CultureInfo.InvariantCulture) + ".mp4");
                     File.Move(old, kept);
                 }
             }
@@ -872,6 +1054,7 @@ class TrayApp : ApplicationContext
         string frameWarning = null;
         if (error == null)
         {
+            stopRequested = false;
             recordingFolder = folder;
             if (!restart)
             {
@@ -897,7 +1080,7 @@ class TrayApp : ApplicationContext
         if (error != null)
         {
             tray.ShowBalloonTip(8000, "Desktop Recorder", Shorten(error), ToolTipIcon.Error);
-            return;
+            return false;
         }
         if (sound && settings.PlaySounds) Sounds.PlayStart();
         string planNote = plan != null ? plan.Note : "";
@@ -913,6 +1096,7 @@ class TrayApp : ApplicationContext
             if (recorder.AudioNote != null) text += "\n" + recorder.AudioNote;
             tray.ShowBalloonTip(3000, "Desktop Recorder", Shorten(text), ToolTipIcon.Info);
         }
+        return true;
     }
 
     // Returns a warning when part of the frame is inside the region and Windows did not accept
@@ -977,6 +1161,7 @@ class TrayApp : ApplicationContext
 
     void Toggle()
     {
+        if (CancelResume()) return;
         if (recorder.IsRecording) { StopRecording(); Refresh(); }
         else SelectAndRecord();
     }
@@ -993,6 +1178,8 @@ class TrayApp : ApplicationContext
             DisposeFrame();
             return;
         }
+        // Before the Stop sound, so that it is not in the audio.
+        recorder.MarkAudioEnd();
         if (sound && settings.PlaySounds) Sounds.PlayStop();
         DisposeFrame();
         titleTimer.Stop();
@@ -1000,6 +1187,7 @@ class TrayApp : ApplicationContext
         double stopClock = recorder.ClockSeconds;
         if (wait && recordingFolder == null)
         {
+            stopRequested = true;
             recorder.Stop();
             mp4AudioNote = recorder.AddAudioToMp4Files(recordingSettings ?? settings);
             FinishStop();
@@ -1008,11 +1196,12 @@ class TrayApp : ApplicationContext
         // Folder mode always stops in the background. Quit waits for the pass (see Quit).
         PassJob job = recordingFolder != null ? CreateJob(null) : null;
         if (job != null && wait) job.NoNoteBox = true;
+        stopRequested = true;
+        stopping = true;
+        if (job != null) passesRunning++;
         // The note box does not wait for the pass, and the pass does not wait for the note box (Bran, 2026-11-19).
         if (job != null && !job.NoNoteBox) ShowNoteBox(job);
         if (job != null) BeginZipWork(job, ZipStep.Stopping);
-        stopping = true;
-        if (job != null) passesRunning++;
         Refresh();
         System.Threading.ThreadPool.QueueUserWorkItem(delegate
         {
@@ -1025,6 +1214,8 @@ class TrayApp : ApplicationContext
                 double offset = recorder.ClockOffset;
                 if (!double.IsNaN(offset)) job.Input.EndTimeHint = stopClock - offset;
                 SetAudioInput(job.Input, recorder.LastAudio, offset);
+                if (recorder.KilledAtStop)
+                    job.Input.Problem = "FFmpeg did not end in time at Stop, so the last moment can be missing.";
                 try
                 {
                     ui.BeginInvoke((MethodInvoker)delegate
@@ -1077,21 +1268,17 @@ class TrayApp : ApplicationContext
         input.ClockOffset = clockOffset;
         input.AudioPeak = take.Peak;
         input.AudioError = take.Error;
+        input.AudioNote = take.Note;
     }
 
     // ------------------------------------------------------------ folder mode (AI capture brief, Phase 1)
 
-    int passesRunning;
-    bool quitRequested;
+    volatile int passesRunning;
+    volatile bool quitRequested;
 
     static bool WorkFileHasData(string folder)
     {
-        try
-        {
-            FileInfo f = new FileInfo(Path.Combine(folder, AfterRecording.WorkFileName));
-            return f.Exists && f.Length > 0;
-        }
-        catch (Exception) { return false; }
+        return AfterRecording.HasVideo(Path.Combine(folder, AfterRecording.WorkFileName));
     }
 
     // Window title at the center of the region, every 250 ms, with the clock of the recording.
@@ -1128,34 +1315,16 @@ class TrayApp : ApplicationContext
     PassJob CreateJob(string problem)
     {
         Settings s = recordingSettings ?? settings;
-        AfterRecordingInput input = new AfterRecordingInput();
-        input.Ffmpeg = Recorder.FindFfmpeg();
-        input.Folder = recordingFolder;
-        input.WorkFile = Path.Combine(recordingFolder, AfterRecording.WorkFileName);
-        input.Start = recordingStartTime;
-        // Condition F (Bran, 2026-11-19): the numeric UTC offset of this PC at the start time.
-        input.UtcOffset = TimeZoneInfo.Local.GetUtcOffset(recordingStartTime);
-        input.Settings = s.ToStored();
-        input.Options = RecorderCore.SettledOptionsOf(input.Settings);
-        input.Fps = recordingFps;
-        input.SizeLimit = s.SizeLimit;
-        // Test switch: with DESKTOP_RECORDER_KEEP_WORK=1 in the environment, the lossless work file stays
-        // in the folder. The pass can then run again on the same capture (test\process_clip.cs).
-        input.DeleteWorkFile = Environment.GetEnvironmentVariable("DESKTOP_RECORDER_KEEP_WORK") != "1";
-        input.TranscriptWaitMs = TranscriptWaitMs;
+        AfterRecordingInput input = NewInput(recordingFolder, recordingStartTime, s, recordingFps);
         input.Titles = BuildTitles();
         // The clip encode uses libx264 when the capture plan did (NVENC cannot encode this size, or it failed).
         input.ForceX264 = (recordingPlan != null && recordingPlan.Encoder == RecorderCore.EncoderX264) || forcedX264;
-        if (s.RecordAudio)
-        {
-            string reason;
-            input.Whisper = Transcript.Find(s.WhisperPath, s.WhisperModel, Path.GetDirectoryName(Application.ExecutablePath),
-                Environment.GetEnvironmentVariable("PATH") ?? "", true, out reason);
-            input.WhisperReason = reason;
-            input.WhisperLanguage = s.WhisperLanguage;
-        }
+        if (problem != null)
+            input.Problem = "The recording ended by itself before the user stopped it, so anything after its end is missing. " + problem;
+        if (s.RecordAudio) input.AudioStartError = recorder.AudioNote;
         PassJob job = new PassJob();
         job.Input = input;
+        job.Number = ++jobNumber;
         job.Problem = problem;
         // The pass reports its steps on its own thread; the indication runs on the UI thread.
         input.Step = delegate(string step)
@@ -1167,14 +1336,50 @@ class TrayApp : ApplicationContext
         return job;
     }
 
+    // Everything that does not depend on the running recording (also for a recording that was not finished).
+    static AfterRecordingInput NewInput(string folder, DateTime start, Settings s, double fps)
+    {
+        AfterRecordingInput input = new AfterRecordingInput();
+        input.Ffmpeg = Recorder.FindFfmpeg();
+        input.Folder = folder;
+        input.WorkFile = Path.Combine(folder, AfterRecording.WorkFileName);
+        input.Start = start;
+        // Condition F (Bran, 2026-11-19): the numeric UTC offset of this PC at the start time.
+        input.UtcOffset = TimeZoneInfo.Local.GetUtcOffset(start);
+        input.Settings = s.ToStored();
+        input.Options = RecorderCore.SettledOptionsOf(input.Settings);
+        input.Fps = fps;
+        input.SizeLimit = s.SizeLimit;
+        // Test switch: with DESKTOP_RECORDER_KEEP_WORK=1 in the environment, the lossless work file stays
+        // in the folder. The pass can then run again on the same capture (test\process_clip.cs).
+        input.DeleteWorkFile = Environment.GetEnvironmentVariable("DESKTOP_RECORDER_KEEP_WORK") != "1";
+        input.TranscriptWaitMs = TranscriptWaitMs;
+        if (s.RecordAudio)
+        {
+            string reason;
+            input.Whisper = Transcript.Find(s.WhisperPath, s.WhisperModel, Path.GetDirectoryName(Application.ExecutablePath),
+                Environment.GetEnvironmentVariable("PATH") ?? "", true, out reason);
+            input.WhisperReason = reason;
+            input.WhisperLanguage = s.WhisperLanguage;
+        }
+        return input;
+    }
+
     // Background thread. Never throws.
-    static void RunPass(PassJob job)
+    void RunPass(PassJob job)
     {
         try
         {
             if (job.Input.Ffmpeg == null) throw new IOException("ffmpeg.exe was not found.");
             job.Input.NvencAvailable = Recorder.NvencForClip(job.Input.Settings == null ? new Settings() : SettingsFrom(job.Input.Settings));
             job.Result = AfterRecording.Run(job.Input);
+            // The pass ran to its end and the work file stays: RecoverOldRecordings must not try again at each start.
+            // Not when Windows ends the session: the failure then comes from the shutdown.
+            if (job.Result.WorkFileStays && !sessionEnding)
+            {
+                try { File.WriteAllText(Path.Combine(job.Input.Folder, AfterRecording.DoneMarkerName), ""); }
+                catch (Exception) { }
+            }
         }
         catch (Exception e)
         {
@@ -1191,7 +1396,7 @@ class TrayApp : ApplicationContext
     }
 
     // Starts the pass on a background thread (after FFmpeg stopped by itself).
-    void StartPass(string unused, string problem)
+    void StartPass(string problem)
     {
         if (recordingFolder == null) return;
         PassJob job = CreateJob(problem);
@@ -1221,12 +1426,12 @@ class TrayApp : ApplicationContext
     void OnPassDone(PassJob job, Stopwatch fromStop)
     {
         job.Done = true;
-        lastJob = job;
+        // A recording that was stopped earlier can be ready later: the tray items keep the newer one.
+        if (lastJob == null || job.Number >= lastJob.Number || (lastJob.Zip == null && lastJob.ZipError != null)) lastJob = job;
         AfterRecordingResult r = job.Result ?? new AfterRecordingResult();
-        if (job.Note != null)
-        {
-            try { AfterRecording.SaveNote(job.Input, r, job.Note); } catch (Exception) { }
-        }
+        string earlyNote = job.Note;
+        Action before = null;
+        if (earlyNote != null) before = delegate { AfterRecording.SaveNote(job.Input, r, earlyNote); };
         string clip = (r.ClipBytes / (1024.0 * 1024.0)).ToString("0.00", CultureInfo.InvariantCulture) + " MB";
         string text = r.Ok
             ? "Frames: " + r.Frames.Count.ToString(CultureInfo.InvariantCulture) + ". clip.mp4: " + clip + "."
@@ -1237,6 +1442,10 @@ class TrayApp : ApplicationContext
                     + r.TranscriptSeconds.ToString("0", CultureInfo.InvariantCulture) + " s)."
                 : r.TranscriptPending ? " The transcript is still being made."
                 : r.Ok ? " No transcript: " + (r.TranscriptNote ?? "") + "." : "";
+        if (r.AudioRecorded && !r.AudioInClip && HasContent(r))
+            text += " The sound is not in clip.mp4: " + AudioMux.AudioFileName + " stays in the folder.";
+        if (!r.AudioRecorded && !string.IsNullOrEmpty(job.Input.AudioStartError))
+            text = "No sound: " + job.Input.AudioStartError + " " + text;
         if (r.MotionNote != null) text += " The screen did not settle (moving content): the frames are samples.";
         if (job.Problem != null) text = job.Problem + "\n" + text;
         // Folder mode gives one ZIP only (Bran, 2026-11-22). The ZIP is made on a background thread.
@@ -1244,7 +1453,7 @@ class TrayApp : ApplicationContext
         job.ZipPending++;
         SetStep(job, ZipStep.Zip);
         job.TranscriptPending = r.TranscriptPending;
-        MakeZipAsync(job, null, delegate(string error)
+        MakeZipAsync(job, before, delegate(string error)
         {
             FinishPass(job, fromStop, r, text, error);
             if (job.TranscriptPending) AddTranscriptLater(job, r);
@@ -1260,12 +1469,27 @@ class TrayApp : ApplicationContext
         Refresh();
         System.Threading.ThreadPool.QueueUserWorkItem(delegate
         {
-            try { r.Work.Done.WaitOne(); } catch (Exception) { }
+            // Exit waits at most 10 s for a slow Whisper. The ZIP is complete without the transcript, and the sound is in
+            // clip.mp4. The folder then stays.
+            bool done = false;
+            DateTime quitAt = DateTime.MaxValue;
+            while (!(done = r.Work.Done.WaitOne(250)))
+            {
+                if (!quitRequested) quitAt = DateTime.MaxValue;
+                else if (quitAt == DateTime.MaxValue) quitAt = DateTime.UtcNow.AddSeconds(10);
+                else if (DateTime.UtcNow > quitAt) break;
+            }
             try
             {
                 ui.BeginInvoke((MethodInvoker)delegate
                 {
                     passesRunning--;
+                    if (!done)
+                    {
+                        Refresh();
+                        ExitIfDone();
+                        return;
+                    }
                     job.ZipPending++;
                     SetStep(job, ZipStep.Zip);
                     MakeZipAsync(job, delegate { AfterRecording.AddLateTranscript(job.Input, r, job.Note); }, delegate(string error)
@@ -1274,7 +1498,8 @@ class TrayApp : ApplicationContext
                         job.TranscriptAdded = error == null && r.HasTranscript;
                         job.ZipBytes = FileBytes(job.Zip);
                         if (error == null && r.HasTranscript) RefreshClipboardMessage(job, r);
-                        SetStep(job, error == null ? ZipStep.Ready : ZipStep.Failed);
+                        job.FailText = ZipStatus.Problem(r.Ok, HasContent(r), job.Zip != null, error);
+                        SetStep(job, ZipStatus.FinalStep(r.Ok, error));
                         TryCleanup(job);
                     });
                 });
@@ -1332,7 +1557,16 @@ class TrayApp : ApplicationContext
         System.Threading.ThreadPool.QueueUserWorkItem(delegate
         {
             string zip = null, error = null;
-            try { zip = MakeZipLocked(job.Input.Folder, before); }
+            try
+            {
+                // No frame and no clip: no ZIP (it would be empty, and it would go to the clipboard as "ready").
+                if (!HasContent(job.Result))
+                {
+                    if (before != null) before();   // the note goes into note.txt
+                    throw new IOException("The frame pass failed: " + Shorten(job.Result == null ? "" : job.Result.Error));
+                }
+                zip = MakeZipLocked(job.Input.Folder, before);
+            }
             catch (Exception e) { error = e.Message; }
             try
             {
@@ -1365,16 +1599,18 @@ class TrayApp : ApplicationContext
         bool zipExists = false;
         try { zipExists = job.Zip != null && File.Exists(job.Zip); }
         catch (Exception) { }
-        if (!RecordingIndex.CanDeleteFolder(job.Done, job.Result.Ok, zipExists, job.ZipPending, job.ZipError != null, job.NoteOpen, job.TranscriptPending)) return;
+        bool soundOnlyInWav = true;
+        try { soundOnlyInWav = job.Result.AudioRecorded && !job.Result.AudioInClip && job.Input.AudioFile != null && File.Exists(job.Input.AudioFile); }
+        catch (Exception) { }
+        if (!RecordingIndex.CanDeleteFolder(job.Done, job.Result.Ok, zipExists, job.ZipPending, job.ZipError != null, job.NoteOpen,
+            job.TranscriptPending, soundOnlyInWav)) return;
         string folder = job.Input.Folder;
         job.Cleaning = true;
         passesRunning++;
         Refresh();
         System.Threading.ThreadPool.QueueUserWorkItem(delegate
         {
-            string error = null;
-            try { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
-            catch (Exception e) { error = e.Message; }
+            string error = AfterRecording.DeleteFolder(folder, 8, 500, delegate { return quitRequested; });
             try
             {
                 ui.BeginInvoke((MethodInvoker)delegate
@@ -1410,11 +1646,12 @@ class TrayApp : ApplicationContext
         string zip = job.Zip;
         if (zipError != null) balloonText += "\nCould not make the ZIP. The folder stays: " + zipError;
         // A newer recording that is still busy has its "wait" text on the clipboard: an older ZIP must not replace it.
-        bool newerBusy = indicatorJob != null && indicatorJob != job && ZipStatus.Busy(indicatorJob.Step);
+        // Also when it is ready: the older ZIP must not replace the newer one.
+        bool newer = indicatorJob != null && indicatorJob.Number > job.Number && (indicatorJob.PlaceholderSet || indicatorJob.ZipCopied);
         string copyError = null;
-        if (settings.CopyToClipboard && zipError == null && zip != null && newerBusy)
-            copyError = "a newer recording is in progress.";
-        if (settings.CopyToClipboard && zipError == null && zip != null && !newerBusy)
+        if (settings.CopyToClipboard && zipError == null && zip != null && newer)
+            copyError = ZipStatus.NewerHasClipboard;
+        if (settings.CopyToClipboard && zipError == null && zip != null && !newer)
         {
             try
             {
@@ -1428,7 +1665,7 @@ class TrayApp : ApplicationContext
             }
         }
         // The "wait" text must not stay on the clipboard: replace it with the result.
-        if (job.PlaceholderSet && !copied && !newerBusy)
+        if (job.PlaceholderSet && !copied && !newer)
         {
             string reason = zipError != null ? "could not make the ZIP of the last recording: " + zipError
                 : copyError != null ? "could not copy the ZIP to the clipboard: " + copyError
@@ -1439,7 +1676,7 @@ class TrayApp : ApplicationContext
         // Condition D (Bran, 2026-11-19): the time from Stop to "clipboard ready".
         job.SecondsFromStop = fromStop.Elapsed.TotalSeconds;
         string ready = " Ready " + job.SecondsFromStop.ToString("0.0", CultureInfo.InvariantCulture) + " s after Stop.";
-        lastResult = "Last recording: " + Shorten(text.Replace("\n", " ") + ready);
+        if (lastJob == job) lastResult = "Last recording: " + Shorten(text.Replace("\n", " ") + ready);
         UpdateLastMenu();
         tray.ShowBalloonTip(5000, "Desktop Recorder",
             Shorten((copied ? "AI message and ZIP copied. Press Ctrl+V to paste.\n" : "Recording stopped.\n") + balloonText + ready),
@@ -1448,7 +1685,8 @@ class TrayApp : ApplicationContext
         job.ZipCopied = copied;
         job.CopyError = copyError;
         job.ZipBytes = FileBytes(zip);
-        SetStep(job, zipError == null ? ZipStep.Ready : ZipStep.Failed);
+        job.FailText = ZipStatus.Problem(r.Ok, HasContent(r), zip != null, zipError);
+        SetStep(job, ZipStatus.FinalStep(r.Ok, zipError));
     }
 
     static long FileBytes(string path)
@@ -1460,7 +1698,9 @@ class TrayApp : ApplicationContext
     // ------------------------------------------------------------ "busy, then ready" (Bran, 2026-11-22)
 
     PassJob indicatorJob;            // the last recording in folder mode: the indication shows its state
+    int jobNumber;
     ZipToast toast;
+    PassJob toastJob;                // the recording that the popup shows
 
     // Stop (or FFmpeg stopped by itself): the work for the ZIP starts.
     void BeginZipWork(PassJob job, ZipStep step)
@@ -1495,7 +1735,18 @@ class TrayApp : ApplicationContext
         // The ready sound: not while the app closes, and not during a new recording (the loopback audio records it).
         if (nowReady && settings.PlaySounds && !quitRequested && job == indicatorJob && !recorder.IsRecording)
             Sounds.PlayReady();
-        if (job == indicatorJob) UpdateIndicator();
+        if (job == indicatorJob) { UpdateIndicator(); return; }
+        // An older recording: its own note box shows its state, and a failure shows in the popup.
+        UpdateNoteBox(job);
+        if (step == ZipStep.Failed && !quitRequested) ShowToast(job);
+    }
+
+    void UpdateNoteBox(PassJob job)
+    {
+        if (job.NoteBox == null || job.NoteBox.IsDisposed) return;
+        job.NoteBox.SetZipStatus(job.Step, ZipStatus.NoteText(job.Step, job.ZipBytes, job.ZipCopied,
+                ZipStatus.What(job.ZipUpdated, job.TranscriptAdded), job.ZipError, job.CopyError, job.FailText)
+            + (job.Step == ZipStep.Ready && job.TranscriptPending ? " " + ZipStatus.PendingText : ""));
     }
 
     // Tray icon, tray menu and tooltip (Refresh), the line in the note box, and the popup.
@@ -1505,13 +1756,13 @@ class TrayApp : ApplicationContext
         PassJob job = indicatorJob;
         if (job == null) return;
         bool busy = ZipStatus.Busy(job.Step);
-        if (job.NoteBox != null && !job.NoteBox.IsDisposed)
-            job.NoteBox.SetZipStatus(job.Step, ZipStatus.NoteText(job.Step, job.ZipBytes, job.ZipCopied, ZipStatus.What(job.ZipUpdated, job.TranscriptAdded), job.ZipError, job.CopyError)
-                + (job.Step == ZipStep.Ready && job.TranscriptPending ? " " + ZipStatus.PendingText : ""));
+        UpdateNoteBox(job);
         // No popup while the app closes: ExitNow follows at once.
         if (quitRequested) { CloseToast(); return; }
         // The popup: while busy only when the note box is closed (the box shows it) and the user did not close the
         // busy popup; always for ready and failed.
+        // A failure of an older recording stays on the screen for its time.
+        if (busy && toast != null && !toast.IsDisposed && toastJob != null && toastJob != job && toastJob.Step == ZipStep.Failed) return;
         if (busy && (job.NoteBox != null || job.ToastDismissed)) { CloseToast(); return; }
         ShowToast(job);
     }
@@ -1530,14 +1781,18 @@ class TrayApp : ApplicationContext
                 ZipToast created = new ZipToast(area, scale, Ui.CurrentPalette());
                 created.FormClosed += delegate
                 {
-                    if (created.ClosedByUser && indicatorJob != null && ZipStatus.Busy(indicatorJob.Step))
+                    if (created.ClosedByUser && indicatorJob != null && toastJob == indicatorJob && ZipStatus.Busy(indicatorJob.Step))
                         indicatorJob.ToastDismissed = true;
                 };
                 toast = created;
             }
-            toast.Set(job.Step, ZipStatus.PopupText(job.Step, job.ZipBytes, job.ZipCopied, ZipStatus.What(job.ZipUpdated, job.TranscriptAdded), job.CopyError),
-                ZipStatus.PopupDetail(job.Step, job.ZipError, job.CopyError)
-                ?? (job.Step == ZipStep.Ready && job.TranscriptPending ? ZipStatus.PendingText : null));
+            toastJob = job;
+            string detail = ZipStatus.PopupDetail(job.Step, job.ZipError, job.CopyError)
+                ?? (job.Step == ZipStep.Ready && job.TranscriptPending ? ZipStatus.PendingText : null);
+            // FFmpeg stopped by itself: the user can still think that it records.
+            if (job.Problem != null) detail = ZipStatus.EarlyEnd(job.Problem) + (detail == null ? "" : " " + detail);
+            toast.Set(job.Step, ZipStatus.PopupText(job.Step, job.ZipBytes, job.ZipCopied, ZipStatus.What(job.ZipUpdated, job.TranscriptAdded), job.CopyError, job.FailText),
+                detail, job.Problem != null ? ZipStatus.FailedSeconds : 0);
             if (!toast.Visible) toast.Show();
         }
         catch (Exception) { CloseToast(); }
@@ -1573,6 +1828,12 @@ class TrayApp : ApplicationContext
             form.Saved += delegate(string note)
             {
                 job.Note = note;
+                if (!job.Done)
+                {
+                    // On the disk at once: a shutdown before the ZIP must not lose it. The pass moves it into index.md.
+                    try { RecorderCore.AtomicWrite(Path.Combine(job.Input.Folder, AfterRecording.NoteFileName), note + "\r\n"); }
+                    catch (Exception) { }
+                }
                 if (job.Done && job.Result != null)
                 {
                     try
@@ -1588,7 +1849,8 @@ class TrayApp : ApplicationContext
                             if (error != null)
                                 tray.ShowBalloonTip(5000, "Desktop Recorder", Shorten("Cannot make the ZIP again, so it has no note. The folder stays: " + error), ToolTipIcon.Warning);
                             job.ZipBytes = FileBytes(job.Zip);
-                            SetStep(job, error == null ? ZipStep.Ready : ZipStep.Failed);
+                            job.FailText = ZipStatus.Problem(job.Result.Ok, HasContent(job.Result), job.Zip != null, error);
+                            SetStep(job, ZipStatus.FinalStep(job.Result.Ok, error));
                             TryCleanup(job);
                         });
                         if (!job.Result.Ok)
@@ -1790,8 +2052,26 @@ class TrayApp : ApplicationContext
         catch (Exception e) { MessageBox.Show("Cannot open the startup list: " + e.Message, "Desktop Recorder"); }
     }
 
+    DateTime quitAt;
+
+    // Exit in the tray menu. A second Exit 30 s later offers to close without the wait (a program that hangs).
+    void QuitCommand()
+    {
+        if (quitRequested && (stopping || passesRunning > 0) && openNotes.Count == 0 && (DateTime.UtcNow - quitAt).TotalSeconds >= 30)
+        {
+            if (MessageBox.Show("The last recording is not ready.\n\nClose now? The recording stays in its folder, and the app makes the ZIP at the next start.",
+                "Desktop Recorder", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes) ExitNow();
+            return;
+        }
+        if (!quitRequested) quitAt = DateTime.UtcNow;
+        Quit();
+    }
+
+    bool exited;
+
     void Quit()
     {
+        resumeTimer.Stop();
         // Folder mode: the pass makes the folder from the work file. Wait for it, so the recording is not lost
         // (review 2026-11-19). The tray shows that the app is finishing. ExitNow runs after the pass.
         quitRequested = true;
@@ -1819,6 +2099,8 @@ class TrayApp : ApplicationContext
 
     void ExitNow()
     {
+        if (exited) return;
+        exited = true;
         StopRecording(false, true); // no sound: the program ends before the sound can play. Wait for the file.
         DisposeFrame();
         hotkey.Close();
@@ -2122,6 +2404,8 @@ sealed class PassJob
     public bool Done;
     public string Note;              // null = no note (yet)
     public string Problem;           // why the recording ended, when FFmpeg stopped by itself
+    public string FailText;          // ZipStatus.Problem: what is wrong when the state is Failed
+    public int Number;               // 1, 2, 3 ... in the order of the recordings (0 = a recovered recording)
     public double SecondsFromStop;   // Stop to "clipboard ready"
     // UI thread only:
     public string Zip;               // path of the ZIP (next to the folder), null until the first ZIP is made

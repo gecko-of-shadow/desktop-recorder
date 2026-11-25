@@ -938,7 +938,31 @@ static class RecordingIndex
     // transcriptPending: Whisper still reads and writes files in the folder.
     public static bool CanDeleteFolder(bool passDone, bool passOk, bool zipExists, int zipPending, bool zipFailed, bool noteOpen, bool transcriptPending)
     {
-        return passDone && passOk && zipExists && zipPending == 0 && !zipFailed && !noteOpen && !transcriptPending;
+        return CanDeleteFolder(passDone, passOk, zipExists, zipPending, zipFailed, noteOpen, transcriptPending, false);
+    }
+
+    // soundOnlyInWav: the sound is not in clip.mp4, and the ZIP has no WAV file. The WAV in the folder is the only copy.
+    public static bool CanDeleteFolder(bool passDone, bool passOk, bool zipExists, int zipPending, bool zipFailed, bool noteOpen, bool transcriptPending, bool soundOnlyInWav)
+    {
+        return passDone && passOk && zipExists && zipPending == 0 && !zipFailed && !noteOpen && !transcriptPending && !soundOnlyInWav;
+    }
+
+    // A recording folder that the app did not finish (the app or the PC stopped): the work file is there, and no ZIP.
+    // marker: the pass ran to its end on this folder (a failed pass keeps its work file), so do not try again.
+    // ageSeconds: since the last write. A young file can belong to a running recording.
+    public static bool NeedsRecovery(string folderName, bool workFileHasVideo, bool zipExists, bool marker, double ageSeconds)
+    {
+        DateTime start;
+        return workFileHasVideo && !zipExists && !marker && ageSeconds >= 60 && TryFolderTime(folderName, out start);
+    }
+
+    // The start time in a folder name such as desktop_2026-11-24_12-30-05 or desktop_2026-11-24_12-30-05_2.
+    public static bool TryFolderTime(string folderName, out DateTime start)
+    {
+        start = DateTime.MinValue;
+        if (folderName == null || folderName.Length < 27 || !folderName.StartsWith("desktop_", StringComparison.OrdinalIgnoreCase)) return false;
+        if (folderName.Length > 27 && folderName[27] != '_') return false;
+        return DateTime.TryParseExact(folderName.Substring(8, 19), "yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out start);
     }
 
     // Text for the clipboard: a message for the AI and the path of the ZIP (Bran, 2026-11-22).

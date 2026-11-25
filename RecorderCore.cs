@@ -657,10 +657,47 @@ static class RecorderCore
         return s;
     }
 
+    // The text of settings.txt, or of its backup when settings.txt is empty (a power loss). null = no file.
+    // failed: the file is there, but it could not be read in 1 s (another program holds it).
+    public static string ReadSettingsText(string path, out bool failed)
+    {
+        failed = false;
+        for (int i = 0; i < 10; i++)
+        {
+            if (i > 0) System.Threading.Thread.Sleep(100);
+            try
+            {
+                if (!File.Exists(path) && !File.Exists(path + ".bak")) return null;
+                string text = File.Exists(path) ? File.ReadAllText(path) : "";
+                if (text.Trim().Trim('\0').Length > 0) return text;
+                return File.Exists(path + ".bak") ? File.ReadAllText(path + ".bak") : null;
+            }
+            catch (Exception) { }
+        }
+        failed = true;
+        return null;
+    }
+
+    // Keeps the settings before this one in settings.txt.bak.
+    public static void WriteSettingsText(string path, string text)
+    {
+        try
+        {
+            if (File.Exists(path) && File.ReadAllText(path).Trim().Trim('\0').Length > 0) File.Copy(path, path + ".bak", true);
+        }
+        catch (Exception) { }
+        AtomicWrite(path, text);
+    }
+
     public static void AtomicWrite(string path, string text)
     {
         string tmp = path + ".tmp";
-        File.WriteAllText(tmp, text ?? "", new UTF8Encoding(false));
+        byte[] bytes = new UTF8Encoding(false).GetBytes(text ?? "");
+        using (FileStream f = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+        {
+            f.Write(bytes, 0, bytes.Length);
+            f.Flush(true);   // on the disk before the replace: a power loss must not leave an empty file
+        }
         if (!File.Exists(path))
         {
             File.Move(tmp, path);
@@ -789,6 +826,16 @@ static class RecorderCore
             reason = "FFmpeg failed with NVENC. Recording again with libx264.";
             return true;
         }
+        return false;
+    }
+
+    // ddagrab lost the screen: a UAC prompt, the lock screen, or a display change. The same capture works again later.
+    public static bool IsCaptureLoss(string ffmpegError)
+    {
+        if (ffmpegError == null) return false;
+        string[] marks = { "AcquireNextFrame failed", "ReleaseFrame failed", "Output parameters changed", "Desktop duplication access denied" };
+        for (int i = 0; i < marks.Length; i++)
+            if (ffmpegError.IndexOf(marks[i], StringComparison.OrdinalIgnoreCase) >= 0) return true;
         return false;
     }
 
@@ -1248,7 +1295,7 @@ static class RecorderCore
             a.Add("-map");
             a.Add("1:a:0");
             a.Add("-af");
-            a.Add(AudioMux.AlignFilter(audioShift));
+            a.Add(AudioMux.AacFilter(audioShift));
             AudioMux.AddAac(a);
         }
         a.Add("-fps_mode");

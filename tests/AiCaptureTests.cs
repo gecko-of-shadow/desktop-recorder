@@ -34,6 +34,7 @@ static class AiCaptureTests
         TestAiMessage();
         TestZipOnly();
         TestLateTranscript();
+        TestLostRecordings();
         TestZipFailLeavesNoTemp();
         TestVideoIsNotScroll();
         TestNoisyShiftIsNotScroll();
@@ -129,6 +130,80 @@ static class AiCaptureTests
             System.IO.File.Delete(zip);
         }
         finally { System.IO.Directory.Delete(folder, true); }
+    }
+
+    // Bug hunt, 2026-11-24: recordings, sound and settings that could be lost.
+    static void TestLostRecordings()
+    {
+        DateTime t;
+        Expect(RecordingIndex.TryFolderTime("desktop_2026-11-24_12-30-05", out t) && t == new DateTime(2026, 11, 24, 12, 30, 5), "folder time");
+        Expect(RecordingIndex.TryFolderTime("desktop_2026-11-24_12-30-05_2", out t) && !RecordingIndex.TryFolderTime("desktop_2026-11-24_12-30-05x", out t)
+            && !RecordingIndex.TryFolderTime("live-test-2026-11-22", out t) && !RecordingIndex.TryFolderTime(null, out t), "other folder names");
+        Expect(RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, false, false, 90), "unfinished recording");
+        Expect(!RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", false, false, false, 90)
+            && !RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, true, false, 90)
+            && !RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, false, true, 90)
+            && !RecordingIndex.NeedsRecovery("desktop_2026-11-24_12-30-05", true, false, false, 5)
+            && !RecordingIndex.NeedsRecovery("other", true, false, false, 90), "no work file, a ZIP, a marker, a running recording, another folder");
+        Expect(!RecordingIndex.CanDeleteFolder(true, true, true, 0, false, false, false, true), "cleanup: the WAV file is the only copy of the sound");
+        Expect(RecorderCore.IsCaptureLoss("[ddagrab @ 0] AcquireNextFrame failed: 887a0026") && !RecorderCore.IsCaptureLoss("No space left") && !RecorderCore.IsCaptureLoss(null), "capture loss");
+        Expect(AfterRecording.EncodeLimitMs(15, true) == 90000 && AfterRecording.EncodeLimitMs(double.NaN, true) == 60000
+            && AfterRecording.EncodeLimitMs(1e9, false) > 0, "encode limit");
+        Expect(AfterRecording.ReadLimitMs(1000000000L, 60) == 820000 && AfterRecording.ReadLimitMs(long.MaxValue, 0) > 0, "read limit");
+        Expect(RecordingSession.StopWaitMs(6) > 15000 && RecordingSession.StopWaitMs(0.01) == 25000, "stop limit");
+
+        string folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dr-lost-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(System.IO.Path.Combine(folder, "frames"));
+        try
+        {
+            string work = System.IO.Path.Combine(folder, AfterRecording.WorkFileName);
+            System.IO.File.WriteAllText(work, "....ftypisom....moov....mvex");
+            Expect(!AfterRecording.HasVideo(work) && !AfterRecording.HasVideo(work + "x"), "header only: no video");
+            System.IO.File.WriteAllText(work, "....ftypisom....moov....mvex....moof....mdat");
+            Expect(AfterRecording.HasVideo(work), "a fragment: video");
+
+            // index.md is open in another program: the note goes into note.txt, and the ZIP has it.
+            AfterRecordingInput input = new AfterRecordingInput();
+            input.Folder = folder;
+            input.Titles = new TitleTimeline();
+            AfterRecordingResult r = new AfterRecordingResult();
+            r.Ok = true; r.Width = 640; r.Height = 480; r.EndTime = 5;
+            r.IndexPath = System.IO.Path.Combine(folder, AfterRecording.IndexFileName);
+            string notePath = System.IO.Path.Combine(folder, AfterRecording.NoteFileName);
+            AfterRecording.WriteIndex(input, r, null);
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            {
+                using (new System.IO.FileStream(r.IndexPath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.None))
+                    Expect(AfterRecording.SaveNote(input, r, "held note") == notePath, "held index.md: note.txt");
+                Expect(System.IO.File.ReadAllText(notePath).Contains("held note"), "note.txt has the note");
+            }
+            else System.IO.File.WriteAllText(notePath, "x");
+            AfterRecording.SaveNote(input, r, "my note");
+            Expect(System.IO.File.ReadAllText(r.IndexPath).Contains("my note") && !System.IO.File.Exists(notePath), "index.md has the note, note.txt is gone");
+
+            // The cleanup deletes only the files of the app.
+            System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "frames", "001.png"), "x");
+            System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "my own.txt"), "x");
+            Expect(AfterRecording.DeleteFolder(folder, 2, 10, null) == null, "delete: no error");
+            Expect(System.IO.File.Exists(System.IO.Path.Combine(folder, "my own.txt")) && System.IO.Directory.GetFileSystemEntries(folder).Length == 1, "delete: a file of the user stays");
+            System.IO.File.Delete(System.IO.Path.Combine(folder, "my own.txt"));
+            Expect(AfterRecording.DeleteFolder(folder, 2, 10, null) == null && !System.IO.Directory.Exists(folder), "delete: empty folder goes");
+
+            // settings.txt
+            System.IO.Directory.CreateDirectory(folder);
+            string path = System.IO.Path.Combine(folder, "settings.txt");
+            bool failed;
+            Expect(RecorderCore.ReadSettingsText(path, out failed) == null && !failed, "no settings file");
+            RecorderCore.WriteSettingsText(path, "fps=6\n");
+            RecorderCore.WriteSettingsText(path, "fps=7\n");
+            Expect(RecorderCore.ReadSettingsText(path, out failed) == "fps=7\n" && System.IO.File.ReadAllText(path + ".bak") == "fps=6\n", "settings and backup");
+            System.IO.File.WriteAllText(path, "\0\0\0");
+            Expect(RecorderCore.ReadSettingsText(path, out failed) == "fps=6\n" && !failed, "empty settings file: backup");
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+                using (new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.ReadWrite, System.IO.FileShare.None))
+                    Expect(RecorderCore.ReadSettingsText(path, out failed) == null && failed, "held settings file: failed, not the defaults");
+        }
+        finally { if (System.IO.Directory.Exists(folder)) System.IO.Directory.Delete(folder, true); }
     }
 
     static void TestZipOnly()
@@ -232,6 +307,7 @@ static class AiCaptureTests
         Expect(a[a.Length - 1] == work, "work file output");
         Expect(j.IndexOf("-tune lossless", StringComparison.Ordinal) >= 0, "lossless tune");
         Expect(j.IndexOf("-bf 0", StringComparison.Ordinal) >= 0, "no B-frames in the work file");
+        Expect(RecorderCore.HasNoEncoderDelay(j) && j.IndexOf("-frag_duration 500000", StringComparison.Ordinal) >= 0, "no encoder delay and short fragments in the work file: " + j);
         Expect(j.IndexOf("high444p", StringComparison.Ordinal) >= 0, "444 profile");
         Expect(j.IndexOf("format=yuv444p,mpdecimate", StringComparison.Ordinal) >= 0, "444 before mpdecimate");
         Expect(j.IndexOf("segment", StringComparison.Ordinal) < 0, "no split in folder mode");

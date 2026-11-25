@@ -133,9 +133,9 @@ static class AudioTests
         Expect(AudioMux.AlignFilter(-0.45) == "atrim=start=0.450,asetpts=PTS-STARTPTS", "trim");
         Expect(AudioMux.AlignFilter(0.0001) == "anull", "no shift");
         string r = string.Join(" ", AudioMux.BuildRemuxArguments("v.mp4", "a.wav", -0.2, "o.mp4"));
-        Expect(r == "-hide_banner -loglevel error -y -i v.mp4 -i a.wav -map 0:v:0 -map 1:a:0 -c:v copy -af atrim=start=0.200,asetpts=PTS-STARTPTS -c:a aac -b:a 160k -movflags +faststart o.mp4", "remux: " + r);
+        Expect(r == "-hide_banner -loglevel error -y -i v.mp4 -i a.wav -map 0:v:0 -map 1:a:0 -c:v copy -af atrim=start=0.200,asetpts=PTS-STARTPTS,aformat=sample_fmts=s32 -c:a aac -b:a 160k -movflags +faststart o.mp4", "remux: " + r);
         string seg = string.Join(" ", AudioMux.BuildRemuxArguments("v.mp4", "a.wav", -1800.25, "o.mp4", 1800));
-        Expect(seg.IndexOf("-af atrim=start=1800.250,asetpts=PTS-STARTPTS,atrim=end=1800.000 ", StringComparison.Ordinal) >= 0, "split part ends at the cut: " + seg);
+        Expect(seg.IndexOf("-af atrim=start=1800.250,asetpts=PTS-STARTPTS,aformat=sample_fmts=s32,atrim=end=1800.000 ", StringComparison.Ordinal) >= 0, "split part ends at the cut: " + seg);
         string w = string.Join(" ", AudioMux.BuildTranscriptWavArguments("a.wav", 0.5, "t.wav"));
         Expect(w.IndexOf("-af adelay=delays=500:all=1,aresample=16000 -ac 1 -c:a pcm_s16le t.wav", StringComparison.Ordinal) >= 0, "16 kHz: " + w);
         Expect(AudioMux.SegmentStart(0, 30) == 0 && AudioMux.SegmentStart(2, 30) == 3600 && AudioMux.SegmentStart(3, 0) == 0, "segment start");
@@ -147,7 +147,7 @@ static class AudioTests
         List<double> t = new List<double>(new double[] { 0.0, 2.0 });
         string[] a = RecorderCore.BuildClipArguments(s, "w.mp4", "c.mp4", t, 15, true, "a.wav", -0.45);
         string j = string.Join(" ", a);
-        Expect(j.IndexOf("-copyts -i w.mp4 -i a.wav -map 0:v:0 -map 1:a:0 -af atrim=start=0.450,asetpts=PTS-STARTPTS -c:a aac", StringComparison.Ordinal) >= 0, "clip with audio: " + j);
+        Expect(j.IndexOf("-copyts -i w.mp4 -i a.wav -map 0:v:0 -map 1:a:0 -af atrim=start=0.450,asetpts=PTS-STARTPTS,aformat=sample_fmts=s32 -c:a aac", StringComparison.Ordinal) >= 0, "clip with audio: " + j);
         Expect(j.IndexOf("-force_key_frames 0.000,1.990", StringComparison.Ordinal) >= 0 && a[a.Length - 1] == "c.mp4", "keyframes kept with audio");
         string none = string.Join(" ", RecorderCore.BuildClipArguments(s, "w.mp4", "c.mp4", t, 15, true));
         Expect(none.IndexOf("a.wav", StringComparison.Ordinal) < 0 && none.IndexOf("1:a", StringComparison.Ordinal) < 0 && none.IndexOf("-c:a", StringComparison.Ordinal) < 0, "clip without audio unchanged");
@@ -299,7 +299,9 @@ static class AudioTests
 
         // Silence (and silence with clicks): left out, with any text.
         Expect(!SpeechCheck.Keep(Row(0, 20, "Thank you."), levels), "Thank you. on silence with clicks: out");
-        Expect(!SpeechCheck.Keep(Row(0, 20, "Some other words here."), levels), "any text on almost silent audio: out");
+        // Other text with 0.4 s of sound stays: it can be a short real sentence (bug hunt, 2026-11-24). Less: out.
+        Expect(SpeechCheck.Keep(Row(0, 20, "Some other words here."), levels), "other text with 0.4 s of sound: kept");
+        Expect(!SpeechCheck.Keep(Row(5.2, 19.9, "Some other words here."), levels), "other text with less than 0.4 s of sound: out");
         Expect(!SpeechCheck.Keep(Row(13, 19, "Hello there."), levels), "text on digital silence: out");
         // Quiet real sound: kept, also "Thank you.".
         Expect(SpeechCheck.Keep(Row(20, 30, "Thank you."), levels), "Thank you. on steady sound: kept");
@@ -314,7 +316,10 @@ static class AudioTests
             "share limit 0.1: 2 of 17 windows kept, 1 of 31 out: " + SpeechCheck.SoundShare(levels, 18.5, 20.2) + " / " + SpeechCheck.SoundShare(levels, 17, 20.1));
         Expect(SpeechCheck.Keep(Row(0, 21.0, "A long row with a short real sentence at its end."), levels),
             "long row with 1.4 s of sound at its end (share 0.067): kept");
-        Expect(!SpeechCheck.Keep(Row(0, 20.3, "A long row with clicks."), levels), "long row with 0.7 s of sound (share 0.034): out");
+        Expect(SpeechCheck.Keep(Row(0, 20.3, "A long row with clicks."), levels) && !SpeechCheck.Keep(Row(0, 20.3, "Thank you."), levels),
+            "long row with 0.7 s of sound (share 0.034): other text kept, a known text out");
+        Expect(AudioClock.FramesBefore(10.0, 480, 10.005, 48000) == 240 && AudioClock.FramesBefore(10.0, 480, 9, 48000) == 0
+            && AudioClock.FramesBefore(10.0, 480, 11, 48000) == 480, "audio after the Stop press is cut");
         // A known text over most of a short recording: on silence, Whisper writes it over all of the audio.
         double[] shortAudio = new double[30];
         for (int i = 0; i < 30; i++) shortAudio[i] = i >= 25 ? -20 : double.NegativeInfinity;   // 3 s, the stop sound at the end

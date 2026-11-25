@@ -38,6 +38,7 @@ static class UiTests
         TestMenuInside();
         TestRecordClick();
         TestZipStatus();
+        TestZipProblems();
         TestStartupRule();
         return failures;
     }
@@ -264,6 +265,24 @@ static class UiTests
         taken.HotkeyActive = false;
         Expect(TrayModel.Entries(taken)[0].Shortcut == null, "no hotkey text when the hotkey is off");
         Expect(TrayModel.StatusDetail(taken).Contains("another program"), "status says the hotkey is taken");
+    }
+
+    // Bug hunt, 2026-11-24: a failed pass said "ZIP ready", and an older ZIP replaced a newer one.
+    static void TestZipProblems()
+    {
+        Expect(ZipStatus.FinalStep(true, null) == ZipStep.Ready, "good pass, good ZIP: ready");
+        Expect(ZipStatus.FinalStep(false, null) == ZipStep.Failed && ZipStatus.FinalStep(true, "x") == ZipStep.Failed, "failed pass or ZIP: not ready");
+        Expect(ZipStatus.Problem(true, true, true, null) == null && ZipStatus.Problem(true, true, false, "x") == null, "no special text");
+        ExpectEqual(ZipStatus.Problem(false, false, false, "x"), "Nothing usable was recorded.", "no content");
+        ExpectEqual(ZipStatus.Problem(false, true, true, null), "The frames failed. The ZIP has no index.md.", "clip only");
+        ExpectEqual(ZipStatus.Problem(true, true, true, "held"), "The ZIP is ready, but the last change is not in it.", "update failed");
+        string problem = ZipStatus.Problem(false, true, true, null);
+        ExpectEqual(ZipStatus.PopupText(ZipStep.Failed, 10, true, "ZIP ready", null, problem), problem, "popup of a failed pass");
+        Expect(ZipStatus.NoteText(ZipStep.Failed, 10, true, "ZIP ready", null, null, problem).StartsWith(problem), "note box of a failed pass");
+        ExpectEqual(ZipStatus.PopupText(ZipStep.Failed, 10, true, "ZIP ready", null, null), "Could not make the ZIP", "popup of a failed ZIP");
+        Expect(ZipStatus.WithHint(ZipStatus.NewerHasClipboard).IndexOf("Copy ZIP", StringComparison.Ordinal) < 0, "older ZIP: no Copy ZIP hint");
+        Expect(ZipStatus.WithHint("busy.").EndsWith(ZipStatus.CopyHint), "other copy error: Copy ZIP hint");
+        ExpectEqual(ZipStatus.EarlyEnd("FFmpeg stopped: a\r\nb"), "The recording ended early. FFmpeg stopped: a", "early end: first line");
     }
 
     static void TestZipStatus()

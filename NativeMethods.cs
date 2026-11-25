@@ -204,6 +204,24 @@ static class NativeMethods
     }
 
     /// <summary>The bounds of all monitors together.</summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+    [DllImport("user32.dll")]
+    static extern bool CloseDesktop(IntPtr desktop);
+
+    // False while Windows shows the secure desktop (a UAC prompt, the lock screen): no capture works then.
+    public static bool InputDesktopAccessible()
+    {
+        try
+        {
+            IntPtr d = OpenInputDesktop(0, false, 0x0100);   // DESKTOP_SWITCHDESKTOP
+            if (d == IntPtr.Zero) return false;
+            CloseDesktop(d);
+            return true;
+        }
+        catch (Exception) { return true; }
+    }
+
     public static Rectangle GetVirtualScreen()
     {
         return new Rectangle(

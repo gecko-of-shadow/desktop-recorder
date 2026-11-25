@@ -36,6 +36,9 @@ sealed class AfterRecordingInput
     public double ClockOffset = double.NaN;  // RecordingSession.ClockOffset after the stop
     public double AudioPeak = -1;            // AudioTake.Peak
     public string AudioError;                // AudioTake.Error
+    public string AudioNote;                 // AudioTake.Note: the capture went on, for example on a new playback device
+    public string AudioStartError;           // why the capture did not start, or null
+    public string Problem;                   // the recording ended early (FFmpeg stopped by itself), or null
     public WhisperTool Whisper;              // null = no transcript
     public string WhisperReason;             // why Whisper is null
     public string WhisperLanguage = "auto";
@@ -91,6 +94,9 @@ static class AfterRecording
     public const string WorkFileName = "work_lossless.mp4";
     public const string ClipFileName = "clip.mp4";
     public const string IndexFileName = "index.md";
+    public const string NoteFileName = "note.txt";
+    // The pass ran to its end, and the work file stays (not in the ZIP: the name starts with work_lossless).
+    public const string DoneMarkerName = "work_lossless.done";
     public const string StepFrames = "frames";
     public const string StepTranscript = "transcript";
     // In the first ZIP, when Whisper needs more time.
@@ -112,6 +118,8 @@ static class AfterRecording
         r.IndexPath = Path.Combine(input.Folder, IndexFileName);
         Stopwatch watch = Stopwatch.StartNew();
         ReportStep(input, StepFrames);
+        if (!string.IsNullOrEmpty(input.Problem))
+            r.Warnings.Add(Trim(input.Problem));
         try
         {
             ReadTimes(input, r);
@@ -127,7 +135,7 @@ static class AfterRecording
             {
                 // The audio must not cost the clip: encode again without it (docs/audio-transcript.md).
                 string second = EncodeClipWithFallback(input, r, true, false);
-                if (second == null) { r.Warnings.Add("clip.mp4 has no audio. The audio encode failed: " + Trim(error)); error = null; audio = false; }
+                if (second == null) { r.Warnings.Add("clip.mp4 has no audio. The audio encode failed, so the sound is only in " + AudioMux.AudioFileName + " in the recording folder: " + Trim(error)); error = null; audio = false; }
                 else error += " Without audio: " + second;
             }
             r.AudioInClip = audio && error == null;
@@ -227,15 +235,25 @@ static class AfterRecording
     static void SetUpAudio(AfterRecordingInput input, AfterRecordingResult r)
     {
         r.AudioRecorded = false;
-        if (input.AudioFile == null) return;
+        if (input.AudioFile == null)
+        {
+            if (!string.IsNullOrEmpty(input.AudioStartError)) AddOnce(r.Warnings, input.AudioStartError);
+            return;
+        }
         // More than a header: a header is 44 to 68 bytes, and 0.1 s of 8 kHz mono 8-bit audio is 800 bytes.
         try { r.AudioRecorded = File.Exists(input.AudioFile) && new FileInfo(input.AudioFile).Length > 1024; }
         catch (Exception) { r.AudioRecorded = false; }
-        if (!r.AudioRecorded) { r.Warnings.Add("The audio file is missing or empty, so the recording has no audio."); return; }
+        if (!r.AudioRecorded) { AddOnce(r.Warnings, "The audio file is missing or empty, so the recording has no audio."); return; }
         r.AudioShift = AudioClock.VideoTimeOfAudioStart(input.AudioStartClock, input.ClockOffset, r.FirstTime);
         if (double.IsNaN(input.ClockOffset))
             r.Warnings.Add("FFmpeg gave no clock, so the audio can be up to about 0.5 s off the video.");
+        if (!string.IsNullOrEmpty(input.AudioNote)) r.Warnings.Add(input.AudioNote);
         if (!string.IsNullOrEmpty(input.AudioError)) r.Warnings.Add(input.AudioError + " The audio after that point is silence.");
+    }
+
+    static void AddOnce(List<string> list, string text)
+    {
+        if (!list.Contains(text)) list.Add(text);
     }
 
     static void MakeTranscript(AfterRecordingInput input, AfterRecordingResult r)
@@ -321,8 +339,7 @@ static class AfterRecording
             if (RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(a), 30 * 60 * 1000, out output, out exit)
                 && exit == 0 && File.Exists(temp) && new FileInfo(temp).Length > 0)
             {
-                File.Delete(input.WorkFile);
-                File.Move(temp, input.WorkFile);
+                ReplaceFile(temp, input.WorkFile);
                 r.Warnings.Add("The work file has the audio too.");
                 return;
             }
@@ -410,12 +427,19 @@ static class AfterRecording
     // When the pass failed there is no index.md. The note goes into note.txt (review 2026-11-19).
     public static string SaveNote(AfterRecordingInput input, AfterRecordingResult r, string note)
     {
+        string path = Path.Combine(input.Folder, NoteFileName);
         if (r != null && r.Ok)
         {
-            WriteIndex(input, r, note);
-            return r.IndexPath;
+            // Another program can hold index.md for a moment. After 1 s the note goes into note.txt (the ZIP has it).
+            for (int i = 0; i < 10; i++)
+            {
+                if (i > 0) Thread.Sleep(100);
+                try { WriteIndex(input, r, note); }
+                catch (Exception) { continue; }
+                try { if (File.Exists(path)) File.Delete(path); } catch (Exception) { }
+                return r.IndexPath;
+            }
         }
-        string path = Path.Combine(input.Folder, "note.txt");
         RecorderCore.AtomicWrite(path, (note ?? "") + "\r\n");
         return path;
     }
@@ -445,7 +469,7 @@ static class AfterRecording
 
     // Puts temp in the place of path. The old file stays until the new one is complete. A chat app, a virus scanner or
     // Explorer can hold the old ZIP for a moment (a late note or transcript makes it again): try for 3 s.
-    static void ReplaceFile(string temp, string path)
+    internal static void ReplaceFile(string temp, string path)
     {
         for (int attempt = 0; ; attempt++)
         {
@@ -461,6 +485,75 @@ static class AfterRecording
             }
             Thread.Sleep(250);
         }
+    }
+
+    // True when the fragmented MP4 has at least one finished fragment. FFmpeg writes a header of about 1 KB at once.
+    public static bool HasVideo(string path)
+    {
+        try
+        {
+            byte[] head = new byte[65536];
+            int n;
+            using (FileStream f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                n = f.Read(head, 0, head.Length);
+            for (int i = 0; i + 3 < n; i++)
+                if (head[i] == 'm' && head[i + 1] == 'o' && head[i + 2] == 'o' && head[i + 3] == 'f') return true;
+        }
+        catch (Exception) { }
+        return false;
+    }
+
+    // Deletes the files that the app made in the folder, and the folder when it is then empty. Other files stay (the
+    // user can unpack the ZIP into the same place while the note box is open). A virus scanner or Explorer can hold a
+    // file for a moment: it tries again. Returns null, or the error. stop (can be null) ends the tries.
+    public static string DeleteFolder(string folder, int tries, int waitMs, Func<bool> stop)
+    {
+        string error = null;
+        for (int i = 0; i < tries; i++)
+        {
+            if (i > 0) Thread.Sleep(waitMs);
+            error = null;
+            try
+            {
+                if (!Directory.Exists(folder)) return null;
+                string frames = Path.Combine(folder, "frames");
+                if (Directory.Exists(frames))
+                {
+                    foreach (string f in Directory.GetFiles(frames, "*.png"))
+                        if (IsOwnFrame(Path.GetFileName(f))) File.Delete(f);
+                    DeleteIfEmpty(frames);
+                }
+                foreach (string f in Directory.GetFiles(folder))
+                    if (IsOwnFile(Path.GetFileName(f))) File.Delete(f);
+                DeleteIfEmpty(folder);
+            }
+            catch (DirectoryNotFoundException) { return null; }
+            catch (Exception e) { error = e.Message; }
+            if (error == null || (stop != null && stop())) break;
+        }
+        return error;
+    }
+
+    static void DeleteIfEmpty(string dir)
+    {
+        if (Directory.GetFileSystemEntries(dir).Length == 0) Directory.Delete(dir, false);
+    }
+
+    internal static bool IsOwnFrame(string name)
+    {
+        string stem = Path.GetFileNameWithoutExtension(name);
+        if (stem.Length < 3) return false;
+        foreach (char c in stem) if (c < '0' || c > '9') return false;
+        return true;
+    }
+
+    internal static bool IsOwnFile(string name)
+    {
+        string n = name.ToLowerInvariant();
+        return n == IndexFileName || n == ClipFileName || n == NoteFileName || n == AudioMux.AudioFileName
+            || n == AudioMux.TranscriptFileName || n == AudioMux.TranscriptWavName || n == "transcript_16k.srt"
+            || n.StartsWith(WhisperOutputName, StringComparison.Ordinal) || n.StartsWith("work_lossless", StringComparison.Ordinal)
+            || n == IndexFileName + ".tmp" || n == NoteFileName + ".tmp" || n == AudioMux.TranscriptFileName + ".tmp";
     }
 
     static void WriteZip(string folder, string root, string temp)

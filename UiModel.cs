@@ -371,6 +371,36 @@ static class ZipStatus
     }
 
     public const string CopyHint = "Use \"Copy ZIP of last recording\" in the tray menu.";
+    // The clipboard keeps the ZIP (or the "wait" text) of the newer recording. "Copy ZIP of last recording" is then the newer one.
+    public const string NewerHasClipboard = "a newer recording has the clipboard.";
+
+    public static string WithHint(string copyError)
+    {
+        return copyError + " " + (copyError == NewerHasClipboard ? "This ZIP is in the recordings folder." : CopyHint);
+    }
+
+    // The state when all work is done. A pass that failed is never "ready".
+    public static ZipStep FinalStep(bool passOk, string zipError)
+    {
+        return passOk && zipError == null ? ZipStep.Ready : ZipStep.Failed;
+    }
+
+    // What to show in the state Failed, or null for "Could not make the ZIP". zipExists: a ZIP of this recording is there.
+    public static string Problem(bool passOk, bool hasContent, bool zipExists, string zipError)
+    {
+        if (zipError != null && zipExists) return "The ZIP is ready, but the last change is not in it.";
+        if (!passOk && !hasContent) return "Nothing usable was recorded.";
+        if (!passOk && zipError == null) return "The frames failed. The ZIP has no index.md.";
+        return null;
+    }
+
+    // The recording ended by itself (FFmpeg stopped). Short: the popup has two small lines.
+    public static string EarlyEnd(string problem)
+    {
+        string first = (problem ?? "").Replace("\r", "").Trim().Split('\n')[0].Trim();
+        if (first.Length > 120) first = first.Substring(0, 120) + "...";
+        return "The recording ended early. " + first;
+    }
 
     public static string NoteText(ZipStep step, long bytes, bool copied, bool updated, string error)
     {
@@ -392,10 +422,17 @@ static class ZipStatus
 
     public static string NoteText(ZipStep step, long bytes, bool copied, string what, string error, string copyError)
     {
+        return NoteText(step, bytes, copied, what, error, copyError, null);
+    }
+
+    // problem: ZipStatus.Problem.
+    public static string NoteText(ZipStep step, long bytes, bool copied, string what, string error, string copyError, string problem)
+    {
         if (Busy(step)) return BusyText(step);
+        if (step == ZipStep.Failed && problem != null) return problem + " The recording folder stays. " + (error ?? "");
         if (step == ZipStep.Failed) return "Could not make the ZIP. The recording folder stays. " + (error ?? "");
         if (copied) return what + ". Press Ctrl+V to paste (" + Megabytes(bytes) + ").";
-        if (copyError != null) return what + " (" + Megabytes(bytes) + "), but it is not on the clipboard: " + copyError + " " + CopyHint;
+        if (copyError != null) return what + " (" + Megabytes(bytes) + "), but it is not on the clipboard: " + WithHint(copyError);
         return what + " (" + Megabytes(bytes) + "). The clipboard copy is off in Settings.";
     }
 
@@ -412,7 +449,13 @@ static class ZipStatus
 
     public static string PopupText(ZipStep step, long bytes, bool copied, string what, string copyError)
     {
+        return PopupText(step, bytes, copied, what, copyError, null);
+    }
+
+    public static string PopupText(ZipStep step, long bytes, bool copied, string what, string copyError, string problem)
+    {
         if (Busy(step)) return BusyText(step);
+        if (step == ZipStep.Failed && problem != null) return problem;
         if (step == ZipStep.Failed) return "Could not make the ZIP";
         if (copied) return what + ": Ctrl+V to paste (" + Megabytes(bytes) + ")";
         if (copyError != null) return what + ", not on the clipboard (" + Megabytes(bytes) + ")";
@@ -429,7 +472,7 @@ static class ZipStatus
     {
         if (Busy(step)) return WaitText;
         if (step == ZipStep.Failed) return "The recording folder stays. " + (error ?? "");
-        if (copyError != null) return copyError + " " + CopyHint;
+        if (copyError != null) return WithHint(copyError);
         return null;
     }
 

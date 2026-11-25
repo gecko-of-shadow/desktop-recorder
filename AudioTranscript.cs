@@ -24,6 +24,7 @@ sealed class AudioTake
     public double Seconds;              // length of the WAV file
     public double Peak = -1;            // largest sample, 0 to 1. -1 = not known (a format that is not read)
     public string Error;                // null, or why the capture stopped early (the WAV has silence after it)
+    public string Note;                 // null, or what happened during the capture (it went on)
 
     // Below this peak the audio is silent: no transcript (Whisper invents text on silence). About -66 dBFS.
     public const double SilentPeak = 0.0005;
@@ -204,6 +205,13 @@ static class AudioClock
         return d;
     }
 
+    // How many frames of a packet are before endSeconds.
+    public static long FramesBefore(double packetSeconds, long frames, double endSeconds, int rate)
+    {
+        double n = Math.Round((endSeconds - packetSeconds) * rate);
+        return n <= 0 ? 0 : n >= frames ? frames : (long)n;
+    }
+
     // WAV time 0 on the time line of the work file (see the top of this file).
     public static double VideoTimeOfAudioStart(double audioStartClock, double clockOffset, double firstFrameTime)
     {
@@ -231,6 +239,12 @@ static class AudioMux
         return "anull";
     }
 
+    // For the AAC encoder. The 32-bit integer step removes NaN and infinite samples: one bad sample made the encode fail.
+    public static string AacFilter(double shift)
+    {
+        return AlignFilter(shift) + ",aformat=sample_fmts=s32";
+    }
+
     // Adds the audio to a finished video file without a new video encode: stream copy, audio as AAC.
     // Used for the MP4 output and for a work file that stays in the folder.
     public static string[] BuildRemuxArguments(string video, string audio, double shift, string output)
@@ -250,7 +264,7 @@ static class AudioMux
         a.Add("-map"); a.Add("0:v:0");
         a.Add("-map"); a.Add("1:a:0");
         a.Add("-c:v"); a.Add("copy");
-        string filter = AlignFilter(shift);
+        string filter = AacFilter(shift);
         if (maxSeconds > 0) filter += ",atrim=end=" + Num(maxSeconds);
         a.Add("-af"); a.Add(filter);
         AddAac(a);
@@ -302,6 +316,9 @@ static class SpeechCheck
     // the end of a 30 s row). The silent test recordings had 0 to 0.9 s of sound (clicks, the stop sound) in 30 s.
     public const double MinSoundShare = 0.1;
     public const double MinSoundSeconds = 1.0;
+    // A row with any other text needs only this much: more than the sounds of the app (0.2 to 0.3 s). With 1.0 s for all
+    // rows, real short speech on a silent PC was left out ("Build failed", "Yes"; bug hunt, 2026-11-24).
+    public const double MinRowSoundSeconds = 0.4;
     // A known Whisper text for non-speech audio (KnownPhrases) in a long row needs sound in this part of its time.
     // On silence, Whisper writes such a text over its full 30 s window (0 to 30 s, 30 to 60 s on this PC). A real,
     // short "Thanks." gets a short row, so a short row is not checked by this rule.
@@ -470,7 +487,8 @@ static class SpeechCheck
         int sound, windows;
         CountSound(levels, row.Start, row.End, out sound, out windows);
         double share = sound / (double)windows;
-        if (share < MinSoundShare && sound * WindowSeconds < MinSoundSeconds - 1e-9) return false;
+        double need = IsKnownPhrase(row.Text) ? MinSoundSeconds : MinRowSoundSeconds;
+        if (share < MinSoundShare && sound * WindowSeconds < need - 1e-9) return false;
         if (!IsKnownPhrase(row.Text)) return true;
         double length = windows * WindowSeconds;
         bool longRow = length >= PhraseLongSeconds - 1e-9 || length >= PhraseLongPart * levels.Length * WindowSeconds - 1e-9;

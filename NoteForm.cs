@@ -436,6 +436,12 @@ sealed class ZipToast : Form
     // ZipStatus.PopupSeconds (ready, failed), or stays (busy).
     public void Set(ZipStep step, string text, string detailText)
     {
+        Set(step, text, detailText, 0);
+    }
+
+    // minSeconds: the popup stays at least this long (a ready popup with a warning).
+    public void Set(ZipStep step, string text, string detailText, int minSeconds)
+    {
         bool busy = ZipStatus.Busy(step);
         bool failed = step == ZipStep.Failed;
         bar.Visible = busy;
@@ -467,6 +473,7 @@ sealed class ZipToast : Form
         Location = new Point(WorkArea.X + (WorkArea.Width - Width) / 2, WorkArea.Bottom - Height - S(24));
         int seconds = ZipStatus.PopupSeconds(step);
         closeTimer.Stop();
+        if (seconds > 0) seconds = Math.Max(seconds, minSeconds);
         if (seconds > 0)
         {
             closeTimer.Interval = seconds * 1000;

@@ -30,6 +30,8 @@ sealed class LoopbackCapture
     {
         [PreserveSig] int Activate(ref Guid iid, int clsCtx, IntPtr activationParams,
             [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+        [PreserveSig] int OpenPropertyStore(int access, out IntPtr store);
+        [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
     }
 
     [ComImport, Guid("1CB9AD4C-DBFA-4c32-B178-C2F568A703B2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -91,9 +93,18 @@ sealed class LoopbackCapture
         if (!started.WaitOne(5000))
         {
             stopRequested = true;
-            return "The audio device did not answer in 5 s.";
+            return "System audio is off for this recording: the audio device did not answer in 5 s.";
         }
         return startError;
+    }
+
+    long endTimestamp;          // the user pressed Stop: the audio ends here (0 = not yet)
+    string note;
+
+    // Stop was pressed. FFmpeg needs a moment to end, and the Stop sound of the app plays now: it must not be in the audio.
+    public void MarkEnd()
+    {
+        Interlocked.CompareExchange(ref endTimestamp, Stopwatch.GetTimestamp(), 0);
     }
 
     // Stops the capture, fills silence up to now, and closes the WAV file.
@@ -107,69 +118,144 @@ sealed class LoopbackCapture
         t.Seconds = seconds;
         t.Peak = peak;
         t.Error = runError;
+        t.Note = note;
         return t;
     }
 
     static double QpcSeconds(long ticks) { return ticks / (double)Stopwatch.Frequency; }
 
+    // The playback device failed (removed, changed). Not a fault of the WAV file.
+    sealed class DeviceError : Exception { public DeviceError(string m) : base(m) { } }
+
     static void Check(int hr, string what)
     {
-        if (hr < 0) throw new InvalidOperationException(what + " failed (0x" + hr.ToString("X8") + ").");
+        if (hr < 0) throw new DeviceError(what + " failed (0x" + hr.ToString("X8") + ").");
+    }
+
+    const int StreamFlagsConvert = unchecked((int)0x88000000);  // AUTOCONVERTPCM | SRC_DEFAULT_QUALITY
+    const double PollSeconds = 0.25;
+
+    // One open endpoint. All members are used on the capture thread only.
+    sealed class Endpoint
+    {
+        public IMMDevice Device;
+        public IAudioClient Client;
+        public IAudioCaptureClient Capture;
+        public string Id;
+        bool running;
+
+        // mix: the format of the WAV file (CoTaskMem). Zero on the first open: then it gets the mix format.
+        public void Open(IMMDeviceEnumerator enumerator, ref IntPtr mix)
+        {
+            Check(enumerator.GetDefaultAudioEndpoint(ERender, EConsole, out Device), "GetDefaultAudioEndpoint (is a playback device on?)");
+            Check(Device.GetId(out Id), "IMMDevice.GetId");
+            object o;
+            Guid iid = IidAudioClient;
+            Check(Device.Activate(ref iid, ClsctxAll, IntPtr.Zero, out o), "IMMDevice.Activate");
+            Client = (IAudioClient)o;
+            int flags = StreamFlagsLoopback;
+            if (mix == IntPtr.Zero) Check(Client.GetMixFormat(out mix), "GetMixFormat");
+            else flags |= StreamFlagsConvert;
+            Check(Client.Initialize(SharedMode, flags, BufferDuration, 0, mix, IntPtr.Zero), "IAudioClient.Initialize");
+            Guid cid = IidAudioCaptureClient;
+            object c;
+            Check(Client.GetService(ref cid, out c), "GetService(IAudioCaptureClient)");
+            Capture = (IAudioCaptureClient)c;
+        }
+
+        public void Start() { Check(Client.Start(), "IAudioClient.Start"); running = true; }
+
+        public void Close()
+        {
+            try { if (running) Client.Stop(); } catch (Exception) { }
+            Release(Capture); Release(Client); Release(Device);
+            Capture = null; Client = null; Device = null;
+        }
+    }
+
+    static string DefaultId(IMMDeviceEnumerator enumerator)
+    {
+        IMMDevice d = null;
+        try
+        {
+            string id;
+            if (enumerator.GetDefaultAudioEndpoint(ERender, EConsole, out d) < 0 || d.GetId(out id) < 0) return null;
+            return id;
+        }
+        finally { Release(d); }
     }
 
     void Run()
     {
         IMMDeviceEnumerator enumerator = null;
-        IMMDevice device = null;
-        IAudioClient client = null;
-        IAudioCaptureClient capture = null;
+        Endpoint current = null;
+        IntPtr mix = IntPtr.Zero;
         WavWriter wav = null;
-        bool clientStarted = false;
         try
         {
             enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
-            Check(enumerator.GetDefaultAudioEndpoint(ERender, EConsole, out device), "GetDefaultAudioEndpoint (is a playback device on?)");
-            object o;
-            Guid iid = IidAudioClient;
-            Check(device.Activate(ref iid, ClsctxAll, IntPtr.Zero, out o), "IMMDevice.Activate");
-            client = (IAudioClient)o;
-            IntPtr mix;
-            Check(client.GetMixFormat(out mix), "GetMixFormat");
-            WaveFormat format;
-            try
-            {
-                int cbSize = Marshal.ReadInt16(mix, 16);
-                byte[] raw = new byte[18 + Math.Max(0, cbSize)];
-                Marshal.Copy(mix, raw, 0, raw.Length);
-                format = WaveFormat.Parse(raw);
-                Check(client.Initialize(SharedMode, StreamFlagsLoopback, BufferDuration, 0, mix, IntPtr.Zero), "IAudioClient.Initialize");
-            }
-            finally { Marshal.FreeCoTaskMem(mix); }
-            Guid cid = IidAudioCaptureClient;
-            object c;
-            Check(client.GetService(ref cid, out c), "GetService(IAudioCaptureClient)");
-            capture = (IAudioCaptureClient)c;
+            current = new Endpoint();
+            current.Open(enumerator, ref mix);
+            int cbSize = Marshal.ReadInt16(mix, 16);
+            byte[] raw = new byte[18 + Math.Max(0, cbSize)];
+            Marshal.Copy(mix, raw, 0, raw.Length);
+            WaveFormat format = WaveFormat.Parse(raw);
             wav = new WavWriter(path, format);
-            Check(client.Start(), "IAudioClient.Start");
-            clientStarted = true;
+            current.Start();
             startTimestamp = Stopwatch.GetTimestamp();
             started.Set();
 
             double start = QpcSeconds(startTimestamp);
             int rate = format.SampleRate;
             byte[] buffer = new byte[0];
-            long lastPatch = startTimestamp;
+            long lastPatch = startTimestamp, lastPoll = startTimestamp;
+            bool lost = false;
             while (!stopRequested)
             {
                 Thread.Sleep(10);
-                Drain(capture, wav, start, rate, ref buffer);
+                if (!lost)
+                {
+                    try { Drain(current.Capture, wav, start, rate, ref buffer, Interlocked.Read(ref endTimestamp)); }
+                    catch (DeviceError) { lost = true; }
+                }
+                long now = Stopwatch.GetTimestamp();
+                if (QpcSeconds(now - lastPoll) >= PollSeconds && !stopRequested)
+                {
+                    lastPoll = now;
+                    string id = DefaultId(enumerator);
+                    // No default device: keep the open one until it fails.
+                    if (id != null && (lost || id != current.Id))
+                    {
+                        Endpoint next = new Endpoint();
+                        try
+                        {
+                            next.Open(enumerator, ref mix);
+                            next.Start();
+                            if (!lost) { try { Drain(current.Capture, wav, start, rate, ref buffer, Interlocked.Read(ref endTimestamp)); } catch (DeviceError) { } }
+                            current.Close();
+                            current = next;
+                            next = null;
+                            lost = false;
+                            note = "The playback device changed " + wav.Seconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
+                                + " s after the start of the sound. The sound of the new device is recorded from there.";
+                        }
+                        catch (DeviceError) { }         // the device is not ready yet: try again at the next poll
+                        catch (COMException) { }
+                        finally { if (next != null) next.Close(); }
+                    }
+                }
                 if (QpcSeconds(Stopwatch.GetTimestamp() - lastPatch) >= 1)
                 {
+                    // Loopback gives no packets while the PC is silent. Write that silence now, not all of it at Stop.
+                    // 2 s behind the clock: a packet that is still on its way must not be cut (the buffer is 1 s).
+                    long due = AudioClock.Correction(wav.Frames, start, QpcSeconds(Stopwatch.GetTimestamp()) - 2.0, rate, 0);
+                    if (due > 0 && Interlocked.Read(ref endTimestamp) == 0) wav.WriteSilence(due);
                     wav.PatchHeader();
                     lastPatch = Stopwatch.GetTimestamp();
                 }
             }
-            Drain(capture, wav, start, rate, ref buffer);
+            if (!lost) { try { Drain(current.Capture, wav, start, rate, ref buffer, Interlocked.Read(ref endTimestamp)); } catch (DeviceError) { } }
+            if (lost) runError = "The playback device was lost and did not come back.";
         }
         catch (Exception e)
         {
@@ -182,13 +268,15 @@ sealed class LoopbackCapture
         }
         finally
         {
-            try { if (clientStarted) client.Stop(); } catch (Exception) { }
+            if (current != null) current.Close();
             if (wav != null)
             {
                 try
                 {
                     // Silence up to the stop, so the WAV file covers the whole recording.
                     long end = stopTimestamp != 0 ? stopTimestamp : Stopwatch.GetTimestamp();
+                    long mark = Interlocked.Read(ref endTimestamp);
+                    if (mark != 0 && mark < end) end = mark;
                     long missing = AudioClock.Correction(wav.Frames, QpcSeconds(startTimestamp), QpcSeconds(end), wav.Format.SampleRate, 0);
                     if (missing > 0) wav.WriteSilence(missing);
                 }
@@ -197,15 +285,13 @@ sealed class LoopbackCapture
                 peak = wav.Peak;
                 try { wav.Dispose(); } catch (Exception) { }
             }
-            Release(capture);
-            Release(client);
-            Release(device);
+            if (mix != IntPtr.Zero) Marshal.FreeCoTaskMem(mix);
             Release(enumerator);
         }
     }
 
     // Reads all waiting packets. The QPC time of each packet keeps the file on the clock.
-    static void Drain(IAudioCaptureClient capture, WavWriter wav, double start, int rate, ref byte[] buffer)
+    static void Drain(IAudioCaptureClient capture, WavWriter wav, double start, int rate, ref byte[] buffer, long endTicks)
     {
         uint next;
         Check(capture.GetNextPacketSize(out next), "GetNextPacketSize");
@@ -219,14 +305,17 @@ sealed class LoopbackCapture
             {
                 int block = wav.Format.BlockAlign;
                 long skip = 0;
-                if ((flags & FlagTimestampError) == 0)
+                bool timed = (flags & FlagTimestampError) == 0;
+                // use: the frames of this packet before the Stop press.
+                long use = endTicks == 0 ? frames : timed ? AudioClock.FramesBefore(qpc * 1e-7, frames, QpcSeconds(endTicks), rate) : 0;
+                if (timed && use > 0)
                 {
                     // qpc is in 100 ns units.
                     long d = AudioClock.Correction(wav.Frames, start, qpc * 1e-7, rate, 0.05);
                     if (d > 0) wav.WriteSilence(d);
-                    else if (d < 0) skip = Math.Min(-d, frames);
+                    else if (d < 0) skip = Math.Min(-d, use);
                 }
-                long keep = frames - skip;
+                long keep = use - skip;
                 if (keep > 0)
                 {
                     if ((flags & FlagSilent) != 0) wav.WriteSilence(keep);
