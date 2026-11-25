@@ -6,6 +6,8 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-11-25
+
 ### Changed
 
 - Windows, transcript: Whisper does not run when the recording has less than 0.5 s of sound, and sound in less than 10% of its time. Before, Whisper ran on recordings that had only the stop sound, and "Making the ZIP" stayed for up to 88 s with no transcript row as the result.
@@ -23,8 +25,17 @@ Dates are the GitHub release dates (UTC). This file was made from the GitHub rel
 - Windows, clipboard and status: an older ZIP does not replace a newer one. A failed frame pass is not "ZIP ready", and an empty ZIP is not made. Each note box shows the state of its own recording.
 - Windows, files: the program deletes only its own files from a recording folder, and tries again when another program holds a file. A note is on the disk at once. A `settings.txt` that cannot be read is not replaced with the defaults; `settings.txt.bak` is the backup.
 - Windows, frames that were missed: a page or a menu under a moving pointer; a page of 0.33 s; the last value of a counter or a spinner; a small text that stayed and then went away; a slow fade; a change at the left 8 px or the last rows; a scroll beside a sidebar with text.
+- Windows, frames: a page that loads does not get the text "scroll, N px up" in `index.md` any more, when the two pictures match only in a small, almost empty part.
+- Windows, `index.md`: a popup without a title gets the title of the window that it belongs to.
 - Windows, note box: the question "Save this note?" takes a letter only with Alt. Before, a typed "d" discarded the note.
 - Windows, Settings: "Start with Windows" shows Off when Windows has the app turned off in its startup list. Before, it showed On. Save changes the startup entry only when the switch was changed. When you turn the switch on while Windows has the app off, the program offers to open the startup list of Windows; it does not change that list.
+
+### Notes
+
+- Tested on one PC: the unit tests, the offscreen UI preview, offline passes on real recordings and on 100 test videos, and the recovery of a killed FFmpeg. One real recording by Bran (24.3 s, with sound, build of 1cc03e3) gave a complete ZIP about 5 s after Stop. The two faults that it showed are corrected (HANDOFF 7.26, 7.27).
+- Not tested: a recording with the final code, a real UAC prompt or lock screen, a change of the sound device, a sign-out, the sync of audio and video, the exe from the release zip.
+- Known limit: over a playing video, a short popup can get no frame, because the samples are each 5 s. It is in `clip.mp4`.
+- Ubuntu: no change.
 
 ## [3.1.0] - 2026-11-22
 
@@ -220,7 +231,8 @@ First release, with portable archives for Windows and Ubuntu 24.04. FFmpeg is no
 
 - Not tested: a GNOME Wayland session, real audio samples, and the Windows program on a Windows desktop (the exe was built by GitHub Actions).
 
-[Unreleased]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/gecko-of-shadow/desktop-recorder/compare/v2.0.2...v3.0.0

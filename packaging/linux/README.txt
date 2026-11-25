@@ -1,4 +1,4 @@
-Desktop Recorder 3.1.0 for Ubuntu 24.04 (portable)
+Desktop Recorder 3.2.0 for Ubuntu 24.04 (portable)
 
 Unpack this archive anywhere and run:
 

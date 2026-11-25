@@ -2,7 +2,7 @@
 
 A small tray program that records a part of your screen, so that an AI model can read the text on it. On Windows, one recording gives one ZIP file: the settled frames as PNG files, an `index.md` that describes each frame, and `clip.mp4` for people.
 
-Current version: **3.1.0** (2026-11-22). Download it from the [newest release](https://github.com/gecko-of-shadow/desktop-recorder/releases/latest). See [CHANGELOG.md](CHANGELOG.md) for the version history.
+Current version: **3.2.0** (2026-11-25). Download it from the [newest release](https://github.com/gecko-of-shadow/desktop-recorder/releases/latest). See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 You select the area with the text. The program records that area at full resolution, so each character stays sharp. A still screen costs almost no space, so the files stay small.
 
@@ -36,7 +36,7 @@ Ubuntu 24.04:
 
 Download a portable archive from the [Releases page](https://github.com/gecko-of-shadow/desktop-recorder/releases/latest). Unzip or untar it and run it. Nothing is copied into Program Files, and the Linux archive does not need root.
 
-The Releases page keeps only the latest version. The source of each earlier version stays available as a Git tag (`v1.0.0` to `v3.0.1`). [CHANGELOG.md](CHANGELOG.md) lists the changes in each version.
+The Releases page marks the newest version as Latest. The source of each earlier version stays available as a Git tag (`v1.0.0` to `v3.1.0`). [CHANGELOG.md](CHANGELOG.md) lists the changes in each version.
 
 | Platform | Archive | Start |
 |---|---|---|
@@ -363,6 +363,8 @@ Version 3.1.0, transcript rows on silence, pointer and the motion warning, file-
 Version 3.1.0, live test of the ZIP-only build (note box, Settings window, tray menu, ZIP indication and the selector keys; `HANDOFF.md` section 7.22), on the same PC with synthetic input and real recordings: every check of the live test plan passed after 8 fixes (tray menu over the taskbar, crosshair on white pages, mixed tray status, two spaces for a line break in the note, a temporary file after a failed ZIP, and others). The full-screen check found no note box and no popup in the video. Not tested: 100% and 150% scale, a paste of the ZIP into a chat app, more monitors.
 
 Version 3.1.0, real recordings by Bran with the ZIP-only build (`HANDOFF.md` section 7.23): each recording gave one ZIP and no folder, a note was in the ZIP, a Twitch stream got the motion warning, and the transcript kept real speech with no false rows.
+
+Version 3.2.0 (fast ZIP, lost recordings, missed frames; `HANDOFF.md` sections 7.26 and 7.27), on the same PC: the unit tests and the offscreen UI preview passed. Offline passes on 100 test videos kept the frame counts of the baseline tests and added frames that the old version missed. A killed FFmpeg recording was recovered into a ZIP. One real recording by Bran (24.3 s, with sound, build of 1cc03e3) gave a complete ZIP about 5 s after Stop, and the two faults that it showed are corrected. Not tested: a recording with the final code, a real UAC prompt or lock screen, a change of the sound device, a sign-out, the sync of audio and video, and the exe from the release zip.
 
 The test kit is in `test/`: a source text, an auto-scroll page, a frame-counter page, and scripts that count frames and score an AI copy.
 
