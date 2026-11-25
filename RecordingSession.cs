@@ -35,6 +35,10 @@ sealed class RecordingSession
     // so the smallest difference is the best estimate. Guarded by statsGate.
     readonly System.Diagnostics.Stopwatch clock = new System.Diagnostics.Stopwatch();
     double clockOffset = double.NaN;
+    // The stats "time=" of FFmpeg is the END of the newest packet, so it is one frame time too large. Corrected only
+    // when the encoder holds no frames back ("-delay 0"): with a delay, the two errors cancel on a moving screen.
+    double statsFrameTime;
+    bool killedAtStop;
     long clockStartTimestamp;   // Stopwatch.GetTimestamp() when the clock started (for the audio, AudioCapture.cs)
 
     // Raised on a background thread when ffmpeg ends by itself. The argument is ffmpeg's error text.
@@ -79,6 +83,7 @@ sealed class RecordingSession
                 return "Cannot start ffmpeg: " + e.Message;
             }
             ChildProcessJob.Add(p);
+            ChildProcessJob.Raise(p);
             process = p;
             folder = outputFolder;
             fps = RecorderCore.ClampFps(framesPerSecond);
@@ -92,6 +97,8 @@ sealed class RecordingSession
                 progress = new FfmpegProgress();
                 hasProgress = false;
                 clockOffset = double.NaN;
+                statsFrameTime = RecorderCore.HasNoEncoderDelay(arguments) ? 1.0 / fps : 0;
+                killedAtStop = false;
                 clock.Reset();
                 clock.Start();
                 clockStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -202,7 +209,22 @@ sealed class RecordingSession
         return list;
     }
 
-    static void StopProcess(Process p, double frames)
+    // How long Stop waits for FFmpeg to finish the file. 4.3 s was too short on a busy PC: FFmpeg needed up to 9.4 s
+    // (bug hunt, 2026-11-24), and the kill lost the end of the recording.
+    internal static int StopWaitMs(double frames)
+    {
+        return (int)Math.Min(25000, 15000 + 2000 / Math.Max(0.2, frames));
+    }
+
+    // True when FFmpeg did not end by itself at Stop, so the end of the recording can be missing.
+    public bool KilledAtStop { get { lock (statsGate) return killedAtStop; } }
+
+    void Killed()
+    {
+        lock (statsGate) killedAtStop = true;
+    }
+
+    void StopProcess(Process p, double frames)
     {
         if (p == null) return;
         try
@@ -210,17 +232,17 @@ sealed class RecordingSession
             // "q" asks ffmpeg to finish the file. It reads it between frames, so wait longer at low fps.
             p.StandardInput.Write("q");
             p.StandardInput.Flush();
-            int waitMs = (int)Math.Min(15000, 4000 + 2000 / Math.Max(0.2, frames));
-            if (!p.WaitForExit(waitMs))
+            if (!p.WaitForExit(StopWaitMs(frames)))
             {
+                Killed();
                 try { p.Kill(); } catch (Exception) { }
-                try { p.WaitForExit(); } catch (Exception) { }
+                try { p.WaitForExit(5000); } catch (Exception) { }
             }
         }
         catch (Exception)
         {
-            try { if (!p.HasExited) p.Kill(); } catch (Exception) { }
-            try { p.WaitForExit(); } catch (Exception) { }
+            try { if (!p.HasExited) { Killed(); p.Kill(); } } catch (Exception) { }
+            try { p.WaitForExit(5000); } catch (Exception) { }
         }
     }
 
@@ -277,7 +299,7 @@ sealed class RecordingSession
                     hasProgress = true;
                     if (parsed.TimeSeconds >= 0)
                     {
-                        double diff = clock.Elapsed.TotalSeconds - parsed.TimeSeconds;
+                        double diff = clock.Elapsed.TotalSeconds - Math.Max(0, parsed.TimeSeconds - statsFrameTime);
                         if (double.IsNaN(clockOffset) || diff < clockOffset) clockOffset = diff;
                     }
                 }
@@ -396,6 +418,13 @@ static class ChildProcessJob
     static readonly object gate = new object();
     static IntPtr job = IntPtr.Zero;
     static bool failed;
+
+    // Above normal priority: on a busy PC, FFmpeg at normal priority lost frames (1 of 50 kept) and the pass of a 15 s
+    // recording took 31 to 52 s. Above normal: 7 to 11 s (bug hunt, 2026-11-24).
+    public static void Raise(Process p)
+    {
+        try { p.PriorityClass = ProcessPriorityClass.AboveNormal; } catch (Exception) { }
+    }
 
     public static void Add(Process p)
     {

@@ -123,7 +123,7 @@ static class AfterRecording
             watch.Start();
             bool audio = r.AudioRecorded;
             string error = EncodeClipWithFallback(input, r, true, audio);
-            if (error != null && audio)
+            if (error != null && audio && !IsTimeout(error))
             {
                 // The audio must not cost the clip: encode again without it (docs/audio-transcript.md).
                 string second = EncodeClipWithFallback(input, r, true, false);
@@ -148,7 +148,7 @@ static class AfterRecording
             {
                 if (r.Work == null) SetUpAudio(input, r);
                 string error = EncodeClipWithFallback(input, r, false, r.AudioRecorded);
-                if (error != null && r.AudioRecorded) error = EncodeClipWithFallback(input, r, false, false);
+                if (error != null && r.AudioRecorded && !IsTimeout(error)) error = EncodeClipWithFallback(input, r, false, false);
                 else if (error == null) r.AudioInClip = r.AudioRecorded;
                 if (error == null) r.ClipWritten = true;
                 else r.Error += " Normal clip.mp4 also failed: " + error;
@@ -272,7 +272,7 @@ static class AfterRecording
         try { if (File.Exists(srt)) File.Delete(srt); } catch (Exception) { }
         double seconds = Math.Max(0, r.EndTime - r.FirstTime);
         int timeout = Transcript.TimeoutMs(seconds);
-        if (!RecorderCore.RunFfmpeg(input.Whisper.Path, RecorderCore.JoinWindowsArguments(args), timeout, out output, out exit))
+        if (!RecorderCore.RunProgram(input.Whisper.Path, RecorderCore.JoinWindowsArguments(args), timeout, false, out output, out exit))
         {
             r.TranscriptNote = Path.GetFileName(input.Whisper.Path) + " did not start, or did not end in "
                 + (timeout / 1000).ToString(CultureInfo.InvariantCulture) + " s";
@@ -345,11 +345,48 @@ static class AfterRecording
         try { if (File.Exists(input.AudioFile)) File.Delete(input.AudioFile); } catch (Exception) { }
     }
 
+    const string TimeoutText = "FFmpeg did not start or did not end in time.";
+
+    static bool IsTimeout(string error)
+    {
+        return error != null && error.StartsWith(TimeoutText, StringComparison.Ordinal);
+    }
+
+    // Time limit of the clip encode. NVENC needs less than the length of the recording (a hung driver must not hold the
+    // ZIP for 30 min). libx264 on a slow PC can need more.
+    internal static int EncodeLimitMs(double seconds, bool nvenc)
+    {
+        if (double.IsNaN(seconds) || seconds < 0) seconds = 0;
+        double limit = nvenc ? 60 + 2 * seconds : 300 + 10 * seconds;
+        return (int)(1000 * Math.Min(limit, 6 * 3600));
+    }
+
+    // Time limit of a tool that reads the whole file once (ffprobe, the decode). Much more than it needs.
+    internal static int ReadLimitMs(long bytes, double seconds)
+    {
+        if (double.IsNaN(seconds) || seconds < 0) seconds = 0;
+        double limit = 120 + bytes / 10e6 + 10 * seconds;
+        return (int)(1000 * Math.Min(limit, 6 * 3600));
+    }
+
+    static long FileLength(string path)
+    {
+        try { return new FileInfo(path).Length; } catch (Exception) { return 0; }
+    }
+
+    // Ends the process after the limit, so that the pass fails (and keeps the work file) and does not hang.
+    static Timer KillAfter(Process p, int limitMs)
+    {
+        return new Timer(delegate { try { if (!p.HasExited) p.Kill(); } catch (Exception) { } }, null, limitMs, Timeout.Infinite);
+    }
+
     static string EncodeClipWithFallback(AfterRecordingInput input, AfterRecordingResult r, bool keyframes, bool audio)
     {
         string error = EncodeClip(input, r, keyframes, input.ForceX264, audio);
         if (error != null && !input.ForceX264)
         {
+            // An NVENC encode that hangs must not cost the time limit again.
+            if (IsTimeout(error)) input.ForceX264 = true;
             // NVENC can fail (driver, other app): try libx264 once (review 2026-11-19).
             string second = EncodeClip(input, r, keyframes, true, audio);
             if (second == null) { r.Warnings.Add("NVENC failed for clip.mp4. libx264 encoded it."); return null; }
@@ -543,6 +580,7 @@ static class AfterRecording
         int frameBytes = width * height * 3;
         byte[] frame = new byte[frameBytes];
         Stream stdout = p.StandardOutput.BaseStream;
+        Timer killer = KillAfter(p, ReadLimitMs(FileLength(input.WorkFile), r.EndTime - r.FirstTime));
         int index = 0;
         long minOff = 0, maxOff = 0;
         bool readOk = false;
@@ -569,6 +607,7 @@ static class AfterRecording
             // On an error, end FFmpeg first: it can wait forever to write the next frame (review 2026-11-19).
             if (!readOk) { try { if (!p.HasExited) p.Kill(); } catch (Exception) { } }
             try { p.WaitForExit(60000); } catch (Exception) { }
+            killer.Dispose();
             errThread.Join(5000);
             pngQueue.CompleteAdding();
             foreach (Thread w in pngWorkers) w.Join();
@@ -674,12 +713,13 @@ static class AfterRecording
         string probe = FfprobePath(ffmpeg);
         if (probe == null) return ReadFrameTimesWithFfmpeg(ffmpeg, file, out width, out height);
         string q = RecorderCore.QuoteWindowsArgument(file);
-        string text = RunToText(probe, "-v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 " + q);
+        int limit = ReadLimitMs(FileLength(file), 0);
+        string text = RunToText(probe, "-v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 " + q, limit);
         string[] parts = text.Trim().Split(',');
         if (parts.Length < 2 || !int.TryParse(parts[0].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out width)
             || !int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out height))
             throw new IOException("ffprobe gave no frame size: " + text.Trim());
-        string packets = RunToText(probe, "-v error -select_streams v:0 -show_entries packet=pts_time -of csv=p=0 " + q);
+        string packets = RunToText(probe, "-v error -select_streams v:0 -show_entries packet=pts_time -of csv=p=0 " + q, limit);
         List<double> times = new List<double>();
         foreach (string line in packets.Split('\n'))
         {
@@ -708,6 +748,8 @@ static class AfterRecording
         string args = "-hide_banner -nostats -loglevel info -copyts -i " + RecorderCore.QuoteWindowsArgument(file)
             + " -map 0:v:0 -vf scale=16:16,showinfo -fps_mode passthrough -f null -";
         Process p = StartProcess(ffmpeg, args);
+        // The length is not known yet, and this decodes the file: 30 s for each MB is far above the real need.
+        Timer killer = KillAfter(p, ReadLimitMs(FileLength(file) * 300, 0));
         List<double> times = new List<double>();
         long num = 0, den = 0;
         string line;
@@ -729,6 +771,7 @@ static class AfterRecording
         }
         p.StandardOutput.ReadToEnd();
         p.WaitForExit();
+        killer.Dispose();
         p.Dispose();
         if (width <= 0 || height <= 0) throw new IOException("FFmpeg gave no frame size for the work file.");
         times.Sort();
@@ -762,8 +805,8 @@ static class AfterRecording
             audio ? input.AudioFile : null, r.AudioShift);
         string output;
         int exit;
-        if (!RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(a), 30 * 60 * 1000, out output, out exit))
-            return "FFmpeg did not start or did not end in time.";
+        if (!RecorderCore.RunFfmpeg(input.Ffmpeg, RecorderCore.JoinWindowsArguments(a), EncodeLimitMs(r.EndTime - r.FirstTime, input.NvencAvailable && !forceX264), out output, out exit))
+            return TimeoutText;
         if (exit != 0) return "FFmpeg exit code " + exit.ToString(CultureInfo.InvariantCulture) + ": " + Trim(output);
         if (!File.Exists(r.ClipPath)) return "FFmpeg wrote no file.";
         return null;
@@ -801,17 +844,20 @@ static class AfterRecording
         p.StartInfo.RedirectStandardError = true;
         p.Start();
         ChildProcessJob.Add(p);
+        ChildProcessJob.Raise(p);
         return p;
     }
 
-    static string RunToText(string exe, string args)
+    static string RunToText(string exe, string args, int limitMs)
     {
         Process p = StartProcess(exe, args);
+        Timer killer = KillAfter(p, limitMs);
         StringBuilder err = new StringBuilder();
         Thread t = DrainAsync(p.StandardError, err);
         string text = p.StandardOutput.ReadToEnd();
         p.WaitForExit();
         t.Join(5000);
+        killer.Dispose();
         int exit = p.ExitCode;
         p.Dispose();
         if (exit != 0) throw new IOException(Path.GetFileName(exe) + " failed: " + Trim(err.ToString()));

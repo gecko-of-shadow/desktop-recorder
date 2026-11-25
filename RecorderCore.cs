@@ -1063,6 +1063,14 @@ static class RecorderCore
             // still screen in "changes" mode (real recording, 2026-11-19). That moved all times in index.md.
             a.Add("-bf");
             a.Add("0");
+            // NVENC holds about 3 frames back, which is 3 s on a still screen: a killed FFmpeg lost them, and the clock of
+            // the recording (sound, transcript, window titles) was up to 0.9 s wrong. "-delay 0" ends this. It halves
+            // the top speed (175 fps at 1080p), so not above 30 fps (bug hunt, 2026-11-24).
+            if (fps <= 30)
+            {
+                a.Add("-delay");
+                a.Add("0");
+            }
             // RGB input (gdigrab, or ddagrab frames on the GPU): keep 4:4:4. In "changes" mode the input is yuv444p.
             if (!changes)
             {
@@ -1175,12 +1183,18 @@ static class RecorderCore
             a.Add("-movflags");
             a.Add("+frag_keyframe+empty_moov");
             a.Add("-frag_duration");
-            a.Add("2000000");
+            a.Add(lossless ? "500000" : "2000000");   // what a killed FFmpeg can lose at the end
             a.Add("-flush_packets");
             a.Add("1");
             a.Add(lossless ? workFile : CombinePath(folder, "desktop_" + stamp + ".mp4", true));
         }
         return a.ToArray();
+    }
+
+    // True for a capture command whose encoder holds no frames back (RecordingSession: the clock of the recording).
+    public static bool HasNoEncoderDelay(string arguments)
+    {
+        return arguments != null && arguments.IndexOf(" -delay 0 ", StringComparison.Ordinal) >= 0;
     }
 
     // Name of the recording folder in folder mode (brief section 6): desktop_yyyy-MM-dd_HH-mm-ss.
@@ -1354,6 +1368,12 @@ static class RecorderCore
 
     internal static bool RunFfmpeg(string ffmpegPath, string args, int timeoutMs, out string output, out int exitCode)
     {
+        return RunProgram(ffmpegPath, args, timeoutMs, true, out output, out exitCode);
+    }
+
+    // raise = false for Whisper: on the CPU it uses all cores, and the frames and clip.mp4 must come first.
+    internal static bool RunProgram(string ffmpegPath, string args, int timeoutMs, bool raise, out string output, out int exitCode)
+    {
         output = "";
         exitCode = -1;
         if (ffmpegPath == null || ffmpegPath.Length == 0) return false;
@@ -1369,9 +1389,14 @@ static class RecorderCore
                 p.StartInfo.RedirectStandardError = true;
                 // Read both pipes with events (.NET 4), so a full pipe cannot block the wait below.
                 StringBuilder text = new StringBuilder();
+                System.Threading.CountdownEvent pipes = new System.Threading.CountdownEvent(2);
                 System.Diagnostics.DataReceivedEventHandler collect = delegate(object sender, System.Diagnostics.DataReceivedEventArgs e)
                 {
-                    if (e.Data == null) return;
+                    if (e.Data == null)
+                    {
+                        try { pipes.Signal(); } catch (Exception) { }
+                        return;
+                    }
                     lock (text) { if (text.Length < 200000) text.AppendLine(e.Data); }
                 };
                 p.OutputDataReceived += collect;
@@ -1379,16 +1404,18 @@ static class RecorderCore
                 p.Start();
                 // It ends with the app, as the recording FFmpeg does.
                 try { ChildProcessJob.Add(p); } catch (Exception) { }
+                if (raise) ChildProcessJob.Raise(p);
                 p.BeginOutputReadLine();
                 p.BeginErrorReadLine();
                 p.StandardInput.Close();
                 if (!p.WaitForExit(Math.Max(1000, timeoutMs)))
                 {
-                    try { p.Kill(); } catch (Exception) { }
+                    // Wait for the end: until then, the process holds its output file, and a delete fails.
+                    try { p.Kill(); p.WaitForExit(5000); } catch (Exception) { }
                     return false;
                 }
-                // The overload without a timeout also waits for the end of the redirected pipes.
-                p.WaitForExit();
+                // The rest of the output. With a limit: a child of the program can hold the pipes open.
+                pipes.Wait(3000);
                 lock (text) { output = text.ToString(); }
                 exitCode = p.ExitCode;
                 return true;
