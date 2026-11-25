@@ -245,7 +245,7 @@ sealed class SettledFrameFinder
             if (lc.Pixels >= o.MinChangedPixels && LargeGroups(largeSide, out lx0, out ly0, out lx1, out ly1) && !IsRepeat(prev, time))
             {
                 briefFrames++;
-                WriteFrame(prev, prevTime, FrameKind.StillChanging, lc);
+                WriteFrame(prev, prevTime, FrameKind.Settled, lc);   // its large content is still
             }
         }
         if (large) { largeStart = time; largeHandled = false; }
