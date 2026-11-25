@@ -1537,6 +1537,8 @@ Bran: "i just dont want the zip hanging like it did. it should be fast but not m
 
 **Review** (one code-reviewer agent, no critical fault). Corrected: a late transcript was dropped when Exit was cancelled; a folder younger than 60 s was not recovered; one bad folder stopped the recovery; the audio step of a failed pass could take 30 min; a folder with no work file and no ZIP was not recovered. Not changed: a restart after a capture loss that fails at once (FFmpeg missing) is not tried again, because each try makes a folder. Known limit, not changed: a recovery that runs while a new recording starts uses CPU time (no data loss).
 
+**Install** (2026-11-24, 19:50, Bran: "Yes, install it"): the build of 1cc03e3 (SHA-256 starts with F3BD71EEA07B4544) is installed and started through Explorer. The e8ae851 build is kept as `DesktopRecorder-A49C2C8B-backup.exe`. Checked: no recording, no ZIP work and no window was open before the swap; after 12 s the app responds, runs above normal priority, started no FFmpeg, wrote no `error.log` and did not change `settings.txt`. The exe still says version 3.1.0. Not checked: a recording with this build.
+
 **Not done (medium and low findings, see the findings file):** one channel for sound with opposite phase, `SilentPeak`, Whisper in a folder name outside the code page, doubtful-row mark, `-t` for Whisper on the CPU, NVENC probe race, fallback when ddagrab gives no frame, ZIP name with `_note` when the ZIP is held for more than 3 s.
 
 ## 8. Rules for the agent
