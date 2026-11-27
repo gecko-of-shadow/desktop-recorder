@@ -60,7 +60,7 @@ class X11Hotkey:
         self._ready = threading.Event()
         self._thread: threading.Thread | None = None
         self._grab_failed = False
-        self._error_handler = None
+        self._error_handler: object = None  # the ctypes callback; kept so it is not freed
         self.registered = False
 
     def start(self) -> bool:

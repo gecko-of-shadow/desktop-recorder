@@ -61,7 +61,7 @@ class Capture:
 
     def _start_wayland(self, settings: Settings, when: datetime, audio: str | None, ffmpeg: str) -> str | None:
         try:
-            from .portal import GioTransport, PortalError, ScreenCast
+            from .portal import GioTransport, ScreenCast
         except Exception as exc:
             return "Wayland screen capture is unavailable: " + str(exc)
         transport = None
