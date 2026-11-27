@@ -116,6 +116,7 @@ class PassResult:
     error: str = ""
     transcript: str = ""   # "<n> segments", or why there is none; empty without audio
     ocr: str = ""          # "OCR: <n> lines", or why there is none (ocr_index.add_ocr)
+    zip_parts: list[str] = field(default_factory=list)   # zip_parts.make_parts, when frames_per_zip is set
 
 
 def parse_pass_output(text: str) -> PassResult:

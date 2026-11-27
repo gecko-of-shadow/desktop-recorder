@@ -77,6 +77,7 @@ class Settings:
     whisper_model: str = ""         # ggml-*.bin; empty = search next to whisper-cli
     ocr_text: bool = True           # Folder for AI: tesseract text of the frames in index.md (when installed)
     redact_secrets: bool = True     # Folder for AI: black out keys and passwords that OCR finds (when installed)
+    frames_per_zip: int = 0         # Folder for AI: also ZIP parts of at most this many frames; 0 = one ZIP only
     extra_lines: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -110,6 +111,7 @@ _KNOWN = {
     "whisper_model",
     "ocr_text",
     "redact_secrets",
+    "frames_per_zip",
 }
 
 
@@ -138,6 +140,7 @@ def parse_settings(text: str, defaults: Settings | None = None) -> Settings:
         whisper_model=current.whisper_model,
         ocr_text=current.ocr_text,
         redact_secrets=current.redact_secrets,
+        frames_per_zip=current.frames_per_zip,
     )
     for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         line = raw.strip()
@@ -223,13 +226,15 @@ def _apply(result: Settings, key: str, val: str) -> None:
     if key in ("whisper_path", "whisper_model"):
         setattr(result, key, val)
         return
-    if key in ("settle_ms", "scroll_percent"):
+    if key in ("settle_ms", "scroll_percent", "frames_per_zip"):
         try:
             number = int(val)
         except ValueError:
             return
         if key == "settle_ms":
             result.settle_ms = max(50, min(10000, number))
+        elif key == "frames_per_zip":
+            result.frames_per_zip = max(0, min(100, number))
         else:
             result.scroll_percent = max(10, min(95, number))
         return
@@ -278,6 +283,7 @@ def serialize_settings(settings: Settings) -> str:
         "whisper_model=" + settings.whisper_model,
         "ocr_text=" + ("1" if settings.ocr_text else "0"),
         "redact_secrets=" + ("1" if settings.redact_secrets else "0"),
+        "frames_per_zip=" + str(settings.frames_per_zip),
     ]
     for extra in settings.extra_lines:
         if extra.strip():

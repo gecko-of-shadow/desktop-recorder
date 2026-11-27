@@ -208,8 +208,11 @@ class Tray:
             text += " " + result.warnings[0]
         if self.settings.copy_to_clipboard:
             try:
-                copy_files([result.zip_path])
-                text += " ZIP copied. Paste it into a chat."
+                copy_files(result.zip_parts or [result.zip_path])
+                if result.zip_parts:
+                    text += f" {len(result.zip_parts)} ZIP parts copied. Paste them into a chat."
+                else:
+                    text += " ZIP copied. Paste it into a chat."
             except Exception as exc:
                 text += " Could not copy the ZIP: " + str(exc)
         self.notify("Desktop Recorder", text[:250])
@@ -592,6 +595,7 @@ class SettingsDialog(Gtk.Dialog):
             whisper_model=self.current.whisper_model,
             ocr_text=self.current.ocr_text,
             redact_secrets=self.current.redact_secrets,
+            frames_per_zip=self.current.frames_per_zip,
             extra_lines=list(self.current.extra_lines),
         )
         return updated

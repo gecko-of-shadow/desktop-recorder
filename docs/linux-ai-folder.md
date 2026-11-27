@@ -26,6 +26,11 @@ Added 27 Nov 2026. Settings: `output_mode=folder` (Settings window: Output, "Fol
    `clip.mp4` leaves the ZIP (the video is not redacted) and `index.md` says so. Best effort: OCR can miss a
    secret. The folder on disk keeps `clip.mp4`.
 
+5. `frames_per_zip=N` (default 0 = off): when the ZIP has more than N frame images, the program also writes
+   `desktop_<time>_part<k>of<n>.zip`, each with at most N images and the full `index.md` plus one line that says
+   which images it has (`clip.mp4` and `transcript.srt` in part 1), and the clipboard gets the parts. For chat
+   apps that take at most 20 files in one message, use 19.
+
 The pass is slow for a long recording, so it runs on a background thread; the tray shows a message at the end.
 
 ## Needs

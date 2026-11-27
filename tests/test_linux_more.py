@@ -23,7 +23,7 @@ from datetime import datetime  # noqa: E402
 from desktop_recorder import ai_folder  # noqa: E402
 from desktop_recorder.audio import probe_pulse  # noqa: E402
 from desktop_recorder.ffmpeg_cmd import x11_argv  # noqa: E402
-from desktop_recorder import ocr_index  # noqa: E402
+from desktop_recorder import ocr_index, zip_parts  # noqa: E402
 from desktop_recorder.region_select import WHOLE_SCREEN, drag_region  # noqa: E402
 from desktop_recorder.settings import Settings, parse_settings, serialize_settings  # noqa: E402
 from desktop_recorder.wayland import WaylandCapture  # noqa: E402
@@ -492,6 +492,46 @@ class OcrIndexTests(unittest.TestCase):
             text = handle.read()
         self.assertIn("Build failed at step seven", text, result)
         self.assertEqual(text.count("Build failed"), 1)
+
+class ZipPartsTests(unittest.TestCase):
+    def make_zip(self, frames: int) -> str:
+        path = os.path.join(tempfile.mkdtemp(prefix="dr-parts-"), "desktop_x.zip")
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("desktop_x/index.md", "# Recording 1\nFor the AI.\n| 001 |\n")
+            z.writestr("desktop_x/clip.mp4", b"clip")
+            z.writestr("desktop_x/transcript.srt", "1\n")
+            for i in range(1, frames + 1):
+                z.writestr(f"desktop_x/frames/{i:03d}.png", f"png{i}")
+        return path
+
+    def test_parts(self) -> None:
+        path = self.make_zip(45)
+        parts = zip_parts.make_parts(path, 19)
+        self.assertEqual([os.path.basename(p) for p in parts],
+                         ["desktop_x_part1of3.zip", "desktop_x_part2of3.zip", "desktop_x_part3of3.zip"])
+        names = [sorted(zipfile.ZipFile(p).namelist()) for p in parts]
+        self.assertEqual([len([n for n in ns if "/frames/" in n]) for ns in names], [19, 19, 7])
+        self.assertIn("desktop_x_part1of3/clip.mp4", names[0])
+        self.assertIn("desktop_x_part1of3/transcript.srt", names[0])
+        self.assertNotIn("desktop_x_part2of3/clip.mp4", names[1])
+        self.assertIn("desktop_x_part3of3/frames/045.png", names[2])
+        self.assertEqual(zipfile.ZipFile(parts[2]).read("desktop_x_part3of3/frames/045.png"), b"png45")
+        index = zipfile.ZipFile(parts[1]).read("desktop_x_part2of3/index.md").decode("utf-8")
+        self.assertEqual(index.splitlines()[0], "# Recording 1")
+        self.assertIn("Part 2 of 3: this ZIP has the images of frames 020 to 038. The table", index)
+        self.assertIn("desktop_x_part1of3.zip, desktop_x_part3of3.zip", index)
+        self.assertTrue(os.path.isfile(path))
+
+    def test_no_parts_when_small_or_off(self) -> None:
+        self.assertEqual(zip_parts.make_parts(self.make_zip(19), 19), [])
+        self.assertEqual(zip_parts.make_parts(self.make_zip(30), 0), [])
+
+    def test_setting(self) -> None:
+        self.assertEqual(Settings(folder="/x").frames_per_zip, 0)
+        self.assertEqual(parse_settings("frames_per_zip=19\n", Settings(folder="/x")).frames_per_zip, 19)
+        self.assertEqual(parse_settings("frames_per_zip=500\n", Settings(folder="/x")).frames_per_zip, 100)
+        self.assertEqual(parse_settings(serialize_settings(Settings(folder="/x", frames_per_zip=7)),
+                                        Settings(folder="/x")).frames_per_zip, 7)
 
 class RegionSelectorTests(unittest.TestCase):
     def test_drag_region(self) -> None:
