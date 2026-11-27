@@ -131,7 +131,9 @@ def x11_argv(settings: Settings, when: datetime, display: str | None, audio_devi
     if audio_device:
         # Open pulse first: ffmpeg opens inputs one by one and x11grab takes seconds to probe
         # at low fps, so sound from that time was never captured. Video stays track 0.
-        args += ["-copyts", "-thread_queue_size", "1024", *shift, "-f", "pulse", "-i", audio_device]
+        # 50 ms packets (48 kHz stereo s16). Older ffmpeg (4.4) otherwise reads ~2 s at a time,
+        # and those blocks do not carry exact times.
+        args += ["-copyts", "-thread_queue_size", "1024", *shift, "-f", "pulse", "-fragment_size", "9600", "-i", audio_device]
     args += [
         "-thread_queue_size",
         "1024",

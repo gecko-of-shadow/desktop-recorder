@@ -84,6 +84,7 @@ class ArgumentTests(unittest.TestCase):
         self.assertIn("-copyts", argv)
         self.assertEqual([argv[i + 1] for i, item in enumerate(argv) if item == "-itsoffset"], [shift, shift])
         self.assertLess(argv.index("pulse"), argv.index("x11grab"))
+        self.assertEqual(argv[argv.index("-fragment_size") + 1], "9600")
         self.assertEqual(argv[argv.index("-map") + 1], "1:v")
         self.assertIn("aresample=async=1:first_pts=0", argv)
         self.assertTrue(argv[argv.index("-vf") + 1].startswith("fps=2:start_time=0,"))
