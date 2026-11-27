@@ -1558,6 +1558,24 @@ Published (Bran: "merge it and release it once CI passes"): https://github.com/g
 - Not checked: the exe from the release zip on a PC; a recording with the final code. The installed build on Bran's PC (0DC2226C) has the same code, but says 3.1.0.
 - The releases v3.0.1 and v3.1.0 still exist (a deletion needs Bran's approval). The README does not say any more that only the latest release stays. The branch `fast-zip-and-bug-hunt` still exists.
 
+### 7.29 Startup off since 2026-11-20, and Ctrl+Backspace in the note box (2026-11-26, branch `main`, not committed)
+
+Startup (checked):
+
+- Bran: the app does not open at sign-in. No crash event for the app in the last 3 days. The app did not run.
+- `StartupApproved\Run` for `DesktopRecorder` was `03` with the time 2026-11-20 00:22:52. That is one change, 2 minutes after the install of 7.8. The value stayed off since then. 7.26 found it but did not turn it on.
+- Who turned it off is not known. The app only reads this key (`DesktopRecorder.cs`, `OpenSubKey` with no write).
+- Bran asked for the fix: the agent set the value to `02 00 00 00 00 00 00 00 00 00 00 00` (on). Not checked: a real sign-in after the change.
+
+Ctrl+Backspace (Bran: "why cant ctrl back space in notes to delete faster"):
+
+- Cause: the WinForms `TextBox` does not do Ctrl+Backspace. The key typed a box character (0x7F).
+- Code: `NoteRules.WordStartBefore` and `WordEndAfter` (`UiModel.cs`, unit tested in `TestNoteKeys`). `NoteForm.OnBoxKeyDown` handles Ctrl+Backspace and Ctrl+Delete. A line break is deleted alone. A selection is deleted alone.
+- The delete uses `EM_REPLACESEL` with wParam 1. Reason (checked): the `SelectedText` setter clears the undo buffer, so Ctrl+Z did nothing. The Shift+Enter path still uses `SelectedText` (not changed).
+- Checked: unit tests `ok`; an offscreen test of the real `NoteForm` key handler (scratchpad `notekeys.cs`): 14 of 14 (text, caret, no box character, undo, TextChanged, selection, line break, plain Backspace not touched).
+- Installed (Bran: "Yes, install it"): SHA-256 starts with C1D17C3677923C02. The 892b0fe build is kept as `DesktopRecorder-0DC2226C-backup.exe`. Checked: no recording, child process or window before the swap; after 12 s the app responds, runs above normal priority, has no child process, and `settings.txt` did not change. The Run entry and the startup value are correct.
+- Not checked: the keys typed by a person in a real note box. The exe still says version 3.2.0.
+
 ## 8. Rules for the agent
 
 - Commands for Bran's PC: PowerShell 5.1. No `&&` or `||`. One command in each fenced code block.

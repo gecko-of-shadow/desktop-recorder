@@ -4,6 +4,7 @@
 // The question "Save this note?" shows inside the box, so there is no second window to keep out of the video.
 using System;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 sealed class NoteForm : Form
@@ -273,12 +274,34 @@ sealed class NoteForm : Form
         return false;
     }
 
+    const int EM_REPLACESEL = 0x00C2;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr SendMessage(HandleRef hWnd, int msg, IntPtr wParam, string lParam);
+
     void OnBoxKeyDown(object sender, KeyEventArgs e)
     {
         if (e.KeyCode == Keys.A && e.Control && !e.Alt)
         {
             frame.Box.SelectAll();
             e.SuppressKeyPress = true;
+            return;
+        }
+        if ((e.KeyCode == Keys.Back || e.KeyCode == Keys.Delete) && e.Control && !e.Alt && !e.Shift)
+        {
+            e.SuppressKeyPress = true;   // stops the box character of Ctrl+Backspace
+            e.Handled = true;
+            TextBox tb = frame.Box;
+            if (tb.SelectionLength == 0)
+            {
+                int caret = tb.SelectionStart;
+                int from = e.KeyCode == Keys.Back ? NoteRules.WordStartBefore(tb.Text, caret) : caret;
+                int to = e.KeyCode == Keys.Back ? caret : NoteRules.WordEndAfter(tb.Text, caret);
+                if (to <= from) return;
+                tb.Select(from, to - from);
+            }
+            // EM_REPLACESEL with wParam 1 keeps Ctrl+Z. The SelectedText setter clears the undo buffer.
+            SendMessage(new HandleRef(tb, tb.Handle), EM_REPLACESEL, (IntPtr)1, "");
             return;
         }
         NoteKeyAction action = NoteRules.KeyAction(e.KeyCode == Keys.Enter, e.Shift, e.Control, e.Alt);

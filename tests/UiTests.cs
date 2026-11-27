@@ -102,6 +102,22 @@ static class UiTests
         Expect(NoteRules.KeyAction(true, false, false, true) == NoteKeyAction.None, "alt enter nothing");
         Expect(NoteRules.KeyAction(false, false, false, false) == NoteKeyAction.None, "other key nothing");
         Expect(NoteRules.Hint.Contains("Shift+Enter"), "hint names the new line key");
+        // Ctrl+Backspace
+        Expect(NoteRules.WordStartBefore("hello world", 11) == 6, "ctrl back deletes the last word");
+        Expect(NoteRules.WordStartBefore("hello world  ", 13) == 6, "ctrl back deletes spaces and the word");
+        Expect(NoteRules.WordStartBefore("hello world", 8) == 6, "ctrl back from inside a word");
+        Expect(NoteRules.WordStartBefore("see this...", 11) == 8, "ctrl back deletes a punctuation run");
+        Expect(NoteRules.WordStartBefore("line one\r\nnext", 10) == 8, "ctrl back deletes a line break alone");
+        Expect(NoteRules.WordStartBefore("line one\r\n  ", 12) == 10, "ctrl back stops at the line break");
+        Expect(NoteRules.WordStartBefore("abc", 0) == 0, "ctrl back at the start");
+        Expect(NoteRules.WordStartBefore("", 0) == 0, "ctrl back on empty text");
+        Expect(NoteRules.WordStartBefore("snake_case", 10) == 0, "underscore is part of a word");
+        // Ctrl+Delete
+        Expect(NoteRules.WordEndAfter("hello world", 0) == 6, "ctrl delete deletes the word and the space");
+        Expect(NoteRules.WordEndAfter("hello world", 6) == 11, "ctrl delete deletes the last word");
+        Expect(NoteRules.WordEndAfter("a...b", 1) == 4, "ctrl delete deletes a punctuation run");
+        Expect(NoteRules.WordEndAfter("one\r\ntwo", 3) == 5, "ctrl delete deletes a line break alone");
+        Expect(NoteRules.WordEndAfter("abc", 3) == 3, "ctrl delete at the end");
     }
 
     static void TestNoteClean()

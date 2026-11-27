@@ -107,6 +107,41 @@ static class NoteRules
         return shift || control ? NoteKeyAction.NewLine : NoteKeyAction.Save;
     }
 
+    // Ctrl+Backspace and Ctrl+Delete. The WinForms TextBox does not do them: Ctrl+Backspace types a box character.
+    static bool IsWordChar(char c) { return char.IsLetterOrDigit(c) || c == '_'; }
+    static bool IsSpace(char c) { return c == ' ' || c == '\t'; }
+
+    // Start of the text that Ctrl+Backspace deletes: the spaces, then one word or one run of punctuation, before the caret.
+    // A line break before the caret is deleted alone.
+    public static int WordStartBefore(string text, int caret)
+    {
+        if (text == null) return 0;
+        int j = Math.Max(0, Math.Min(caret, text.Length));
+        if (j == 0) return 0;
+        if (text[j - 1] == '\n') return j >= 2 && text[j - 2] == '\r' ? j - 2 : j - 1;
+        while (j > 0 && IsSpace(text[j - 1])) j--;
+        if (j == 0 || text[j - 1] == '\n' || text[j - 1] == '\r') return j;
+        if (IsWordChar(text[j - 1])) { while (j > 0 && IsWordChar(text[j - 1])) j--; }
+        else { while (j > 0 && !IsWordChar(text[j - 1]) && !IsSpace(text[j - 1]) && text[j - 1] != '\n' && text[j - 1] != '\r') j--; }
+        return j;
+    }
+
+    // End of the text that Ctrl+Delete deletes: one word or one run of punctuation, then the spaces, after the caret.
+    // A line break after the caret is deleted alone.
+    public static int WordEndAfter(string text, int caret)
+    {
+        if (text == null) return 0;
+        int n = text.Length;
+        int j = Math.Max(0, Math.Min(caret, n));
+        if (j == n) return n;
+        if (text[j] == '\r') return j + 1 < n && text[j + 1] == '\n' ? j + 2 : j + 1;
+        if (text[j] == '\n') return j + 1;
+        if (IsWordChar(text[j])) { while (j < n && IsWordChar(text[j])) j++; }
+        else if (!IsSpace(text[j])) { while (j < n && !IsWordChar(text[j]) && !IsSpace(text[j]) && text[j] != '\r' && text[j] != '\n') j++; }
+        while (j < n && IsSpace(text[j])) j++;
+        return j;
+    }
+
     // "desktop_2026-11-22_14-16-55  ·  Length 0:57". Null when neither part is known.
     public static string RecordingLine(string name, double seconds)
     {
