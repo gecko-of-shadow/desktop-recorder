@@ -12,8 +12,9 @@
 //   in that time (a blinking caret), the area becomes a mask and the change is not written.
 //   A small area that changes 3 times in BlinkSeconds (a spinner) also becomes a mask.
 //   Masked pixels do not count as changes. A mask ends MaskExpirySeconds after its last change.
-// - During a vertical scroll, a frame is written when the scroll since the last written frame is more
-//   than ScrollFraction of the frame height (condition A from Bran, 2026-11-19).
+// - During a vertical scroll, a frame is written before the scroll since the last written frame becomes more
+//   than ScrollFraction of the moving area (condition A from Bran, 2026-11-19). So two written frames of one
+//   scroll are at most ScrollFraction apart, unless one step is larger.
 // - When the screen does not settle for StillIntervalSeconds, the current frame is written.
 // - At the end, the last state is written when it is different from the last written frame.
 
@@ -135,6 +136,8 @@ sealed class SettledFrameFinder
     bool masksExpired;        // a mask ended since the last check of the still state
     int lastShift;            // the scroll step of the last frame pair (0 = no scroll)
     const int SmallSearch = 96;
+    // A turn of the scroll writes the furthest frame only after this part of the area (not for a small jitter).
+    const double TurnFraction = 0.1;
     int scrollArea;           // height of the moving area during the scroll since the last written frame
     double firstTime;
     double largeStart;        // the last large change
@@ -288,14 +291,14 @@ sealed class SettledFrameFinder
             if (dy != 0 && lastWritten != null)
             {
                 int area0 = scrollArea > 0 ? scrollArea : height;
-                double limit = o.ScrollFraction * area0;
                 bool reverses = scrollSinceWritten != 0 && Math.Sign(dy) != Math.Sign(scrollSinceWritten)
-                    && Math.Abs(scrollSinceWritten) > 0.1 * area0;
-                // Only when this step would leave a gap after the last written frame (more than 95% of the area).
-                bool crosses = Math.Abs(scrollSinceWritten + dy) > 0.95 * area0 && scrollSinceWritten != 0;
-                // Write the frame before this step when this step goes past the visible area, or when the scroll turns
+                    && Math.Abs(scrollSinceWritten) > TurnFraction * area0;
+                // When this step would take the scroll past ScrollFraction of the area after the last written frame.
+                bool crosses = Math.Abs(scrollSinceWritten + dy) > o.ScrollFraction * area0 && scrollSinceWritten != 0;
+                // Write the frame before this step when this step goes past ScrollFraction, or when the scroll turns
                 // back: that frame shows the furthest content. Without it, a large step or a turn can leave a gap
-                // (review 2026-11-19). The written frame is the previous frame, at its own offset.
+                // (review 2026-11-19), and two frames can be ScrollFraction + 1 step apart (2026-11-27: with
+                // scroll_percent=30 the frames were 37 percent apart). The written frame is the previous frame, at its own offset.
                 if (crosses || reverses) WriteFrame(prev, prevTime, FrameKind.ScrollPart, Compare(lastWritten, prev, prevTime, false));
             }
             // A large state of 2 captures (BriefSeconds) that another large state replaces: a page, a tab or a dialog that
@@ -775,7 +778,6 @@ sealed class SettledFrameFinder
         // Reason: on a page of near-identical lines the band votes can miss the true step (seen on the
         // synthetic "pages" video: 919 px found, 40 px true).
         if (lastShift != 0) candidates.Add(lastShift);
-        if (candidates.Count == 0 && SmallSearch == 0) return 0;
         double err0 = PixelError(a, b, 0, y0, rows, x0, x1, 2, 4);
         // Pass 1: a sparse grid for every candidate (each vote +-2 px, and every step up to SmallSearch px).
         List<int> shifts = new List<int>();

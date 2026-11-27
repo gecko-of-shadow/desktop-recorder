@@ -35,6 +35,7 @@ static class AiCaptureTests
         TestSmallChangeNearTheEnd();
         TestPendingThenScroll();
         TestScrollTurnsBack();
+        TestScrollPercentIsMaxStep();
         TestAiMessage();
         TestZipOnly();
         TestLateTranscript();
@@ -739,6 +740,30 @@ static class AiCaptureTests
         for (int k = 0; k < 9; k++) { pos -= 6; i++; f.Feed(View(content, pos), i / 15.0); }   // back up
         f.Finish(i / 15.0 + 1);
         Expect(NoGap(f, 0, 54 + H), "scroll turns back: furthest view written");
+    }
+
+    // scroll_percent is the largest scroll between two written frames of one scroll, when the steps allow it.
+    // Before 2026-11-27 the frame before a step was written only at 95 percent, so scroll_percent=30 gave
+    // frames up to 30 percent + 1 step apart (the setting value was computed and not used).
+    static void TestScrollPercentIsMaxStep()
+    {
+        byte[] content = TallContent(H * 6);
+        foreach (int percent in new int[] { 30, 60, 95 })
+        {
+            SettledOptions o = new SettledOptions();
+            o.ScrollFraction = percent / 100.0;
+            SettledFrameFinder f = new SettledFrameFinder(W, H, o);
+            int pos = 0, i = 0;
+            f.Feed(View(content, 0), 0);
+            while (pos + 9 <= H * 5) { pos += 9; i++; f.Feed(View(content, pos), i / 15.0); }
+            f.Finish(i / 15.0 + 1);
+            List<long> offs = new List<long>();
+            foreach (SettledFrame w in f.Written) offs.Add(w.ContentOffset);
+            long most = 0;
+            for (int k = 1; k < offs.Count; k++) most = Math.Max(most, offs[k] - offs[k - 1]);
+            Expect(most <= percent * H / 100 && NoGap(f, 0, pos + H),
+                "scroll_percent " + percent + ": largest step between frames " + most + " px of " + H + " (" + offs.Count + " frames)");
+        }
     }
 
     // ------------------------------------------------------------ task 2 (Bran's Twitch recording, 2026-11-20)
