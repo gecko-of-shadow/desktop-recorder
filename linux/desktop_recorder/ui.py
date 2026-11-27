@@ -8,8 +8,9 @@ import sys
 
 import gi
 
+gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk
+from gi.repository import Gdk, GLib, Gtk
 
 from . import sounds
 from .autostart import autostart_enabled, write_autostart
@@ -358,17 +359,42 @@ def threading_is_main() -> bool:
     return threading.current_thread() is threading.main_thread()
 
 
+def _work_area(window) -> tuple[int, int]:
+    """Usable size of the monitor, in GTK (logical) pixels, so 2x scaling is counted."""
+    try:
+        display = window.get_display() or Gdk.Display.get_default()
+        monitor = display.get_primary_monitor() or display.get_monitor(0)
+        area = monitor.get_workarea()
+        return area.width, area.height
+    except Exception:
+        return 1024, 768
+
+
 class SettingsDialog(Gtk.Dialog):
     def __init__(self, current: Settings) -> None:
         super().__init__(title="Desktop Recorder settings")
-        self.set_resizable(False)
         self.add_button("Cancel", Gtk.ResponseType.CANCEL)
         self.add_button("Save", Gtk.ResponseType.OK)
+        self.set_default_response(Gtk.ResponseType.OK)
         box = self.get_content_area()
         grid = Gtk.Grid(column_spacing=8, row_spacing=8, margin=12)
-        box.add(grid)
+        # On a small or 2x screen the form scrolls, so Cancel and Save always stay on screen.
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        # Real scroll bars, so it is clear that more settings are below.
+        scroller.set_overlay_scrolling(False)
+        scroller.set_propagate_natural_width(True)
+        scroller.set_propagate_natural_height(True)
+        width, height = _work_area(self)
+        # Room for the title bar, the button row and the window border.
+        scroller.set_max_content_width(max(160, width - 24))
+        scroller.set_max_content_height(max(80, height - 110))
+        scroller.add(grid)
+        box.pack_start(scroller, True, True, 0)
         self.folder = Gtk.Entry()
         self.folder.set_text(current.folder)
+        self.folder.set_tooltip_text(current.folder)
+        self.folder.connect("changed", lambda entry: entry.set_tooltip_text(entry.get_text()))
         browse = Gtk.Button(label="Browse...")
         browse.connect("clicked", self._browse)
         self.fps = Gtk.SpinButton.new_with_range(0.2, 60, 0.1)
@@ -429,6 +455,9 @@ class SettingsDialog(Gtk.Dialog):
             grid.attach(widget, 0, row, 2, 1)
             row += 1
         self.show_all()
+        # Show the start of the folder path. A focused entry selects all and scrolls to the end.
+        self.get_widget_for_response(Gtk.ResponseType.OK).grab_focus()
+        self.folder.set_position(0)
         self.current = current
 
     def _select_key(self, name: str) -> None:
