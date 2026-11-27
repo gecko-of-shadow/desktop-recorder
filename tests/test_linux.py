@@ -77,8 +77,21 @@ class ArgumentTests(unittest.TestCase):
         argv = x11_argv(settings, when, ":1", "alsa_output.monitor")
         self.assertIn("x11grab", argv)
         self.assertNotIn("gdigrab", argv)
-        self.assertEqual(argv[argv.index("-i") + 1], ":1.0")
+        self.assertEqual(argv[argv.index("x11grab") + 6], ":1.0")
         self.assertIn("alsa_output.monitor", argv)
+        # Sound and picture share one clock that starts at `when`, and no encoder delay drops sound.
+        shift = f"-{when.timestamp():.6f}"
+        self.assertIn("-copyts", argv)
+        self.assertEqual([argv[i + 1] for i, item in enumerate(argv) if item == "-itsoffset"], [shift, shift])
+        self.assertLess(argv.index("pulse"), argv.index("x11grab"))
+        self.assertEqual(argv[argv.index("-map") + 1], "1:v")
+        self.assertIn("aresample=async=1:first_pts=0", argv)
+        self.assertTrue(argv[argv.index("-vf") + 1].startswith("fps=2:start_time=0,"))
+        self.assertIn("stillimage,zerolatency", argv)
+        silent = x11_argv(settings, when, ":1", None)
+        self.assertNotIn("-copyts", silent)
+        self.assertNotIn("-itsoffset", silent)
+        self.assertIn("stillimage", silent)
         self.assertIn("expr:gte(t,n_forced*1800)", argv)
         self.assertTrue(argv[-1].endswith("desktop_2026-11-13_01-02-03_127_%03d.mp4"))
         percent = Settings(folder="/home/me/100%done", fps=2, split_minutes=1, record_audio=False)
@@ -329,6 +342,8 @@ class ProcessLifetimeTests(unittest.TestCase):
         finally:
             if app.poll() is None:
                 app.kill()
+                app.wait(5)
+            app.stdout.close()
 
     def test_thread_failure_does_not_leave_ffmpeg_running(self) -> None:
         folder = tempfile.mkdtemp(prefix="dr-py-")

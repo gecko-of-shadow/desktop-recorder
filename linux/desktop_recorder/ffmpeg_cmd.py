@@ -48,7 +48,8 @@ def capture_backend() -> str:
     return "x11"
 
 
-def _encoder(settings: Settings, when: datetime, audio: bool) -> list[str]:
+def _encoder(settings: Settings, when: datetime, audio: bool, synced: bool = False) -> list[str]:
+    """synced: both inputs carry wall-clock times shifted to start at `when` (X11 with audio)."""
     fps = clamp_fps(settings.fps)
     quality = clamp_quality(settings.quality)
     split = clamp_split(settings.split_minutes)
@@ -56,19 +57,21 @@ def _encoder(settings: Settings, when: datetime, audio: bool) -> list[str]:
     lookahead = max(0, min(40, int(round(fps * 2))))
     threads = max(1, min(16, int(math.ceil(fps))))
     stamp = stamp_of(when)
-    args = [
-        "-vf",
-        "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-tune",
-        "stillimage",
-        "-crf",
-        str(CRF[quality]),
-        "-x264-params",
-        f"rc-lookahead={lookahead}",
+    crop = "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"
+    if synced:
+        # The MP4 starts every track at 0, so both must begin at `when`: repeat the first
+        # frame and pad silence up to the first real sample.
+        args = ["-vf", f"fps={format_fps(fps)}:start_time=0," + crop]
+    else:
+        args = ["-vf", crop]
+    args += ["-c:v", "libx264", "-preset", "medium"]
+    if synced:
+        # A delaying encoder (lookahead, B-frames, frame threads) holds video back, ffmpeg then
+        # holds audio back to match, and "q" drops that audio: the end of the sound was lost.
+        args += ["-tune", "stillimage,zerolatency", "-crf", str(CRF[quality])]
+    else:
+        args += ["-tune", "stillimage", "-crf", str(CRF[quality]), "-x264-params", f"rc-lookahead={lookahead}"]
+    args += [
         "-threads",
         str(threads),
         "-g",
@@ -77,6 +80,8 @@ def _encoder(settings: Settings, when: datetime, audio: bool) -> list[str]:
         "yuv420p",
     ]
     if audio:
+        if synced:
+            args += ["-af", "aresample=async=1:first_pts=0"]
         args += ["-c:a", "aac", "-b:a", "128k"]
     if split > 0:
         seconds = split * 60
@@ -111,6 +116,10 @@ def _encoder(settings: Settings, when: datetime, audio: bool) -> list[str]:
 
 def x11_argv(settings: Settings, when: datetime, display: str | None, audio_device: str | None, ffmpeg: str = "ffmpeg") -> list[str]:
     fps = format_fps(settings.fps)
+    # x11grab and pulse both stamp packets with the wall clock, but by default ffmpeg starts
+    # each input at 0 on its own. pulse opens later, so the sound came out about 1-3 s early.
+    # Keep the real times (-copyts) and shift both inputs by the same start instant.
+    shift = ["-itsoffset", f"-{when.timestamp():.6f}"] if audio_device else []
     args = [
         ffmpeg,
         "-hide_banner",
@@ -118,8 +127,15 @@ def x11_argv(settings: Settings, when: datetime, display: str | None, audio_devi
         "error",
         "-nostats",
         "-y",
+    ]
+    if audio_device:
+        # Open pulse first: ffmpeg opens inputs one by one and x11grab takes seconds to probe
+        # at low fps, so sound from that time was never captured. Video stays track 0.
+        args += ["-copyts", "-thread_queue_size", "1024", *shift, "-f", "pulse", "-i", audio_device]
+    args += [
         "-thread_queue_size",
         "1024",
+        *shift,
         "-f",
         "x11grab",
         "-framerate",
@@ -130,8 +146,8 @@ def x11_argv(settings: Settings, when: datetime, display: str | None, audio_devi
         x11_target(display),
     ]
     if audio_device:
-        args += ["-thread_queue_size", "1024", "-f", "pulse", "-i", audio_device]
-    args += _encoder(settings, when, bool(audio_device))
+        args += ["-map", "1:v", "-map", "0:a"]
+    args += _encoder(settings, when, bool(audio_device), synced=bool(audio_device))
     return args
 
 
