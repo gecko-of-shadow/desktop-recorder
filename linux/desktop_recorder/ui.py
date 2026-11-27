@@ -484,7 +484,7 @@ class SettingsDialog(Gtk.Dialog):
         self.startup.set_active(current.start_on_login)
         self.record = Gtk.CheckButton(label="Start recording when Desktop Recorder starts")
         self.record.set_active(current.record_on_launch)
-        self.copy = Gtk.CheckButton(label="Copy the video to the clipboard when recording stops")
+        self.copy = Gtk.CheckButton(label="Copy the video, or the ZIP for AI, to the clipboard when recording stops")
         self.copy.set_active(current.copy_to_clipboard)
         self.sound = Gtk.CheckButton(label="Play a sound when recording starts and stops")
         self.sound.set_active(current.play_sounds)
@@ -498,6 +498,9 @@ class SettingsDialog(Gtk.Dialog):
         for name in OUTPUT_NAMES:
             self.output.append_text(name)
         self.output.set_active(1 if current.output_mode == "folder" else 0)
+        # Folder for AI records at 10 fps without loss, 4:4:4, no pointer and no parts: these are for the MP4 only.
+        self.output.connect("changed", lambda _c: self._output_changed())
+        self._output_changed()
         self.win = Gtk.CheckButton(label="Win")
         self.ctrl = Gtk.CheckButton(label="Ctrl")
         self.alt = Gtk.CheckButton(label="Alt")
@@ -542,6 +545,11 @@ class SettingsDialog(Gtk.Dialog):
         self.get_widget_for_response(Gtk.ResponseType.OK).grab_focus()
         self.folder.set_position(0)
         self.current = current
+
+    def _output_changed(self) -> None:
+        mp4 = self.output.get_active() != 1
+        for widget in (self.fps, self.quality, self.split, self.pointer, self.chroma):
+            widget.set_sensitive(mp4)
 
     def _select_key(self, name: str) -> None:
         model = self.key.get_model()

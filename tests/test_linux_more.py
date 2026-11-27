@@ -607,6 +607,26 @@ class ZipPartsTests(unittest.TestCase):
         self.assertEqual(parse_settings(serialize_settings(Settings(folder="/x", frames_per_zip=7)),
                                         Settings(folder="/x")).frames_per_zip, 7)
 
+class SettingsDialogTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get("DISPLAY"), "needs an X display")
+    def test_mp4_only_fields_follow_the_output(self) -> None:
+        try:
+            from desktop_recorder import ui
+        except (ImportError, ValueError):
+            self.skipTest("GTK 3 for Python is not installed")
+        current = Settings(folder="/tmp/rec")
+        current.output_mode = "folder"
+        dialog = ui.SettingsDialog(current)
+        try:
+            mp4_only = (dialog.fps, dialog.quality, dialog.split, dialog.pointer, dialog.chroma)
+            self.assertFalse(any(w.get_sensitive() for w in mp4_only))
+            self.assertIn("ZIP", dialog.copy.get_label())
+            dialog.output.set_active(0)
+            self.assertTrue(all(w.get_sensitive() for w in mp4_only))
+            self.assertEqual(dialog.result().output_mode, "mp4")
+        finally:
+            dialog.destroy()
+
 class RegionSelectorTests(unittest.TestCase):
     def test_drag_region(self) -> None:
         self.assertEqual(drag_region(421, 301, 100, 80, 1280, 800), (100, 80, 320, 220))
