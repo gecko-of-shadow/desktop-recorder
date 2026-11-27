@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ctypes
 import os
 import shutil
+import signal
 import subprocess
 import threading
 from collections.abc import Callable
@@ -67,6 +69,7 @@ class Recording:
                     stdin=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
+                    preexec_fn=die_with_parent(),
                 )
             except OSError as exc:
                 return f"Cannot start ffmpeg: {exc}"
@@ -81,9 +84,22 @@ class Recording:
             self._state = "recording"
             self._idle.clear()
             self._watcher = threading.Thread(target=self._watch, args=(proc,), name="ffmpeg-stderr", daemon=True)
-            self._watcher.start()
-            threading.Thread(target=self._watch_disk, args=(proc, folder), name="disk-space", daemon=True).start()
-        return None
+            try:
+                self._watcher.start()
+                threading.Thread(target=self._watch_disk, args=(proc, folder), name="disk-space", daemon=True).start()
+            except RuntimeError as exc:
+                self._proc = None
+                self._watcher = None
+                self._state = "idle"
+                self._idle.set()
+                orphan = proc
+                failure = f"Cannot start the recording: {exc}"
+            else:
+                return None
+        # No thread means nobody would stop or read ffmpeg, so do not leave it running.
+        _finish(orphan, clamp_fps(fps))
+        _close_pipes(orphan)
+        return failure
 
     def stop(self) -> None:
         with self._lock:
@@ -104,19 +120,20 @@ class Recording:
         if not claimed:
             self._idle.wait(30)
             return
+        killed = False
         try:
-            _finish(proc, fps)
+            killed = _finish(proc, fps)
         finally:
             if watcher is not None:
                 watcher.join(10)
             _close_pipes(proc)
-            error = self._judge(proc)
+            error = self._judge(proc, killed)
             with self._lock:
                 self.error = error
                 self._state = "idle"
                 self._idle.set()
 
-    def _judge(self, proc: subprocess.Popen[bytes] | None) -> str | None:
+    def _judge(self, proc: subprocess.Popen[bytes] | None, killed: bool = False) -> str | None:
         """Why the files of this recording cannot be trusted, or None."""
         with self._lock:
             text = "\n".join(self._stderr).strip()
@@ -125,7 +142,9 @@ class Recording:
         if low_disk:
             problems.append(low_disk)
         code = None if proc is None else proc.returncode
-        if code not in (0, None) and not low_disk:
+        if killed:
+            problems.append("ffmpeg did not finish the file in time, so the end of the recording can be missing.")
+        elif code not in (0, None) and not low_disk:
             problems.append(f"ffmpeg ended with error code {code}." + (" " + text[-300:] if text else ""))
         bad = set()
         for path in self._new_files():
@@ -287,29 +306,66 @@ def _snapshot(folder: str) -> list[str]:
     return found
 
 
-def _finish(proc: subprocess.Popen[bytes] | None, fps: float) -> None:
+def stop_wait_seconds(fps: float) -> float:
+    """How long ffmpeg gets to finish the file after "q". Same as RecordingSession.StopWaitMs on Windows."""
+    return min(25.0, 15.0 + 2.0 / max(0.2, fps))
+
+
+def _finish(proc: subprocess.Popen[bytes] | None, fps: float) -> bool:
+    """Ask ffmpeg to finish the file. True when it had to be killed, so the end can be missing."""
     if proc is None:
-        return
+        return False
     try:
         if proc.stdin is not None:
             proc.stdin.write(b"q")
             proc.stdin.flush()
-        wait_s = min(15.0, 4.0 + 2.0 / max(0.2, fps))
         try:
-            proc.wait(timeout=wait_s)
+            proc.wait(timeout=stop_wait_seconds(fps))
+            return False
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
+            return True
     except Exception:
+        killed = False
         try:
             if proc.poll() is None:
                 proc.kill()
+                killed = True
         except Exception:
             pass
         try:
             proc.wait(timeout=5)
         except Exception:
             pass
+        return killed
+
+
+_PR_SET_PDEATHSIG = 1
+
+
+def die_with_parent() -> Callable[[], None] | None:
+    """A preexec_fn that sends ffmpeg SIGTERM when this app dies, so no grabber is left behind.
+
+    Linux sends the signal when the thread that started ffmpeg ends, so start recordings
+    from a long-lived thread (the GTK main thread). When the whole app dies, Linux sends it
+    again for each app thread, and ffmpeg then exits at once instead of finishing the file;
+    the fragmented MP4 still keeps everything up to the last fragment.
+    libc is loaded here, before the fork, so the child only makes one system call.
+    """
+    try:
+        prctl = ctypes.CDLL(None, use_errno=True).prctl
+    except (OSError, AttributeError):
+        return None
+    parent = os.getpid()
+
+    def preexec() -> None:
+        prctl(_PR_SET_PDEATHSIG, int(signal.SIGTERM), 0, 0, 0)
+        if os.getppid() != parent:
+            # The app died before prctl took effect.
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    return preexec
 
 
 def _close_pipes(proc: subprocess.Popen[bytes] | None) -> None:

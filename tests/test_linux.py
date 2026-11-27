@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import os
+import signal
+import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
+from unittest import mock
 from datetime import datetime
 from pathlib import Path
 
@@ -27,7 +31,7 @@ from desktop_recorder.gnome_hotkey import PATH, update_gnome_shortcut  # noqa: E
 from desktop_recorder.hotkey import try_set  # noqa: E402
 from desktop_recorder.portal import PortalError, ScreenCast  # noqa: E402
 from desktop_recorder import recording  # noqa: E402
-from desktop_recorder.recording import Recording  # noqa: E402
+from desktop_recorder.recording import Recording, stop_wait_seconds  # noqa: E402
 from desktop_recorder.settings import Settings, parse_settings, serialize_settings  # noqa: E402
 from desktop_recorder.single_instance import InstanceServer, send_command  # noqa: E402
 from desktop_recorder.sounds import build_chime  # noqa: E402
@@ -284,6 +288,57 @@ class RecordingTests(unittest.TestCase):
         self.assertTrue(any("stopped early" in item for item in failed))
         self.assertIn("stopped early", session.error or "")
         # The stop was clean ("q"), so the file was finished.
+        with open(output, "rb") as handle:
+            self.assertEqual(handle.read(), b"xok")
+
+
+class ProcessLifetimeTests(unittest.TestCase):
+    def test_stop_wait_matches_windows(self) -> None:
+        # RecordingSession.StopWaitMs: min(25000, 15000 + 2000 / max(0.2, fps)).
+        self.assertAlmostEqual(stop_wait_seconds(2), 16.0)
+        self.assertAlmostEqual(stop_wait_seconds(0.2), 25.0)
+        self.assertAlmostEqual(stop_wait_seconds(0.01), 25.0)
+        self.assertAlmostEqual(stop_wait_seconds(60), 15.0 + 2.0 / 60)
+
+    def test_ffmpeg_ends_when_the_app_is_killed(self) -> None:
+        folder = tempfile.mkdtemp(prefix="dr-py-")
+        # Real ffmpeg ignores end of input on stdin, so the stand-in must too.
+        script = (
+            "import sys, time\n"
+            f"sys.path.insert(0, {str(ROOT / 'linux')!r})\n"
+            "from desktop_recorder.recording import Recording\n"
+            "r = Recording()\n"
+            f"r.start([sys.executable, '-c', 'import time; time.sleep(60)'], {folder!r}, 2)\n"
+            "print(r._proc.pid, flush=True)\n"
+            "time.sleep(60)\n"
+        )
+        app = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+        try:
+            child = int(app.stdout.readline())
+            os.kill(app.pid, signal.SIGKILL)
+            app.wait(5)
+            gone = False
+            for _ in range(60):
+                try:
+                    os.kill(child, 0)
+                except ProcessLookupError:
+                    gone = True
+                    break
+                time.sleep(0.05)
+            self.assertTrue(gone, "ffmpeg outlived the killed app")
+        finally:
+            if app.poll() is None:
+                app.kill()
+
+    def test_thread_failure_does_not_leave_ffmpeg_running(self) -> None:
+        folder = tempfile.mkdtemp(prefix="dr-py-")
+        output = os.path.join(folder, "desktop_thread.mp4")
+        session = Recording()
+        with mock.patch.object(threading.Thread, "start", side_effect=RuntimeError("can't start new thread")):
+            error = session.start(["python3", FAKE, output], folder, 2)
+        self.assertIn("can't start new thread", error or "")
+        self.assertFalse(session.is_active)
+        # "q" reached the stand-in, so it finished the file and exited.
         with open(output, "rb") as handle:
             self.assertEqual(handle.read(), b"xok")
 

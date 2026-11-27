@@ -10,6 +10,7 @@ from datetime import datetime
 
 from .ffmpeg_cmd import wayland_ffmpeg_argv, wayland_pipeline
 from .portal import PortalStream
+from .recording import stop_wait_seconds
 from .settings import Settings
 
 
@@ -24,6 +25,7 @@ class WaylandCapture:
         self._folder: str | None = None
         self._before: list[str] = []
         self._stream: PortalStream | None = None
+        self._fps = 2.0
         self.error: str | None = None
 
     @property
@@ -122,6 +124,7 @@ class WaylandCapture:
                 stderr=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
             )
+            self._fps = settings.fps
             self._pump = threading.Thread(target=self._write_frames, name="wayland-frames", daemon=True)
             self._pump.start()
             self._offer(first_frame)
@@ -177,7 +180,7 @@ class WaylandCapture:
         self._proc = None
         if proc is not None:
             try:
-                proc.wait(timeout=8)
+                proc.wait(timeout=stop_wait_seconds(self._fps))
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=5)
