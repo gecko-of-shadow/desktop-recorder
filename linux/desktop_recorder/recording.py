@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import ctypes
 import os
 import shutil
-import signal
 import subprocess
+import sys
 import threading
 from collections.abc import Callable
 
@@ -65,11 +64,10 @@ class Recording:
             existing = _snapshot(folder)
             try:
                 proc = subprocess.Popen(
-                    argv,
+                    guarded(argv),
                     stdin=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
-                    preexec_fn=die_with_parent(),
                 )
             except OSError as exc:
                 return f"Cannot start ffmpeg: {exc}"
@@ -341,31 +339,18 @@ def _finish(proc: subprocess.Popen[bytes] | None, fps: float) -> bool:
         return killed
 
 
-_PR_SET_PDEATHSIG = 1
+GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guard.py")
 
 
-def die_with_parent() -> Callable[[], None] | None:
-    """A preexec_fn that sends ffmpeg SIGTERM when this app dies, so no grabber is left behind.
+def guarded(argv: list[str]) -> list[str]:
+    """Run ffmpeg under guard.py, which stops it once and cleanly if this app dies.
 
-    Linux sends the signal when the thread that started ffmpeg ends, so start recordings
-    from a long-lived thread (the GTK main thread). When the whole app dies, Linux sends it
-    again for each app thread, and ffmpeg then exits at once instead of finishing the file;
-    the fragmented MP4 still keeps everything up to the last fragment.
-    libc is loaded here, before the fork, so the child only makes one system call.
+    stdin ("q") and stderr go straight to ffmpeg; the exit status is ffmpeg's.
     """
-    try:
-        prctl = ctypes.CDLL(None, use_errno=True).prctl
-    except (OSError, AttributeError):
-        return None
-    parent = os.getpid()
-
-    def preexec() -> None:
-        prctl(_PR_SET_PDEATHSIG, int(signal.SIGTERM), 0, 0, 0)
-        if os.getppid() != parent:
-            # The app died before prctl took effect.
-            os.kill(os.getpid(), signal.SIGTERM)
-
-    return preexec
+    program = shutil.which(argv[0])
+    if program is None or not sys.executable or not os.path.isfile(GUARD):
+        return argv
+    return [sys.executable, GUARD, str(os.getpid()), program, *argv[1:]]
 
 
 def _close_pipes(proc: subprocess.Popen[bytes] | None) -> None:

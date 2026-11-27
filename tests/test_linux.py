@@ -314,37 +314,86 @@ class ProcessLifetimeTests(unittest.TestCase):
         self.assertAlmostEqual(stop_wait_seconds(0.01), 25.0)
         self.assertAlmostEqual(stop_wait_seconds(60), 15.0 + 2.0 / 60)
 
-    def test_ffmpeg_ends_when_the_app_is_killed(self) -> None:
+    def test_ffmpeg_gets_one_stop_when_the_app_is_killed(self) -> None:
+        # Linux sends the parent-death signal again for each app thread that ends, so whether
+        # ffmpeg saw more than one depended on timing. A few rounds catch it reliably.
+        for _ in range(3):
+            self.assertEqual(self.kill_app_and_count_stops(), 1)
+
+    def kill_app_and_count_stops(self) -> int:
         folder = tempfile.mkdtemp(prefix="dr-py-")
-        # Real ffmpeg ignores end of input on stdin, so the stand-in must too.
+        report = os.path.join(folder, "signals.txt")
+        started = os.path.join(folder, "pid.txt")
+        # Stand-in for ffmpeg: counts SIGTERMs for a moment after the first, like ffmpeg
+        # finishing the file. Real ffmpeg ignores end of input on stdin, so this does too.
+        child = (
+            "import os, signal, time\n"
+            "seen = []\n"
+            "signal.signal(signal.SIGTERM, lambda *_: seen.append(1))\n"
+            f"open({started!r}, 'w').write(str(os.getpid()))\n"
+            "while not seen:\n"
+            "    time.sleep(0.02)\n"
+            "time.sleep(0.5)\n"
+            f"open({report!r}, 'w').write(str(len(seen)))\n"
+        )
+        # Like the app, several threads wait in blocking reads.
         script = (
-            "import sys, time\n"
+            "import os, sys, threading, time\n"
             f"sys.path.insert(0, {str(ROOT / 'linux')!r})\n"
             "from desktop_recorder.recording import Recording\n"
+            "for _ in range(8):\n"
+            "    threading.Thread(target=os.read, args=(os.pipe()[0], 1), daemon=True).start()\n"
             "r = Recording()\n"
-            f"r.start([sys.executable, '-c', 'import time; time.sleep(60)'], {folder!r}, 2)\n"
-            "print(r._proc.pid, flush=True)\n"
+            f"r.start([sys.executable, '-c', {child!r}], {folder!r}, 2)\n"
             "time.sleep(60)\n"
         )
-        app = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+        app = subprocess.Popen([sys.executable, "-c", script])
         try:
-            child = int(app.stdout.readline())
+            pid = 0
+            for _ in range(200):
+                try:
+                    with open(started, encoding="utf-8") as handle:
+                        pid = int(handle.read() or 0)
+                except OSError:
+                    pass
+                if pid:
+                    break
+                time.sleep(0.05)
+            time.sleep(0.2)
             os.kill(app.pid, signal.SIGKILL)
             app.wait(5)
             gone = False
-            for _ in range(60):
+            for _ in range(100):
                 try:
-                    os.kill(child, 0)
+                    os.kill(pid, 0)
                 except ProcessLookupError:
                     gone = True
                     break
                 time.sleep(0.05)
             self.assertTrue(gone, "ffmpeg outlived the killed app")
+            with open(report, encoding="utf-8") as handle:
+                return int(handle.read())
         finally:
             if app.poll() is None:
                 app.kill()
                 app.wait(5)
-            app.stdout.close()
+
+    def test_recording_outlives_the_thread_that_started_it(self) -> None:
+        folder = tempfile.mkdtemp(prefix="dr-py-")
+        output = os.path.join(folder, "desktop_thread_end.mp4")
+        session = Recording()
+        session.check_file = lambda _path: None
+        errors = []
+        starter = threading.Thread(target=lambda: errors.append(session.start(["python3", FAKE, output], folder, 2)))
+        starter.start()
+        starter.join(10)
+        time.sleep(0.5)
+        self.assertEqual(errors, [None])
+        self.assertTrue(session.is_active)
+        session.stop()
+        self.assertIsNone(session.error)
+        with open(output, "rb") as handle:
+            self.assertEqual(handle.read(), b"xok")
 
     def test_thread_failure_does_not_leave_ffmpeg_running(self) -> None:
         folder = tempfile.mkdtemp(prefix="dr-py-")
