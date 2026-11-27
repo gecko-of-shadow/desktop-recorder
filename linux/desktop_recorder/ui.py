@@ -234,6 +234,14 @@ class Tray:
         if error:
             self.notify("Desktop Recorder", error)
 
+    def hotkey_pressed(self) -> bool:
+        """X11 hotkey. Folder for AI: open the region selector first, as the Windows hotkey does."""
+        if not self.capture.is_active and self.settings.output_mode == "folder":
+            self.select_and_record()
+        else:
+            self.toggle()
+        return False
+
     def toggle(self) -> None:
         if self.capture.is_active:
             self.stop_recording()
@@ -321,7 +329,7 @@ class Tray:
                 os.environ.get("DISPLAY"),
                 self.settings.hotkey_modifiers,
                 self.settings.hotkey_key,
-                lambda: GLib.idle_add(self.toggle),
+                lambda: GLib.idle_add(self.hotkey_pressed),
             )
             if not self.hotkey.start():
                 self.notify(

@@ -48,7 +48,8 @@ The pass is slow for a long recording, so it runs on a background thread; the tr
 - Whisper is not packaged. Build whisper.cpp (`cmake -B build && cmake --build build`) and get a model.
   The tiny.en model makes rough row times (the first row starts at 0 s even when the speech starts later).
 - The region selector (tray: "Select region and record", X11) has drag, Space (whole screen) and Esc. It has
-  no window click and no C, M, P keys of the Windows selector, and the hotkey does not open it. Its region is
+  no window click and no C, M, P keys of the Windows selector. In folder mode the X11 hotkey opens it (as on
+  Windows); the GNOME Wayland hotkey still starts the recording. Its region is
   for that recording only; `region=` in `settings.txt` is the region of the other recordings (MP4 and folder).
 
 ## Measured (scripted documents under Xvfb, `evidence/improve` of the 27 Nov 2026 test run)

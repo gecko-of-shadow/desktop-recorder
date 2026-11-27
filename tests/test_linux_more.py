@@ -615,6 +615,26 @@ class RegionSelectorTests(unittest.TestCase):
         self.assertEqual(started, [(10, 20, 300, 200), (0, 0, 0, 0)])
         self.assertEqual(tray.settings.region, (0, 0, 0, 0))
 
+    def test_hotkey_opens_the_selector_in_folder_mode(self) -> None:
+        try:
+            from desktop_recorder import ui
+        except (ImportError, ValueError):
+            self.skipTest("GTK 3 for Python is not installed")
+        calls: list = []
+        tray = ui.Tray.__new__(ui.Tray)
+        tray.settings = Settings(folder="/tmp/dr")
+        tray.capture = mock.Mock(is_active=False)
+        tray.select_and_record = lambda: calls.append("selector")
+        tray.toggle = lambda: calls.append("toggle")
+        tray.settings.output_mode = "folder"
+        tray.hotkey_pressed()
+        tray.capture.is_active = True
+        tray.hotkey_pressed()   # stops
+        tray.capture.is_active = False
+        tray.settings.output_mode = "mp4"
+        tray.hotkey_pressed()
+        self.assertEqual(calls, ["selector", "toggle", "toggle"])
+
     @unittest.skipUnless(os.environ.get("DISPLAY") and shutil.which("xdotool"), "needs an X display and xdotool")
     def test_selector_with_real_input(self) -> None:
         import gi
