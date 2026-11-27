@@ -7,7 +7,7 @@ Current version: **3.2.0** (2026-11-25). Download it from the [newest release](h
 You select the area with the text. The program records that area at full resolution, so each character stays sharp. A still screen costs almost no space, so the files stay small.
 
 - **Windows 10 and 11:** the full program, with the region selector. C# on .NET Framework 4, a tray front end for [FFmpeg](https://ffmpeg.org).
-- **Ubuntu Desktop 24.04:** the earlier full-screen tray recorder (Python and GTK). It has no region selector. It has not changed since version 1.0.0.
+- **Ubuntu Desktop 24.04:** a tray recorder (Python and GTK). Not released yet (branch `improve/ai-context-2026-11-27`): a region selector (X11) and the "Folder for AI" output with the engine of the Windows build. See [docs/linux-ai-folder.md](docs/linux-ai-folder.md).
 
 ## Features
 
@@ -28,8 +28,9 @@ Windows:
 
 Ubuntu 24.04:
 
-- Full-screen recording. X11 uses FFmpeg `x11grab`. Wayland uses xdg-desktop-portal and PipeWire.
+- Full-screen recording, or a region (`region=` in settings.txt, or the selector on X11). X11 uses FFmpeg `x11grab`. Wayland uses xdg-desktop-portal and PipeWire.
 - System audio (what you hear), through the PulseAudio API that PipeWire provides.
+- Not released yet: "Folder for AI" output (settled PNG frames, `index.md`, `clip.mp4`, a ZIP; with Mono). Optional: Whisper transcript (whisper.cpp), OCR text of the frames and black boxes over keys and passwords (tesseract). See [docs/linux-ai-folder.md](docs/linux-ai-folder.md).
 - Tray icon, Super+Shift+D shortcut, and the same settings file format as Windows.
 
 ## Download and install
