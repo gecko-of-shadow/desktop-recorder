@@ -27,7 +27,9 @@ The pass is slow for a long recording, so it runs on a background thread; the tr
 
 ## Limits (27 Nov 2026)
 
-- X11 only. On Wayland, folder mode records an MP4 and says so.
+- Wayland: the portal stream (10 fps, BGRA through GStreamer) goes into the same work file. No sound, no
+  region and no window titles there yet; the tray says what was left out. Not tested on a real GNOME Wayland
+  session: the test fed an X11 grab through the same code (`WaylandCapture._ensure_encoder`).
 - Whisper is not packaged. Build whisper.cpp (`cmake -B build && cmake --build build`) and get a model.
   The tiny.en model makes rough row times (the first row starts at 0 s even when the speech starts later).
 - The region selector (tray: "Select region and record", X11) has drag, Space (whole screen) and Esc. It has
@@ -41,3 +43,4 @@ The pass is slow for a long recording, so it runs on a background thread; the tr
 | 55 s steady scroll, 220 lines, OCR lines found | 215 of 220 in 18 PNG (2.1 MB) | 215 in 18 evenly spaced frames; 71 in its 3 keyframes |
 | 61 s still page, 8 notices of 0.8 s, notices found | 9 of 9 in 19 PNG (1.7 MB) | 2 of 9 in 19 evenly spaced frames; 8 of 9 in all 122 frames |
 | 55 s scroll + 2 x 11 s speech (jfk.wav played into the sink) | 15 PNG, `clip.mp4` h264 + aac, 3 transcript rows (whisper.cpp tiny.en), pass 6.3 s; speech end in the WAV 0.13 s from the playback end | - |
+| Wayland code path (frames fed as the portal would), 55 s scroll, 220 lines | 215 of 220 in 18 PNG, 0 dropped of 549, pass 8.3 s | - |

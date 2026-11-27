@@ -309,6 +309,60 @@ class AiFolderTests(unittest.TestCase):
 
 
 
+class WaylandFolderTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg")
+    def test_portal_frames_go_to_the_work_file(self) -> None:
+        parent = tempfile.mkdtemp(prefix="dr-wl-folder-")
+        folder = os.path.join(parent, "desktop_x")
+        cap = WaylandCapture()
+        cap._reset()
+        cap._started = True
+        cap._work_folder = folder
+        settings = Settings(folder=parent)
+        settings.fps = ai_folder.AI_FPS
+        for i in range(30):   # 66 x 48 BGRA, a gray that changes each frame
+            cap._ensure_encoder(settings, datetime(2026, 11, 27, 17, 0, 0), 66, 48, None, "ffmpeg",
+                                bytes([i * 8, i * 8, i * 8, 255]) * (66 * 48))
+            time.sleep(0.02)
+        cap.stop()
+        self.assertIsNone(cap.error)
+        self.assertEqual(cap.session_files(), [])
+        probe = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v",
+                                "-show_entries", "stream=nb_read_frames,width,height,pix_fmt,r_frame_rate",
+                                "-of", "csv=p=0", os.path.join(folder, ai_folder.WORK_FILE)],
+                               capture_output=True, text=True)
+        width, height, pix_fmt, rate, frames = probe.stdout.strip().split(",")
+        self.assertEqual((width, height, pix_fmt, rate), ("66", "48", "yuv444p", "10/1"))
+        self.assertEqual(int(frames) + cap.dropped_frames, 30)
+        self.assertGreaterEqual(int(frames), 25)
+
+    def test_capture_uses_the_portal_in_folder_mode(self) -> None:
+        from desktop_recorder.capture import Capture
+
+        calls: list = []
+
+        def fake_wayland(_self, settings, _when, audio, _ffmpeg, work_folder=None):
+            calls.append((settings.fps, audio, work_folder))
+            settings.wayland_restore_token = "token-2"
+            return None
+
+        settings = Settings(folder="/tmp/dr-wl")
+        settings.output_mode = "folder"
+        settings.record_audio = False
+        settings.region = (0, 0, 640, 480)
+        cap = Capture()
+        with mock.patch.dict(os.environ, {"DESKTOP_RECORDER_CAPTURE": "wayland"}), \
+                mock.patch.object(Capture, "_start_wayland", fake_wayland):
+            self.assertIsNone(cap.start(settings, None, "ffmpeg"))
+        self.assertEqual(len(calls), 1)
+        fps, audio, work_folder = calls[0]
+        self.assertEqual((fps, audio), (ai_folder.AI_FPS, None))
+        self.assertTrue(os.path.basename(work_folder).startswith("desktop_"))
+        self.assertEqual(cap.ai_job[0], work_folder)
+        self.assertEqual(settings.wayland_restore_token, "token-2")
+        self.assertEqual(settings.fps, Settings(folder="/x").fps)
+        self.assertEqual(cap.warning, "Folder for AI on Wayland has no region yet.")
+
 class RegionSelectorTests(unittest.TestCase):
     def test_drag_region(self) -> None:
         self.assertEqual(drag_region(421, 301, 100, 80, 1280, 800), (100, 80, 320, 220))

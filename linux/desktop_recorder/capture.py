@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from dataclasses import replace
 from datetime import datetime
 
 from . import ai_folder
@@ -53,7 +54,7 @@ class Capture:
         if settings.output_mode == "folder":
             if backend != "wayland":
                 return self._start_folder(settings, when, display, audio, program)
-            self.warning = "Folder for AI needs an X11 session for now, so this recording is an MP4."
+            return self._start_wayland_folder(settings, when, audio, program)
         if backend == "wayland":
             return self._start_wayland(settings, when, audio, program)
         error = self.x11.start(
@@ -84,6 +85,21 @@ class Capture:
         self._titles.start()
         return None
 
+    def _start_wayland_folder(self, settings: Settings, when: datetime, audio: str | None, ffmpeg: str) -> str | None:
+        """The portal stream at 10 fps into the work file. No sound, region or window titles on Wayland yet."""
+        folder = ai_folder.folder_for(settings.folder, when)
+        work = replace(settings, fps=ai_folder.AI_FPS)
+        error = self._start_wayland(work, when, None, ffmpeg, folder)
+        settings.wayland_restore_token = work.wayland_restore_token
+        if error is not None:
+            return error
+        left_out = [name for name, on in (("sound", audio is not None), ("region", settings.region[2] > 0))
+                    if on]
+        if left_out:
+            self.warning = "Folder for AI on Wayland has no " + " and no ".join(left_out) + " yet."
+        self.ai_job = (folder, when, settings)
+        return None
+
     def finish_folder(self, ffmpeg: str | None = None) -> ai_folder.PassResult | None:
         """After stop: the pass that writes the PNG frames, clip.mp4, index.md and the ZIP. Slow: not on the UI thread."""
         job = self.ai_job
@@ -100,7 +116,9 @@ class Capture:
             result.warnings.insert(0, self.error)
         return result
 
-    def _start_wayland(self, settings: Settings, when: datetime, audio: str | None, ffmpeg: str) -> str | None:
+    def _start_wayland(
+        self, settings: Settings, when: datetime, audio: str | None, ffmpeg: str, work_folder: str | None = None
+    ) -> str | None:
         try:
             from .portal import GioTransport, ScreenCast
         except Exception as exc:
@@ -114,7 +132,7 @@ class Capture:
         if stream.restore_token:
             settings.wayland_restore_token = stream.restore_token
         try:
-            error = self.wayland.start(stream, settings, when, audio, ffmpeg)
+            error = self.wayland.start(stream, settings, when, audio, ffmpeg, work_folder)
         except Exception as exc:
             error = "Wayland screen capture failed: " + str(exc)
         if error:

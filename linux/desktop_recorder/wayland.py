@@ -9,6 +9,7 @@ import subprocess
 import threading
 from datetime import datetime
 
+from . import ai_folder
 from .ffmpeg_cmd import wayland_ffmpeg_argv, wayland_pipeline
 from .portal import PortalStream
 from .recording import stop_wait_seconds
@@ -24,6 +25,7 @@ class WaylandCapture:
         self._frames: queue.Queue[bytes | None] = queue.Queue(maxsize=2)
         self._started = False
         self._folder: str | None = None
+        self._work_folder: str | None = None   # Folder for AI: the lossless work file goes here
         self._before: list[str] = []
         self._stream: PortalStream | None = None
         self._fps = 2.0
@@ -42,7 +44,9 @@ class WaylandCapture:
         when: datetime,
         audio_device: str | None,
         ffmpeg: str = "ffmpeg",
+        work_folder: str | None = None,
     ) -> str | None:
+        """work_folder: write the Folder for AI work file there (no audio) instead of the MP4."""
         description = wayland_pipeline(stream.fd, stream.node_id, stream.serial, settings.fps)
         try:
             import gi
@@ -65,6 +69,7 @@ class WaylandCapture:
         self._folder = settings.folder
         self._before = _snapshot(settings.folder)
         self._reset()
+        self._work_folder = work_folder
 
         def on_sample(element):
             sample = element.emit("pull-sample")
@@ -133,8 +138,12 @@ class WaylandCapture:
             if width < 2 or height < 2:
                 self.error = "The shared screen has no picture yet."
                 return
-            os.makedirs(settings.folder, exist_ok=True)
-            argv = wayland_ffmpeg_argv(settings, when, width, height, audio_device, ffmpeg)
+            if self._work_folder:
+                os.makedirs(self._work_folder, exist_ok=True)
+                argv = ai_folder.pipe_work_argv(self._work_folder, width, height, ffmpeg, settings.fps)
+            else:
+                os.makedirs(settings.folder, exist_ok=True)
+                argv = wayland_ffmpeg_argv(settings, when, width, height, audio_device, ffmpeg)
             self._proc = subprocess.Popen(
                 argv,
                 stdin=subprocess.PIPE,

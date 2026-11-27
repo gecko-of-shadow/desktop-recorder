@@ -25,6 +25,7 @@ AUDIO_FILE = "audio_system.wav"   # the Windows name; the pass puts it into clip
 # Starts with "work_lossless", so the ZIP leaves it out (AfterRecording.WriteZip).
 TITLES_FILE = "work_lossless.titles.tsv"
 # The Windows default for folder mode. A settled frame needs a few captures in SettleSeconds (0.4 s).
+EVEN_CROP = "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"
 AI_FPS = 10.0
 PASS_EXE = "ai_pass.exe"
 
@@ -48,33 +49,43 @@ def work_argv(
     (-copyts) shifted by the same start instant, and both outputs start at that instant (the fps filter repeats
     the first frame, aresample pads silence), so WAV time 0 is video time 0 (as x11_argv does for the MP4).
     """
-    gop = max(2, int(round(fps * 30)))
     shift = ["-itsoffset", f"-{(when or datetime.now()).timestamp():.6f}"] if audio_device else []
     args = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostats", "-y"]
     if audio_device:
         args += ["-copyts", "-thread_queue_size", "1024", *shift, "-f", "pulse", "-fragment_size", "9600",
                  "-i", audio_device]
     args += ["-thread_queue_size", "1024", *shift, "-f", "x11grab", "-framerate", format_fps(fps), "-draw_mouse", "0"]
-    crop = "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"
     filters = [f"fps={format_fps(fps)}:start_time=0"] if audio_device else []
     args += x11_input(display, region or (0, 0, 0, 0))
     if region is None:
-        filters.append(crop)
+        filters.append(EVEN_CROP)
     if audio_device:
         args += ["-map", "1:v"]
     if filters:
         args += ["-vf", ",".join(filters)]
-    args += [
+    args += _work_output(folder, fps)
+    if audio_device:
+        args += ["-map", "0:a", "-af", "aresample=async=1:first_pts=0", "-c:a", "pcm_s16le",
+                 os.path.join(folder, AUDIO_FILE)]
+    return args
+
+
+def pipe_work_argv(folder: str, width: int, height: int, ffmpeg: str = "ffmpeg", fps: float = AI_FPS) -> list[str]:
+    """Wayland: the BGRA frames of the portal stream (GStreamer videorate keeps fps) on stdin, same work file."""
+    return [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostats", "-y",
+            "-f", "rawvideo", "-pixel_format", "bgra", "-video_size", f"{width}x{height}",
+            "-framerate", format_fps(fps), "-i", "pipe:0", "-vf", EVEN_CROP, *_work_output(folder, fps)]
+
+
+def _work_output(folder: str, fps: float) -> list[str]:
+    gop = max(2, int(round(fps * 30)))
+    return [
         "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-threads", "4", "-g", str(gop),
         "-pix_fmt", "yuv444p",
         # A killed ffmpeg loses at most 0.5 s (as on Windows).
         "-movflags", "+frag_keyframe+empty_moov", "-frag_duration", "500000", "-flush_packets", "1",
         os.path.join(folder, WORK_FILE),
     ]
-    if audio_device:
-        args += ["-map", "0:a", "-af", "aresample=async=1:first_pts=0", "-c:a", "pcm_s16le",
-                 os.path.join(folder, AUDIO_FILE)]
-    return args
 
 
 def find_pass() -> tuple[list[str] | None, str]:
