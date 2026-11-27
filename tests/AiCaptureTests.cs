@@ -365,6 +365,18 @@ static class AiCaptureTests
         tl.Add(0.4, "A");
         tl.Add(3.0, "B");
         Expect(tl.Count == 2 && tl.At(0) == "A" && tl.At(2.9) == "A" && tl.At(3.0) == "B" && tl.At(99) == "B", "title timeline");
+        // A title with a clock: a new title at each 250 ms sample for 10 hours. The list stays bounded and keeps
+        // the whole recording.
+        TitleSamples samples = new TitleSamples(4096);
+        for (int i = 0; i < 144000; i++) samples.Add(i * 0.25, "clock " + i);
+        TitleTimeline big = samples.ToTimeline(0);
+        string mid = big.At(18000.1), end = big.At(1e9);
+        int midN = int.Parse(mid.Substring(6));
+        Expect(samples.Count <= 4096 && samples.Count > 1024 && big.At(-1) == "clock 0" && end == "clock 143999"
+            && Math.Abs(midN - 72000) < 400, "title samples capped: " + samples.Count + ", at 18000 s: " + mid + ", end: " + end);
+        TitleSamples few = new TitleSamples(4096);
+        few.Add(1, "A"); few.Add(2, "A"); few.Add(3, "B");
+        Expect(few.Count == 2 && few.ToTimeline(1).At(2.0) == "B", "title samples offset");
     }
 
     // ------------------------------------------------------------ synthetic frames

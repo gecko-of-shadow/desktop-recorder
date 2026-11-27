@@ -681,7 +681,7 @@ class TrayApp : ApplicationContext
     string recordingFolder;                 // null in MP4 mode
     DateTime recordingStartTime;
     Settings recordingSettings;             // the settings of the running recording
-    readonly List<KeyValuePair<double, string>> titleSamples = new List<KeyValuePair<double, string>>();
+    readonly TitleSamples titleSamples = new TitleSamples(TitleSamples.MaxSamples);
     readonly System.Windows.Forms.Timer titleTimer = new System.Windows.Forms.Timer();
     PassJob lastJob;                        // the last recording in folder mode
     Icon currentIcon;
@@ -1084,7 +1084,7 @@ class TrayApp : ApplicationContext
                 recordingStartTime = DateTime.Now;
                 recordingSettings = settings.Copy();
             }
-            lock (titleSamples) titleSamples.Clear();
+            titleSamples.Clear();
             if (folder != null)
             {
                 SampleTitle();
@@ -1310,11 +1310,7 @@ class TrayApp : ApplicationContext
         Rectangle r = recordingRegion.IsEmpty ? NativeMethods.GetVirtualScreen() : recordingRegion;
         string title = NativeMethods.WindowTitleAt(new Point(r.X + r.Width / 2, r.Y + r.Height / 2));
         double clock = recorder.ClockSeconds;
-        lock (titleSamples)
-        {
-            if (titleSamples.Count > 0 && titleSamples[titleSamples.Count - 1].Value == title) return;
-            titleSamples.Add(new KeyValuePair<double, string>(clock, title));
-        }
+        titleSamples.Add(clock, title);
     }
 
     // The titles on the time line of the video (condition H): video time = clock - ClockOffset.
@@ -1323,12 +1319,7 @@ class TrayApp : ApplicationContext
     {
         double offset = recorder.ClockOffset;
         if (double.IsNaN(offset)) offset = 0;
-        TitleTimeline t = new TitleTimeline();
-        lock (titleSamples)
-        {
-            foreach (KeyValuePair<double, string> s in titleSamples) t.Add(s.Key - offset, s.Value);
-        }
-        return t;
+        return titleSamples.ToTimeline(offset);
     }
 
     // The ZIP waits at most this time for the transcript when everything else is ready. Whisper starts at Stop, next

@@ -1010,6 +1010,57 @@ sealed class SettledFrameFinder
 }
 
 // Window titles sampled during the recording, on the time line of the video.
+// The window titles of one recording on the recording clock, sampled every 250 ms. A title with a clock or a
+// counter changes at each sample (14400 samples an hour). When the list is full, every second sample is removed
+// and later samples are kept at that coarser spacing, so the list keeps the whole recording at a lower time
+// resolution and the memory stays bounded (review 2026-11-27).
+sealed class TitleSamples
+{
+    public const int MaxSamples = 4096;
+    readonly int max;
+    readonly List<KeyValuePair<double, string>> samples = new List<KeyValuePair<double, string>>();
+    double minGap;   // 0 until the list was full once
+
+    public TitleSamples(int max) { this.max = max; }
+
+    public void Add(double clock, string title)
+    {
+        string t = title ?? "";
+        lock (samples)
+        {
+            int n = samples.Count;
+            if (n > 0 && samples[n - 1].Value == t) return;
+            if (n > 1 && clock - samples[n - 1].Key < minGap)
+            {
+                // Inside the spacing: the newest title replaces the last one at its time.
+                if (samples[n - 2].Value == t) samples.RemoveAt(n - 1);
+                else samples[n - 1] = new KeyValuePair<double, string>(samples[n - 1].Key, t);
+                return;
+            }
+            if (n >= max)
+            {
+                int k = 0;
+                for (int i = 0; i < n; i += 2) samples[k++] = samples[i];
+                samples.RemoveRange(k, n - k);
+                minGap = (samples[k - 1].Key - samples[0].Key) / Math.Max(1, k - 1);
+            }
+            samples.Add(new KeyValuePair<double, string>(clock, t));
+        }
+    }
+
+    public void Clear() { lock (samples) { samples.Clear(); minGap = 0; } }
+
+    public int Count { get { lock (samples) return samples.Count; } }
+
+    // The titles on the time line of the video: video time = clock - offset.
+    public TitleTimeline ToTimeline(double offset)
+    {
+        TitleTimeline t = new TitleTimeline();
+        lock (samples) foreach (KeyValuePair<double, string> s in samples) t.Add(s.Key - offset, s.Value);
+        return t;
+    }
+}
+
 sealed class TitleTimeline
 {
     readonly List<double> times = new List<double>();
@@ -1028,18 +1079,19 @@ sealed class TitleTimeline
     }
 
     // The last title at or before the time. Before the first sample: the first title.
+    // Binary search: a title with a clock can give thousands of samples, and At is called for each frame.
     public string At(double time)
     {
         lock (gate)
         {
             if (titles.Count == 0) return "";
-            string result = titles[0];
-            for (int i = 0; i < times.Count; i++)
+            int lo = 0, hi = times.Count - 1;
+            while (lo < hi)
             {
-                if (times[i] <= time + 1e-9) result = titles[i];
-                else break;
+                int mid = (lo + hi + 1) / 2;
+                if (times[mid] <= time + 1e-9) lo = mid; else hi = mid - 1;
             }
-            return result;
+            return titles[lo];
         }
     }
 
