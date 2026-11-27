@@ -65,10 +65,14 @@ class Capture:
         )
         if error is None:
             self.mode = "x11"
-            if audio:
-                self._pin = SourcePin(audio, self.x11.process_ids)
-                self._pin.start()
+            self._pin_audio(audio)
         return error
+
+    def _pin_audio(self, audio: str | None) -> None:
+        """Keep the ffmpeg audio stream on the output the recording started with (audio_pin)."""
+        if audio:
+            self._pin = SourcePin(audio, self.x11.process_ids)
+            self._pin.start()
 
     def _start_folder(
         self, settings: Settings, when: datetime, display: str | None, audio: str | None, ffmpeg: str
@@ -81,6 +85,7 @@ class Capture:
         if error is not None:
             return error
         self.mode = "x11"
+        self._pin_audio(audio)
         self.ai_job = (folder, when, settings)
         self._titles = ai_folder.TitleSampler(display)
         self._titles.start()

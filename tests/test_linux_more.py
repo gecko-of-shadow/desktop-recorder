@@ -278,6 +278,38 @@ class AiFolderTests(unittest.TestCase):
             self.assertIn("\tEditor", handle.read())
         self.assertIsNone(cap.ai_job)
 
+    def test_folder_mode_pins_its_audio(self) -> None:
+        from desktop_recorder import capture as capture_mod
+
+        pins: list = []
+
+        class FakePin:
+            def __init__(self, source, process_ids):
+                pins.append((source, sorted(process_ids())))
+
+            def start(self):
+                pins.append("start")
+
+            def stop(self):
+                pins.append("stop")
+
+        settings = Settings(folder=tempfile.mkdtemp(prefix="dr-pin-"))
+        settings.output_mode = "folder"
+        cap = capture_mod.Capture()
+        cap.x11.check_file = lambda _p: None
+        with mock.patch.dict(os.environ, {"DESKTOP_RECORDER_CAPTURE": "x11",
+                                          "DESKTOP_RECORDER_AI_PASS": "/nonexistent/ai_pass.exe"}), \
+                mock.patch.object(capture_mod, "find_monitor", lambda: "speakers.monitor"), \
+                mock.patch.object(capture_mod, "probe_pulse", lambda _d: True), \
+                mock.patch.object(capture_mod, "SourcePin", FakePin), \
+                mock.patch("desktop_recorder.ai_folder.active_title", lambda _d: None):
+            self.assertIsNone(cap.start(settings, ":0", str(ROOT / "tests" / "fake_ffmpeg.py")))
+            time.sleep(0.2)
+            cap.stop()
+        self.assertEqual(pins[0][0], "speakers.monitor")
+        self.assertTrue(pins[0][1])   # the ffmpeg process ids
+        self.assertEqual(pins[1:], ["start", "stop"])
+
     @unittest.skipUnless(
         shutil.which("mono") and shutil.which("ffmpeg") and os.environ.get("DISPLAY")
         and os.path.isfile(os.environ.get("DESKTOP_RECORDER_AI_PASS", "")),
