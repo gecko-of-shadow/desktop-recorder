@@ -127,6 +127,11 @@ class Tray:
         return box.get("reply", "STOPPED")
 
     def start_recording(self, sound: bool = True) -> bool:
+        chime = sound and self.settings.play_sounds
+        # System audio would record the chime, so play it to the end before capture starts.
+        early = chime and self.settings.record_audio
+        if early:
+            sounds.play(True, wait=True)
         error = self.capture.start(self.settings, os.environ.get("DISPLAY"))
         self.refresh()
         if error:
@@ -134,16 +139,17 @@ class Tray:
             return False
         if self.capture.warning:
             self.notify("Desktop Recorder", self.capture.warning)
-        if sound and self.settings.play_sounds:
+        if chime and not early:
             sounds.play(True)
         return False
 
     def stop_recording(self, sound: bool = True) -> None:
         if not self.capture.is_active:
             return
+        self.capture.stop()
+        # After ffmpeg has stopped, so the stop chime is not in the recording.
         if sound and self.settings.play_sounds:
             sounds.play(False)
-        self.capture.stop()
         self.refresh()
         error = self.capture.error
         if error:

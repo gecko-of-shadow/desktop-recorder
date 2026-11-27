@@ -358,6 +358,64 @@ class ProcessLifetimeTests(unittest.TestCase):
             self.assertEqual(handle.read(), b"xok")
 
 
+def gtk_importable() -> bool:
+    try:
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk  # noqa: F401
+    except (ImportError, ValueError):
+        return False
+    return True
+
+
+@unittest.skipUnless(gtk_importable(), "GTK 3 for Python is not installed")
+class ChimeOrderTests(unittest.TestCase):
+    """The start and stop chimes must not be in a recording that has system audio."""
+
+    def make_tray(self, record_audio: bool, log: list):
+        from desktop_recorder import ui
+
+        class FakeCapture:
+            warning = None
+            error = None
+            is_active = False
+
+            def start(self, _settings, _display):
+                log.append("capture start")
+                self.is_active = True
+                return None
+
+            def stop(self):
+                log.append("capture stop")
+                self.is_active = False
+
+            def session_files(self):
+                return []
+
+        tray = ui.Tray.__new__(ui.Tray)
+        tray.settings = Settings(folder="/tmp/dr", play_sounds=True, record_audio=record_audio, copy_to_clipboard=False)
+        tray.capture = FakeCapture()
+        tray.refresh = lambda: None
+        tray.notify = lambda _title, body: log.append("notify " + body)
+        return tray, ui
+
+    def test_chimes_stay_out_of_audio_recordings(self) -> None:
+        log: list = []
+        tray, ui = self.make_tray(True, log)
+        with mock.patch.object(ui.sounds, "play", lambda up, wait=False: log.append(f"chime {up} wait={wait}")):
+            tray.start_recording()
+            tray.stop_recording()
+        self.assertEqual(log, ["chime True wait=True", "capture start", "capture stop", "chime False wait=False"])
+
+    def test_silent_recordings_keep_the_quick_start(self) -> None:
+        log: list = []
+        tray, ui = self.make_tray(False, log)
+        with mock.patch.object(ui.sounds, "play", lambda up, wait=False: log.append(f"chime {up} wait={wait}")):
+            tray.start_recording()
+        self.assertEqual(log, ["capture start", "chime True wait=False"])
+
+
 class OtherTests(unittest.TestCase):
     def test_chime_and_clipboard_and_autostart(self) -> None:
         wav = build_chime(660, 880)

@@ -33,7 +33,8 @@ def build_chime(first_hz: float, second_hz: float) -> bytes:
     return bytes(header) + bytes(samples)
 
 
-def play(up: bool) -> None:
+def play(up: bool, wait: bool = False) -> None:
+    """wait: return only after the chime has played (at most 3 s), so a recording can start after it."""
     wav = build_chime(660, 880) if up else build_chime(880, 660)
     player = next((name for name in ("paplay", "pw-play", "aplay") if shutil.which(name)), None)
     if player is None:
@@ -47,13 +48,24 @@ def play(up: bool) -> None:
 
     def run() -> None:
         try:
-            subprocess.run([player, handle.name], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                [player, handle.name],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired:
+            pass
         finally:
             try:
                 os_remove(handle.name)
             except OSError:
                 pass
 
+    if wait:
+        run()
+        return
     threading.Thread(target=run, daemon=True).start()
 
 
