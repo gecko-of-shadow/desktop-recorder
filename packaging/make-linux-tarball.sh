@@ -9,6 +9,7 @@ name="desktop-recorder-${version}-linux-x86_64"
 stage=$(mktemp -d)
 dest="$stage/$name"
 mkdir -p "$dest/desktop_recorder"
+"$root/linux/build-ai-pass.sh" >/dev/null || echo "The archive has no ai_pass.exe (Folder for AI)." >&2
 cp -a "$root/linux/desktop_recorder/." "$dest/desktop_recorder/"
 find "$dest" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 find "$dest" -name '*.pyc' -delete

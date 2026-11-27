@@ -3,3 +3,4 @@ ffmpeg.exe
 __pycache__/
 *.pyc
 test/results/
+linux/desktop_recorder/ai_pass.exe

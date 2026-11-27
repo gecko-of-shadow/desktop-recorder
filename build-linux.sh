@@ -3,6 +3,7 @@
 set -eu
 cd "$(dirname "$0")"
 python3 -m compileall -q linux/desktop_recorder
+linux/build-ai-pass.sh || echo "Folder for AI needs ai_pass.exe; MP4 recording works without it."
 if [ "${1:-}" != "--install" ]; then
   echo "Compiled linux/desktop_recorder. Run $0 --install to install it for this user."
   exit 0
