@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import os
 import queue
 import subprocess
@@ -26,6 +27,8 @@ class WaylandCapture:
         self._before: list[str] = []
         self._stream: PortalStream | None = None
         self._fps = 2.0
+        self._stderr_tail: collections.deque[str] = collections.deque(maxlen=20)
+        self.dropped_frames = 0
         self.error: str | None = None
 
     @property
@@ -61,6 +64,7 @@ class WaylandCapture:
         self._stream = stream
         self._folder = settings.folder
         self._before = _snapshot(settings.folder)
+        self._reset()
 
         def on_sample(element):
             sample = element.emit("pull-sample")
@@ -72,6 +76,10 @@ class WaylandCapture:
             structure = caps.get_structure(0)
             width = int(structure.get_value("width"))
             height = int(structure.get_value("height"))
+            if self._proc is not None and self._frames.full():
+                # ffmpeg is behind: drop this frame before the copy (a 1080p BGRA frame is 8 MB).
+                self.dropped_frames += 1
+                return Gst.FlowReturn.OK
             buffer = sample.get_buffer()
             ok, info = buffer.map(Gst.MapFlags.READ)
             if not ok:
@@ -94,10 +102,17 @@ class WaylandCapture:
                 self.stop()
 
         bus.connect("message", on_message)
-        pipeline.set_state(Gst.State.PLAYING)
         self._pipeline = pipeline
         self._started = True
+        pipeline.set_state(Gst.State.PLAYING)
         return None
+
+    def _reset(self) -> None:
+        """Fresh state for a new recording. A None left by the last stop would end the new frame pump at once."""
+        self._frames = queue.Queue(maxsize=2)
+        self._stderr_tail.clear()
+        self.dropped_frames = 0
+        self.error = None
 
     def _ensure_encoder(
         self,
@@ -110,6 +125,8 @@ class WaylandCapture:
         first_frame: bytes,
     ) -> None:
         with self._lock:
+            if not self._started:
+                return   # a late frame after stop must not start a new ffmpeg
             if self._proc is not None:
                 self._offer(first_frame)
                 return
@@ -125,6 +142,8 @@ class WaylandCapture:
                 stdout=subprocess.DEVNULL,
             )
             self._fps = settings.fps
+            # Read stderr all the time: an unread pipe that fills (64 KB) blocks ffmpeg, and then the frame pump.
+            threading.Thread(target=self._read_errors, args=(self._proc,), name="wayland-ffmpeg-stderr", daemon=True).start()
             self._pump = threading.Thread(target=self._write_frames, name="wayland-frames", daemon=True)
             self._pump.start()
             self._offer(first_frame)
@@ -133,7 +152,16 @@ class WaylandCapture:
         try:
             self._frames.put(payload, timeout=0.05)
         except queue.Full:
+            self.dropped_frames += 1
+
+    def _read_errors(self, proc: subprocess.Popen[bytes]) -> None:
+        if proc.stderr is None:
             return
+        for raw in proc.stderr:
+            line = raw.decode("utf-8", "replace").strip()
+            if line:
+                self._stderr_tail.append(line)
+        proc.stderr.close()
 
     def _write_frames(self) -> None:
         proc = self._proc
@@ -153,6 +181,8 @@ class WaylandCapture:
             pass
 
     def stop(self) -> None:
+        with self._lock:
+            self._started = False
         pipeline = self._pipeline
         self._pipeline = None
         if pipeline is not None:
@@ -184,6 +214,9 @@ class WaylandCapture:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=5)
+            if proc.returncode not in (0, None) and self.error is None:
+                last = self._stderr_tail[-1] if self._stderr_tail else "exit code %s" % proc.returncode
+                self.error = "ffmpeg stopped with an error: " + last
         stream = self._stream
         self._stream = None
         if stream is not None:
@@ -191,7 +224,6 @@ class WaylandCapture:
                 os.close(stream.fd)
             except OSError:
                 pass
-        self._started = False
 
     def session_files(self) -> list[str]:
         if not self._folder or not os.path.isdir(self._folder):
