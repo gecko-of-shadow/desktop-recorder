@@ -7,7 +7,7 @@ import shutil
 from dataclasses import replace
 from datetime import datetime
 
-from . import ai_folder
+from . import ai_folder, ocr_index
 from .audio import find_monitor, probe_pulse
 from .audio_pin import SourcePin
 from .ffmpeg_cmd import capture_backend, x11_argv
@@ -112,6 +112,8 @@ class Capture:
         result = ai_folder.run_pass(folder, when, ffmpeg or shutil.which("ffmpeg") or "ffmpeg",
                                     ai_folder.AI_FPS, settings.scroll_percent, settings.settle_ms,
                                     whisper_path=settings.whisper_path, whisper_model=settings.whisper_model)
+        if result.ok and settings.ocr_text:
+            result.ocr = ocr_index.add_ocr(folder, result.zip_path)
         if self.error:
             result.warnings.insert(0, self.error)
         return result

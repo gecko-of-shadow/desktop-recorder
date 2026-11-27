@@ -23,6 +23,7 @@ from datetime import datetime  # noqa: E402
 from desktop_recorder import ai_folder  # noqa: E402
 from desktop_recorder.audio import probe_pulse  # noqa: E402
 from desktop_recorder.ffmpeg_cmd import x11_argv  # noqa: E402
+from desktop_recorder import ocr_index  # noqa: E402
 from desktop_recorder.region_select import WHOLE_SCREEN, drag_region  # noqa: E402
 from desktop_recorder.settings import Settings, parse_settings, serialize_settings  # noqa: E402
 from desktop_recorder.wayland import WaylandCapture  # noqa: E402
@@ -362,6 +363,79 @@ class WaylandFolderTests(unittest.TestCase):
         self.assertEqual(settings.wayland_restore_token, "token-2")
         self.assertEqual(settings.fps, Settings(folder="/x").fps)
         self.assertEqual(cap.warning, "Folder for AI on Wayland has no region yet.")
+
+FAKE_TESSERACT = """#!/usr/bin/env python3
+import os, sys
+pages = {"001.png": "Title bar\\nline one\\nline two\\n", "002.png": "Title  bar\\nline two\\nline three\\nx\\n",
+         "003.png": "LINE ONE\\n"}
+sys.stdout.write(pages[os.path.basename(sys.argv[1])])
+"""
+
+
+class OcrIndexTests(unittest.TestCase):
+    def make_folder(self) -> tuple[str, str]:
+        parent = tempfile.mkdtemp(prefix="dr-ocr-")
+        folder = os.path.join(parent, "desktop_x")
+        os.makedirs(os.path.join(folder, "frames"))
+        for name in ("001.png", "002.png", "003.png"):
+            open(os.path.join(folder, "frames", name), "wb").close()
+        with open(os.path.join(folder, "index.md"), "w", encoding="utf-8") as handle:
+            handle.write("# Recording\n| Frame |\n")
+        zip_path = folder + ".zip"
+        with zipfile.ZipFile(zip_path, "w") as z:
+            z.writestr("desktop_x/index.md", "# Recording\n| Frame |\n")
+            z.writestr("desktop_x/frames/001.png", b"png1")
+            z.writestr("desktop_x/clip.mp4", b"clip")
+        tesseract = os.path.join(parent, "tesseract")
+        with open(tesseract, "w", encoding="utf-8") as handle:
+            handle.write(FAKE_TESSERACT)
+        os.chmod(tesseract, 0o755)
+        return folder, tesseract
+
+    def test_only_new_lines_per_frame(self) -> None:
+        fresh = ocr_index.new_lines([["Title bar", "line one", "line two"], ["Title  bar", "line two", "line three", "x"],
+                                     ["LINE ONE"]])
+        self.assertEqual(fresh, [["Title bar", "line one", "line two"], ["line three"], []])
+
+    def test_index_and_zip_get_the_section(self) -> None:
+        folder, tesseract = self.make_folder()
+        self.assertEqual(ocr_index.add_ocr(folder, folder + ".zip", tesseract), "OCR: 4 lines")
+        with open(os.path.join(folder, "index.md"), encoding="utf-8") as handle:
+            text = handle.read()
+        self.assertIn(ocr_index.SECTION, text)
+        self.assertIn("### 002.png\n    line three\n", text)
+        self.assertIn("### 003.png\n(no new text)", text)
+        with zipfile.ZipFile(folder + ".zip") as z:
+            self.assertEqual(z.read("desktop_x/index.md").decode("utf-8"), text)
+            self.assertEqual(z.read("desktop_x/clip.mp4"), b"clip")
+            self.assertEqual(len(z.namelist()), 3)
+        self.assertEqual(ocr_index.add_ocr(folder, folder + ".zip", tesseract), "OCR was already in index.md")
+
+    def test_without_tesseract(self) -> None:
+        folder, _t = self.make_folder()
+        with mock.patch("shutil.which", lambda _n: None):
+            self.assertEqual(ocr_index.add_ocr(folder, None), "no OCR (tesseract is not installed)")
+
+    def test_setting_round_trip(self) -> None:
+        self.assertTrue(Settings(folder="/x").ocr_text)
+        off = parse_settings("ocr_text=0\n", Settings(folder="/x"))
+        self.assertFalse(off.ocr_text)
+        self.assertFalse(parse_settings(serialize_settings(off), Settings(folder="/x")).ocr_text)
+
+    @unittest.skipUnless(shutil.which("tesseract") and shutil.which("ffmpeg"), "needs tesseract and ffmpeg")
+    def test_real_tesseract(self) -> None:
+        folder, _t = self.make_folder()
+        png = os.path.join(folder, "frames", "001.png")
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=white:s=640x120",
+                        "-vf", "drawtext=text='Build failed at step seven':fontsize=36:x=20:y=40", "-frames:v", "1",
+                        png], check=True)
+        for name in ("002.png", "003.png"):
+            shutil.copy(png, os.path.join(folder, "frames", name))
+        result = ocr_index.add_ocr(folder, None)
+        with open(os.path.join(folder, "index.md"), encoding="utf-8") as handle:
+            text = handle.read()
+        self.assertIn("Build failed at step seven", text, result)
+        self.assertEqual(text.count("Build failed"), 1)
 
 class RegionSelectorTests(unittest.TestCase):
     def test_drag_region(self) -> None:

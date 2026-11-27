@@ -16,6 +16,10 @@ Added 27 Nov 2026. Settings: `output_mode=folder` (Settings window: Output, "Fol
    "Audio and transcript"). Whisper: `whisper_path` and `whisper_model` in `settings.txt`, else `whisper-cli`
    on PATH or next to `ai_pass.exe` with a `ggml-*.bin` model next to it or in `models`. The ZIP goes to the clipboard when "Copy ... to the clipboard" is on.
 
+3. When `tesseract` is installed (`sudo apt install tesseract-ocr`) and `ocr_text=1` (default), `index.md` (in the
+   folder and in the ZIP) gets a section "Text on screen (OCR)": for each frame, the lines that no earlier frame
+   had. A scroll adds its new lines; a still page adds nothing. 18 frames at 1280 x 800: about 3 s, 11 KB.
+
 The pass is slow for a long recording, so it runs on a background thread; the tray shows a message at the end.
 
 ## Needs

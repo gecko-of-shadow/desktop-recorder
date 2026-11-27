@@ -202,6 +202,8 @@ class Tray:
         text = f"Folder for AI: {result.frames} frames."
         if result.transcript:
             text += f" Transcript: {result.transcript}."
+        if result.ocr:
+            text += f" {result.ocr}."
         if result.warnings:
             text += " " + result.warnings[0]
         if self.settings.copy_to_clipboard:
@@ -588,6 +590,7 @@ class SettingsDialog(Gtk.Dialog):
             scroll_percent=self.current.scroll_percent,
             whisper_path=self.current.whisper_path,
             whisper_model=self.current.whisper_model,
+            ocr_text=self.current.ocr_text,
             extra_lines=list(self.current.extra_lines),
         )
         return updated
