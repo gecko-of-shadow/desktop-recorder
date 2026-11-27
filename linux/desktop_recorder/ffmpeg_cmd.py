@@ -129,6 +129,20 @@ def _encoder(settings: Settings, when: datetime, audio: bool, synced: bool = Fal
     return args
 
 
+def even_region(region: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """x, y, width, height with an even width and height (libx264 4:4:4 needs no more, 4:2:0 clips need it)."""
+    x, y, w, h = (int(v) for v in region)
+    return max(0, x), max(0, y), max(2, w - w % 2), max(2, h - h % 2)
+
+
+def x11_input(display: str | None, region: tuple[int, int, int, int]) -> list[str]:
+    """The x11grab input: the whole screen, or the region (x, y, width, height; width 0 = whole screen)."""
+    if region[2] > 0 and region[3] > 0:
+        x, y, w, h = even_region(region)
+        return ["-video_size", f"{w}x{h}", "-i", f"{x11_target(display)}+{x},{y}"]
+    return ["-i", x11_target(display)]
+
+
 def x11_argv(settings: Settings, when: datetime, display: str | None, audio_device: str | None, ffmpeg: str = "ffmpeg") -> list[str]:
     fps = format_fps(settings.fps)
     # x11grab and pulse both stamp packets with the wall clock, but by default ffmpeg starts
@@ -159,8 +173,7 @@ def x11_argv(settings: Settings, when: datetime, display: str | None, audio_devi
         fps,
         "-draw_mouse",
         "1" if settings.show_pointer else "0",
-        "-i",
-        x11_target(display),
+        *x11_input(display, settings.region),
     ]
     if audio_device:
         args += ["-map", "1:v", "-map", "0:a"]

@@ -9,6 +9,7 @@ import subprocess
 import zipfile
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -22,6 +23,7 @@ from datetime import datetime  # noqa: E402
 from desktop_recorder import ai_folder  # noqa: E402
 from desktop_recorder.audio import probe_pulse  # noqa: E402
 from desktop_recorder.ffmpeg_cmd import x11_argv  # noqa: E402
+from desktop_recorder.region_select import WHOLE_SCREEN, drag_region  # noqa: E402
 from desktop_recorder.settings import Settings, parse_settings, serialize_settings  # noqa: E402
 from desktop_recorder.wayland import WaylandCapture  # noqa: E402
 
@@ -305,6 +307,89 @@ class AiFolderTests(unittest.TestCase):
         with open(os.path.join(folder, "index.md"), encoding="utf-8") as handle:
             self.assertIn("Test window", handle.read())
 
+
+
+class RegionSelectorTests(unittest.TestCase):
+    def test_drag_region(self) -> None:
+        self.assertEqual(drag_region(421, 301, 100, 80, 1280, 800), (100, 80, 320, 220))
+        self.assertEqual(drag_region(-50, -9, 2000, 900, 1280, 800), (0, 0, 1280, 800))
+        self.assertIsNone(drag_region(10, 10, 20, 200, 1280, 800))
+        self.assertIsNone(drag_region(5, 5, 5, 5, 1280, 800))
+
+    def test_region_goes_to_ffmpeg(self) -> None:
+        s = Settings(folder="/tmp/rec")
+        s.region = (101, 50, 641, 361)
+        argv = x11_argv(s, datetime(2026, 11, 27, 17, 0, 0), ":3", None)
+        self.assertEqual(argv[argv.index("-video_size") + 1], "640x360")
+        self.assertEqual(argv[argv.index("-i") + 1], ":3.0+101,50")
+        whole = x11_argv(Settings(folder="/tmp/rec"), datetime(2026, 11, 27, 17, 0, 0), ":3", None)
+        self.assertNotIn("-video_size", whole)
+        self.assertEqual(whole[whole.index("-i") + 1], ":3.0")
+
+    def test_tray_records_the_selected_region_once(self) -> None:
+        try:
+            from desktop_recorder import ui
+        except (ImportError, ValueError):
+            self.skipTest("GTK 3 for Python is not installed")
+        started: list = []
+
+        class FakeCapture:
+            warning = error = ai_job = None
+            is_active = False
+
+            def start(self, settings, _display):
+                started.append(settings.region)
+                self.is_active = True
+
+            def stop(self):
+                self.is_active = False
+
+            def session_files(self):
+                return []
+
+        tray = ui.Tray.__new__(ui.Tray)
+        tray.settings = Settings(folder="/tmp/dr", play_sounds=False, copy_to_clipboard=False)
+        tray.settings.region = (0, 0, 0, 0)
+        tray.capture = FakeCapture()
+        tray.refresh = lambda: None
+        with mock.patch.object(ui, "select_region", lambda done: done((10, 20, 300, 200))):
+            tray.select_and_record()
+        tray.stop_recording(False)
+        tray.start_recording(False)
+        self.assertEqual(started, [(10, 20, 300, 200), (0, 0, 0, 0)])
+        self.assertEqual(tray.settings.region, (0, 0, 0, 0))
+
+    @unittest.skipUnless(os.environ.get("DISPLAY") and shutil.which("xdotool"), "needs an X display and xdotool")
+    def test_selector_with_real_input(self) -> None:
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import GLib, Gtk
+        from desktop_recorder.region_select import select_region
+
+        def run(actions: list[str]) -> list:
+            got: list = []
+
+            def done(region) -> None:
+                got.append(region)
+                Gtk.main_quit()
+
+            def drive() -> None:
+                time.sleep(1.0)
+                for action in actions:
+                    subprocess.run(["xdotool", *action.split()], check=False)
+                    time.sleep(0.15)
+
+            self.assertIsNone(select_region(done))
+            threading.Thread(target=drive, daemon=True).start()
+            GLib.timeout_add(10000, Gtk.main_quit)
+            Gtk.main()
+            return got
+
+        self.assertEqual(run(["mousemove 100 80", "mousedown 1", "mousemove 250 200", "mousemove 421 301",
+                              "mouseup 1"]), [(100, 80, 320, 220)])
+        self.assertEqual(run(["key Escape"]), [None])
+        self.assertEqual(run(["mousemove 30 30", "click 1", "key space"]), [WHOLE_SCREEN])
 
 if __name__ == "__main__":
     unittest.main()

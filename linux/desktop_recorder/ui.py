@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+from dataclasses import replace
 
 import gi
 
@@ -21,6 +22,7 @@ from .ffmpeg_cmd import capture_backend
 from .gnome_hotkey import update_gnome_shortcut
 from .hotkey import parse_key
 from .hotkey_x11 import X11Hotkey
+from .region_select import Region, select_region
 from .settings import Settings, load_settings, save_settings, config_dir
 from .single_instance import InstanceServer
 
@@ -55,6 +57,8 @@ def run() -> int:
 
 
 class Tray:
+    region: Region | None = None   # from the selector, for this recording only
+
     def __init__(self) -> None:
         self.settings = load_settings()
         self.settings.start_on_login = autostart_enabled()
@@ -78,6 +82,8 @@ class Tray:
         self.status_item.set_sensitive(False)
         self.toggle_item = Gtk.MenuItem(label="Start recording")
         self.toggle_item.connect("activate", lambda *_a: self.toggle())
+        self.region_item = Gtk.MenuItem(label="Select region and record")
+        self.region_item.connect("activate", lambda *_a: self.select_and_record())
         folder_item = Gtk.MenuItem(label="Open recordings folder")
         folder_item.connect("activate", lambda *_a: self.open_folder())
         settings_item = Gtk.MenuItem(label="Settings...")
@@ -88,6 +94,7 @@ class Tray:
             self.status_item,
             Gtk.SeparatorMenuItem(),
             self.toggle_item,
+            self.region_item,
             folder_item,
             settings_item,
             Gtk.SeparatorMenuItem(),
@@ -138,7 +145,8 @@ class Tray:
         early = chime and self.settings.record_audio
         if early:
             sounds.play(True, wait=True)
-        error = self.capture.start(self.settings, os.environ.get("DISPLAY"))
+        settings = self.settings if self.region is None else replace(self.settings, region=self.region)
+        error = self.capture.start(settings, os.environ.get("DISPLAY"))
         self.refresh()
         if error:
             self.notify("Desktop Recorder", error)
@@ -152,6 +160,7 @@ class Tray:
     def stop_recording(self, sound: bool = True) -> None:
         if not self.capture.is_active:
             return
+        self.region = None
         self.capture.stop()
         # After ffmpeg has stopped, so the stop chime is not in the recording.
         if sound and self.settings.play_sounds:
@@ -204,6 +213,22 @@ class Tray:
         self.notify("Desktop Recorder", text[:250])
         return False
 
+    def select_and_record(self) -> None:
+        if self.capture.is_active:
+            return
+
+        def chosen(region: Region | None) -> None:
+            if region is None or self.capture.is_active:
+                return
+            self.region = region
+            self.start_recording()
+            if not self.capture.is_active:
+                self.region = None
+
+        error = select_region(chosen)
+        if error:
+            self.notify("Desktop Recorder", error)
+
     def toggle(self) -> None:
         if self.capture.is_active:
             self.stop_recording()
@@ -249,6 +274,9 @@ class Tray:
         if self.hotkey is not None and self.hotkey.registered:
             hotkey = "    " + self.settings.hotkey_text
         self.toggle_item.set_label(("Stop recording" if recording else "Start recording") + hotkey)
+        self.region_item.set_sensitive(not recording and capture_backend() == "x11")
+        if recording and self.region is not None:
+            self.status_item.set_label(self.status_item.get_label() + f", region {self.region[2]} x {self.region[3]}")
         tooltip = "Desktop Recorder: recording" if recording else "Desktop Recorder: stopped"
         path = self._icon_path(recording)
         if self._icon is not None:

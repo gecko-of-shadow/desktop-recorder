@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from .ffmpeg_cmd import format_fps, stamp_of, x11_target
+from .ffmpeg_cmd import format_fps, stamp_of, x11_input
 
 WORK_FILE = "work_lossless.mp4"
 AUDIO_FILE = "audio_system.wav"   # the Windows name; the pass puts it into clip.mp4 and leaves it out of the ZIP
@@ -31,12 +31,6 @@ PASS_EXE = "ai_pass.exe"
 
 def folder_for(parent: str, when: datetime) -> str:
     return os.path.join(parent, "desktop_" + stamp_of(when))
-
-
-def even_region(region: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
-    """x, y, width, height with an even width and height (libx264 4:4:4 needs no more, 4:2:0 clips need it)."""
-    x, y, w, h = (int(v) for v in region)
-    return max(0, x), max(0, y), max(2, w - w % 2), max(2, h - h % 2)
 
 
 def work_argv(
@@ -55,7 +49,6 @@ def work_argv(
     the first frame, aresample pads silence), so WAV time 0 is video time 0 (as x11_argv does for the MP4).
     """
     gop = max(2, int(round(fps * 30)))
-    target = x11_target(display)
     shift = ["-itsoffset", f"-{(when or datetime.now()).timestamp():.6f}"] if audio_device else []
     args = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostats", "-y"]
     if audio_device:
@@ -64,11 +57,8 @@ def work_argv(
     args += ["-thread_queue_size", "1024", *shift, "-f", "x11grab", "-framerate", format_fps(fps), "-draw_mouse", "0"]
     crop = "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"
     filters = [f"fps={format_fps(fps)}:start_time=0"] if audio_device else []
-    if region is not None:
-        x, y, w, h = even_region(region)
-        args += ["-video_size", f"{w}x{h}", "-i", f"{target}+{x},{y}"]
-    else:
-        args += ["-i", target]
+    args += x11_input(display, region or (0, 0, 0, 0))
+    if region is None:
         filters.append(crop)
     if audio_device:
         args += ["-map", "1:v"]
