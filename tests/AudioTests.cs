@@ -26,6 +26,7 @@ static class AudioTests
         TestSrt();
         TestIndexSection();
         TestSpeechCheck();
+        TestTrimSilence();
         TestMayHaveSpeech();
         TestFindWhisper();
         TestWhisperArguments();
@@ -360,6 +361,31 @@ static class AudioTests
         Expect(dropped == 2 && kept.Count == 1 && kept[0].Text == "Real words.", "filter: 1 kept, 2 left out");
         kept = SpeechCheck.Filter(rows, null, out dropped);
         Expect(dropped == 0 && kept.Count == 3, "filter without levels keeps all rows");
+    }
+
+    static void TestTrimSilence()
+    {
+        // 0 to 24.6 s digital silence, 24.6 to 30 s speech, 30 to 40 s silence.
+        double[] levels = new double[400];
+        for (int i = 0; i < levels.Length; i++) levels[i] = i >= 246 && i < 300 ? -30 : double.NegativeInfinity;
+        List<TranscriptSegment> rows = new List<TranscriptSegment>();
+        rows.Add(Row(0, 29.2, "And so my fellow Americans"));
+        rows.Add(Row(29.2, 30.1, "for your country."));
+        rows.Add(Row(25, 38, "ask not."));
+        rows.Add(Row(31, 33, "Thank you."));
+        SpeechCheck.TrimSilence(rows, levels);
+        Expect(Math.Abs(rows[0].Start - 24.4) < 1e-6 && rows[0].End == 29.2, "leading silence cut: " + rows[0].Start + " to " + rows[0].End);
+        Expect(rows[1].Start == 29.2 && rows[1].End == 30.1, "short silence (0.1 s) stays: " + rows[1].End);
+        Expect(rows[2].Start == 25 && Math.Abs(rows[2].End - 30.2) < 1e-6, "trailing silence cut: " + rows[2].End);
+        Expect(rows[3].Start == 31 && rows[3].End == 33, "a row with no sound keeps its times (Filter decides)");
+        double[] quiet = new double[100];
+        for (int i = 0; i < quiet.Length; i++) quiet[i] = i >= 80 ? -30 : -85;
+        List<TranscriptSegment> steady = new List<TranscriptSegment>();
+        steady.Add(Row(0, 10, "Words."));
+        SpeechCheck.TrimSilence(steady, quiet);
+        Expect(steady[0].Start == 0 && steady[0].End == 10, "steady quiet sound keeps the times");
+        SpeechCheck.TrimSilence(steady, null);
+        Expect(steady[0].Start == 0, "no levels: no change");
     }
 
     static string TempDir()

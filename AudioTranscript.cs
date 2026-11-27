@@ -508,6 +508,32 @@ static class SpeechCheck
         return kept;
     }
 
+    // Whisper starts a row at the start of its 30 s window when the speech comes later in that window, and can end it
+    // after the speech (Linux test of 2026-11-27, whisper.cpp tiny.en: a row "0.0 s to 29.2 s" for speech from 24.6 s).
+    // A row then sends the reader of index.md to a time with nothing in it. The row's start moves to its first window
+    // with sound, and its end to the end of its last, when that cuts TrimMinSeconds or more; TrimMarginSeconds stays.
+    // Only digital silence (below SoundFloorDb) is cut, so steady quiet sound under the speech keeps the times.
+    public const double TrimMinSeconds = 1.0;
+    public const double TrimMarginSeconds = 0.2;
+
+    public static void TrimSilence(IList<TranscriptSegment> rows, double[] levels)
+    {
+        if (levels == null) return;
+        foreach (TranscriptSegment row in rows)
+        {
+            int first = (int)Math.Floor(Math.Max(0, row.Start) / WindowSeconds + 1e-9);
+            int last = Math.Min(levels.Length, (int)Math.Ceiling(row.End / WindowSeconds - 1e-9)) - 1;
+            int a = first;
+            while (a <= last && !(levels[a] >= SoundFloorDb)) a++;
+            if (a > last) continue;   // no sound in the row: Filter decides
+            int b = last;
+            while (b > a && !(levels[b] >= SoundFloorDb)) b--;
+            double soundStart = a * WindowSeconds, soundEnd = (b + 1) * WindowSeconds;
+            if (soundStart - row.Start >= TrimMinSeconds - 1e-9) row.Start = soundStart - TrimMarginSeconds;
+            if (row.End - soundEnd >= TrimMinSeconds - 1e-9) row.End = soundEnd + TrimMarginSeconds;
+        }
+    }
+
     static bool ReadFull(Stream s, byte[] b, int count)
     {
         int at = 0;

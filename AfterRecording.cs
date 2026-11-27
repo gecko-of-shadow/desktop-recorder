@@ -309,6 +309,7 @@ static class AfterRecording
         int dropped;
         segments = SpeechCheck.Filter(segments, levels, out dropped);
         r.TranscriptRowsDropped = dropped;
+        SpeechCheck.TrimSilence(segments, levels);
         // No rows: no transcript.srt (an empty file helps nobody).
         if (segments.Count > 0)
             RecorderCore.AtomicWrite(Path.Combine(input.Folder, AudioMux.TranscriptFileName), Transcript.FormatSrt(segments));
