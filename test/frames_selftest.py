@@ -6,7 +6,8 @@ them, and compares the results with the known numbers.
 
 Videos:
   1. testsrc2 at 4 fps, converted to 12 fps (each picture 3 times).
-     Encoded with ffv1 (lossless), h264_nvenc lossless and h264_nvenc lossy.
+     Encoded with ffv1 (lossless), H.264 lossless and H.264 lossy. H.264 is
+     h264_nvenc when it works, else libx264 (see --encoder).
   2. A variable frame rate (VFR) file with known timestamps.
   3. Bar code videos. A Python generator draws the bar code format of
      counter.html into raw frames, with known skips, repeats and one
@@ -34,6 +35,30 @@ FRAMES_PY = os.path.join(HERE, "frames.py")
 COUNTER_HTML = os.path.join(HERE, "counter.html")
 
 RESULTS = []
+H264 = "h264_nvenc"   # set in main(): h264_nvenc, or libx264 when NVENC is missing
+
+
+def nvenc_works():
+    """True when ffmpeg can open h264_nvenc (an NVIDIA GPU and its driver are present)."""
+    res = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=size=256x256:rate=1",
+                          "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-"],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return res.returncode == 0
+
+
+def h264(kind):
+    """Encoder arguments for kind lossless, lossy or cq45, with the encoder in H264."""
+    if H264 == "h264_nvenc":
+        return {"lossless": ["-c:v", "h264_nvenc", "-tune", "lossless"],
+                "lossy": ["-c:v", "h264_nvenc", "-pix_fmt", "yuv420p"],
+                "cq45": ["-c:v", "h264_nvenc", "-pix_fmt", "yuv420p", "-rc", "vbr", "-cq", "45", "-b:v", "0"]}[kind]
+    return {"lossless": ["-c:v", "libx264", "-qp", "0", "-pix_fmt", "yuv444p"],
+            "lossy": ["-c:v", "libx264", "-pix_fmt", "yuv420p"],
+            "cq45": ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "45"]}[kind]
+
+
+def tag():
+    return "nvenc" if H264 == "h264_nvenc" else "x264"
 
 
 def check(name, cond, detail=""):
@@ -183,10 +208,9 @@ def test_dup(work):
            "longest_duplicate_run": 2}
     variants = [
         ("dup_ffv1.mkv", ["-c:v", "ffv1"], []),
-        ("dup_nvenc_lossless.mp4", ["-c:v", "h264_nvenc", "-tune", "lossless"], []),
-        ("dup_nvenc_lossy.mp4", ["-c:v", "h264_nvenc", "-pix_fmt", "yuv420p"], ["--threshold", "0.1"]),
-        ("dup_nvenc_frag.mp4", ["-c:v", "h264_nvenc", "-pix_fmt", "yuv420p",
-                                "-movflags", "+frag_keyframe+empty_moov+default_base_moof"],
+        ("dup_%s_lossless.mp4" % tag(), h264("lossless"), []),
+        ("dup_%s_lossy.mp4" % tag(), h264("lossy"), ["--threshold", "0.1"]),
+        ("dup_%s_frag.mp4" % tag(), h264("lossy") + ["-movflags", "+frag_keyframe+empty_moov+default_base_moof"],
          ["--threshold", "0.1"]),
     ]
     for name, codec, extra in variants:
@@ -229,10 +253,13 @@ def test_dup(work):
 
 
 def test_vfr(work):
-    path = os.path.join(work, "vfr_nvenc.mp4")
-    ffmpeg(["-f", "lavfi", "-i", "testsrc2=size=640x360:rate=10", "-t", "10",
-            "-vf", "select=lt(mod(n\\,10)\\,3)", "-fps_mode", "vfr",
-            "-c:v", "h264_nvenc", "-pix_fmt", "yuv420p", path])
+    path = os.path.join(work, "vfr_%s.mp4" % tag())
+    try:
+        ffmpeg(["-f", "lavfi", "-i", "testsrc2=size=640x360:rate=10", "-t", "10",
+                "-vf", "select=lt(mod(n\\,10)\\,3)", "-fps_mode", "vfr"] + h264("lossy") + [path])
+    except RuntimeError as e:
+        check("vfr encode", False, str(e).splitlines()[0])
+        return
     rep, rc, _ = run_frames(path, path + ".json")
     check("vfr total_frames", rep["total_frames"] == 30, "got %s" % rep["total_frames"])
     check("vfr unique_frames", rep["unique_frames"] == 30, "got %s" % rep["unique_frames"])
@@ -247,16 +274,19 @@ def test_barcode(work):
     seq = make_sequence()
     exp = expected_counter(seq)
     variants = [
-        ("bar_page_nvenc.mp4", False, ["-c:v", "h264_nvenc", "-pix_fmt", "yuv420p"]),
-        ("bar_chrome_nvenc.mp4", True, ["-c:v", "h264_nvenc", "-pix_fmt", "yuv420p"]),
-        ("bar_chrome_nvenc_cq45.mp4", True, ["-c:v", "h264_nvenc", "-pix_fmt", "yuv420p",
-                                              "-rc", "vbr", "-cq", "45", "-b:v", "0"]),
+        ("bar_page_%s.mp4" % tag(), False, h264("lossy")),
+        ("bar_chrome_%s.mp4" % tag(), True, h264("lossy")),
+        ("bar_chrome_%s_cq45.mp4" % tag(), True, h264("cq45")),
         ("bar_page_ffv1.mkv", False, ["-c:v", "ffv1"]),
     ]
     duration = 10.0
     for name, chrome, codec in variants:
         path = os.path.join(work, name)
-        c = gen_barcode_video(path, seq, chrome, codec)
+        try:
+            c = gen_barcode_video(path, seq, chrome, codec)
+        except RuntimeError as e:
+            check(name + " encode", False, str(e).splitlines()[0])
+            continue
         # Expected fps that gives PASS, and one that gives FAIL.
         u = exp["unique_values"]
         f_pass = u / (0.98 * duration) - 0.5
@@ -275,7 +305,7 @@ def test_barcode(work):
         rep2, rc2, _ = run_frames(path, path + ".fail.json", "--counter", "--expected-fps", "%.3f" % f_fail)
         check(name + " FAIL at %.3f fps" % f_fail, rep2["counter"]["result"] == "FAIL" and rc2 == 1,
               rep2["counter"]["result"])
-        if name == "bar_page_nvenc.mp4":
+        if name.startswith("bar_page_") and name.endswith(".mp4"):
             rep3, _, _ = run_frames(path, path + ".thr.json", "--threshold", "0.1")
             check(name + " threshold 0.1 duplicate_frames", rep3["duplicate_frames"] == exp["repeats"],
                   "got %s, expected %s" % (rep3["duplicate_frames"], exp["repeats"]))
@@ -347,7 +377,16 @@ def main():
     ap.add_argument("--browser", metavar="EXE", nargs="?", const="auto",
                     help="Also test counter.html with headless screenshots. Give the browser path, "
                          "or no value to find Edge or Chrome.")
+    ap.add_argument("--encoder", choices=("auto", "nvenc", "x264"), default="auto",
+                    help="H.264 encoder for the lossy and lossless cases. auto uses h264_nvenc when it "
+                         "works, else libx264 (a PC without an NVIDIA GPU, or Linux CI).")
     args = ap.parse_args()
+    global H264
+    if args.encoder == "nvenc" or (args.encoder == "auto" and nvenc_works()):
+        H264 = "h264_nvenc"
+    else:
+        H264 = "libx264"
+    print("H.264 encoder: " + H264)
     work = args.work or tempfile.mkdtemp(prefix="frames_selftest_")
     os.makedirs(work, exist_ok=True)
     print("Work folder: " + work)

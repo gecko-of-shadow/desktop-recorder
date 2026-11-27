@@ -9,3 +9,5 @@ mcs -sdk:4.5 -nologo -target:exe -out:/tmp/desktop-recorder-tests.exe -r:System.
   tests/CoreTests.cs tests/AiCaptureTests.cs tests/AudioTests.cs tests/UiTests.cs UiModel.cs RecorderCore.cs RecordingSession.cs SettledFrames.cs AudioTranscript.cs AfterRecording.cs
 mono /tmp/desktop-recorder-tests.exe
 PYTHONPATH=linux python3 -m unittest discover -s tests -v
+python3 test/score_selftest.py
+python3 test/frames_selftest.py --work "$(mktemp -d /tmp/frames_selftest_XXXXXX)"
