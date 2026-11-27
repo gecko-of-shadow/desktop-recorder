@@ -7,6 +7,7 @@ import os
 import queue
 import subprocess
 import threading
+import time
 from datetime import datetime
 
 from . import ai_folder
@@ -21,6 +22,7 @@ class WaylandCapture:
         self._lock = threading.Lock()
         self._pipeline = None
         self._proc: subprocess.Popen[bytes] | None = None
+        self._audio_proc: subprocess.Popen[bytes] | None = None   # Folder for AI: audio_system.wav
         self._pump: threading.Thread | None = None
         self._frames: queue.Queue[bytes | None] = queue.Queue(maxsize=2)
         self._started = False
@@ -46,7 +48,7 @@ class WaylandCapture:
         ffmpeg: str = "ffmpeg",
         work_folder: str | None = None,
     ) -> str | None:
-        """work_folder: write the Folder for AI work file there (no audio) instead of the MP4."""
+        """work_folder: write the Folder for AI work file (and audio_system.wav) there instead of the MP4."""
         description = wayland_pipeline(stream.fd, stream.node_id, stream.serial, settings.fps)
         try:
             import gi
@@ -141,6 +143,11 @@ class WaylandCapture:
             if self._work_folder:
                 os.makedirs(self._work_folder, exist_ok=True)
                 argv = ai_folder.pipe_work_argv(self._work_folder, width, height, ffmpeg, settings.fps)
+                if audio_device:
+                    # Video time 0 is this frame; the WAV starts at the same wall-clock time.
+                    self._audio_proc = subprocess.Popen(
+                        ai_folder.wav_argv(self._work_folder, audio_device, time.time(), ffmpeg),
+                        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
                 os.makedirs(settings.folder, exist_ok=True)
                 argv = wayland_ffmpeg_argv(settings, when, width, height, audio_device, ffmpeg)
@@ -215,6 +222,10 @@ class WaylandCapture:
             pass
         if self._pump is not None:
             self._pump.join(5)
+        audio = self._audio_proc
+        self._audio_proc = None
+        if audio is not None:
+            _quit(audio)
         proc = self._proc
         self._proc = None
         if proc is not None:
@@ -252,6 +263,21 @@ class WaylandCapture:
                 continue
         found.sort(key=lambda path: path.lower())
         return found
+
+
+def _quit(proc: subprocess.Popen[bytes]) -> None:
+    """"q" lets ffmpeg write the WAV header; kill only when it does not end."""
+    try:
+        if proc.stdin is not None:
+            proc.stdin.write(b"q")
+            proc.stdin.close()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
 
 
 def _snapshot(folder: str) -> list[str]:

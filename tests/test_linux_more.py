@@ -369,6 +369,48 @@ class WaylandFolderTests(unittest.TestCase):
         self.assertEqual(int(frames) + cap.dropped_frames, 30)
         self.assertGreaterEqual(int(frames), 25)
 
+    def test_audio_wav_starts_with_the_first_frame(self) -> None:
+        argv = ai_folder.wav_argv("/tmp/rec", "mon.monitor", 1764284400.25, "ffmpeg")
+        self.assertEqual(argv[argv.index("-itsoffset") + 1], "-1764284400.250000")
+        self.assertIn("-copyts", argv)
+        self.assertEqual(argv[argv.index("-af") + 1], "aresample=async=1:first_pts=0")
+        self.assertEqual(argv[-1], "/tmp/rec/audio_system.wav")
+        # The WAV ffmpeg starts with the first frame and gets "q" at stop.
+        parent = tempfile.mkdtemp(prefix="dr-wl-audio-")
+        folder = os.path.join(parent, "desktop_x")
+        fake = os.path.join(parent, "fake_wav.py")
+        with open(fake, "w", encoding="utf-8") as handle:
+            handle.write("import sys\nopen(sys.argv[1] + '.started', 'w').close()\n"
+                         "data = sys.stdin.read(1)\nopen(sys.argv[1], 'w').write('stopped by ' + data)\n")
+        starts: list = []
+
+        def fake_argv(work, device, start, _ffmpeg):
+            starts.append((device, start))
+            return [sys.executable, fake, os.path.join(work, ai_folder.AUDIO_FILE)]
+
+        cap = WaylandCapture()
+        cap._reset()
+        cap._started = True
+        cap._work_folder = folder
+        settings = Settings(folder=parent)
+        settings.fps = ai_folder.AI_FPS
+        before = time.time()
+        with mock.patch.object(ai_folder, "wav_argv", fake_argv):
+            for _ in range(3):
+                cap._ensure_encoder(settings, datetime(2026, 11, 27), 4, 4, "mon.monitor", self.ffmpeg_or_skip(),
+                                    bytes(64))
+            cap.stop()
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0][0], "mon.monitor")
+        self.assertGreaterEqual(starts[0][1], before)
+        with open(os.path.join(folder, ai_folder.AUDIO_FILE), encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "stopped by q")
+
+    def ffmpeg_or_skip(self) -> str:
+        if not shutil.which("ffmpeg"):
+            self.skipTest("needs ffmpeg")
+        return "ffmpeg"
+
     def test_capture_uses_the_portal_in_folder_mode(self) -> None:
         from desktop_recorder.capture import Capture
 

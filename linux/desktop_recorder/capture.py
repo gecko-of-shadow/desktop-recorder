@@ -92,17 +92,15 @@ class Capture:
         return None
 
     def _start_wayland_folder(self, settings: Settings, when: datetime, audio: str | None, ffmpeg: str) -> str | None:
-        """The portal stream at 10 fps into the work file. No sound, region or window titles on Wayland yet."""
+        """The portal stream at 10 fps into the work file, the audio into its own WAV. No region or titles yet."""
         folder = ai_folder.folder_for(settings.folder, when)
         work = replace(settings, fps=ai_folder.AI_FPS)
-        error = self._start_wayland(work, when, None, ffmpeg, folder)
+        error = self._start_wayland(work, when, audio, ffmpeg, folder)
         settings.wayland_restore_token = work.wayland_restore_token
         if error is not None:
             return error
-        left_out = [name for name, on in (("sound", audio is not None), ("region", settings.region[2] > 0))
-                    if on]
-        if left_out:
-            self.warning = "Folder for AI on Wayland has no " + " and no ".join(left_out) + " yet."
+        if settings.region[2] > 0:
+            self.warning = "Folder for AI on Wayland has no region yet."
         self.ai_job = (folder, when, settings)
         return None
 

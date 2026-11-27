@@ -77,6 +77,18 @@ def pipe_work_argv(folder: str, width: int, height: int, ffmpeg: str = "ffmpeg",
             "-framerate", format_fps(fps), "-i", "pipe:0", "-vf", EVEN_CROP, *_work_output(folder, fps)]
 
 
+def wav_argv(folder: str, audio_device: str, start: float, ffmpeg: str = "ffmpeg") -> list[str]:
+    """Wayland: the system audio by itself, from `start` (wall clock, s): the time of the first video frame.
+
+    The pulse demuxer stamps packets with the wall clock; -copyts and the shift keep them, aresample pads silence
+    from `start` to the first packet. So WAV time 0 is the time of the first frame, as in work_argv.
+    """
+    return [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostats", "-y",
+            "-copyts", "-thread_queue_size", "1024", "-itsoffset", f"-{start:.6f}",
+            "-f", "pulse", "-fragment_size", "9600", "-i", audio_device,
+            "-af", "aresample=async=1:first_pts=0", "-c:a", "pcm_s16le", os.path.join(folder, AUDIO_FILE)]
+
+
 def _work_output(folder: str, fps: float) -> list[str]:
     gop = max(2, int(round(fps * 30)))
     return [

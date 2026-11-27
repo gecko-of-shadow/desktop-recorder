@@ -42,8 +42,9 @@ The pass is slow for a long recording, so it runs on a background thread; the tr
 
 ## Limits (27 Nov 2026)
 
-- Wayland: the portal stream (10 fps, BGRA through GStreamer) goes into the same work file. No sound, no
-  region and no window titles there yet; the tray says what was left out. Not tested on a real GNOME Wayland
+- Wayland: the portal stream (10 fps, BGRA through GStreamer) goes into the same work file, and a second
+  ffmpeg writes `audio_system.wav` from the time of the first frame (wall clock, as on X11). No region and no
+  window titles there yet; the tray says when a region was left out. Not tested on a real GNOME Wayland
   session: the test fed an X11 grab through the same code (`WaylandCapture._ensure_encoder`).
 - Whisper is not packaged. Build whisper.cpp (`cmake -B build && cmake --build build`) and get a model.
   The tiny.en model makes rough row times (the first row starts at 0 s even when the speech starts later).
@@ -61,3 +62,4 @@ The pass is slow for a long recording, so it runs on a background thread; the tr
 | 55 s scroll + 2 x 11 s speech (jfk.wav played into the sink) | 15 PNG, `clip.mp4` h264 + aac, 3 transcript rows (whisper.cpp tiny.en), pass 6.3 s; speech end in the WAV 0.13 s from the playback end | - |
 | Wayland code path (frames fed as the portal would), 55 s scroll, 220 lines | 215 of 220 in 18 PNG, 0 dropped of 549, pass 8.3 s | - |
 | 8 fake secrets x 3 fonts (terminal-like window), redaction | 8 of 8 hidden in the PNGs and in index.md (re-OCR of the redacted PNGs finds no 8-character piece); 0 redactions on 25 secret-free frames | - |
+| Wayland code path with audio (jfk.wav once) | WAV speech ends 0.45 s before `paplay` returned (X11 path: 0.13 s); WAV 54.81 s, video 54.90 s; 2 transcript rows | - |
