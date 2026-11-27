@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import threading
 from collections.abc import Callable
 
 from .settings import clamp_fps
+
+# Below this much free space a recording does not start; below the second one it stops cleanly.
+MIN_FREE_START = 200 * 1024 * 1024
+MIN_FREE_RECORDING = 64 * 1024 * 1024
+DISK_CHECK_SECONDS = 2.0
 
 
 class Recording:
@@ -22,7 +28,14 @@ class Recording:
         self._stderr: list[str] = []
         self._idle = threading.Event()
         self._idle.set()
+        self._low_disk: str | None = None
+        self._bad: set[str] = set()
         self.on_failed: Callable[[str], None] | None = None
+        # Set after stop when the files may be broken or short. None means the recording is good.
+        self.error: str | None = None
+        self.min_free_start = MIN_FREE_START
+        self.min_free_recording = MIN_FREE_RECORDING
+        self.check_file: Callable[[str], str | None] = check_video
 
     @property
     def is_active(self) -> bool:
@@ -38,6 +51,12 @@ class Recording:
             os.makedirs(folder, exist_ok=True)
         except OSError as exc:
             return f"Cannot create the folder {folder}: {exc}"
+        free = free_bytes(folder)
+        if free is not None and free < self.min_free_start:
+            return (
+                f"Not enough free disk space in {folder}: {free // (1024 * 1024)} MB free, "
+                f"at least {self.min_free_start // (1024 * 1024)} MB is needed."
+            )
         with self._lock:
             if self._state != "idle":
                 return "Desktop Recorder is already recording."
@@ -56,10 +75,14 @@ class Recording:
             self._before = existing
             self._fps = clamp_fps(fps)
             self._stderr = []
+            self._low_disk = None
+            self._bad = set()
+            self.error = None
             self._state = "recording"
             self._idle.clear()
             self._watcher = threading.Thread(target=self._watch, args=(proc,), name="ffmpeg-stderr", daemon=True)
             self._watcher.start()
+            threading.Thread(target=self._watch_disk, args=(proc, folder), name="disk-space", daemon=True).start()
         return None
 
     def stop(self) -> None:
@@ -79,7 +102,7 @@ class Recording:
                 fps = self._fps
                 self._proc = None
         if not claimed:
-            self._idle.wait(20)
+            self._idle.wait(30)
             return
         try:
             _finish(proc, fps)
@@ -87,11 +110,40 @@ class Recording:
             if watcher is not None:
                 watcher.join(10)
             _close_pipes(proc)
+            error = self._judge(proc)
             with self._lock:
+                self.error = error
                 self._state = "idle"
                 self._idle.set()
 
+    def _judge(self, proc: subprocess.Popen[bytes] | None) -> str | None:
+        """Why the files of this recording cannot be trusted, or None."""
+        with self._lock:
+            text = "\n".join(self._stderr).strip()
+            low_disk = self._low_disk
+        problems = []
+        if low_disk:
+            problems.append(low_disk)
+        code = None if proc is None else proc.returncode
+        if code not in (0, None) and not low_disk:
+            problems.append(f"ffmpeg ended with error code {code}." + (" " + text[-300:] if text else ""))
+        bad = set()
+        for path in self._new_files():
+            reason = self.check_file(path)
+            if reason:
+                bad.add(os.path.normcase(path))
+                problems.append(f"{os.path.basename(path)} is damaged: {reason}")
+        with self._lock:
+            self._bad = bad
+        return "\n".join(problems) if problems else None
+
     def session_files(self) -> list[str]:
+        """Good video files of the last recording. Damaged files stay on the disk but are left out."""
+        with self._lock:
+            bad = set(self._bad)
+        return [path for path in self._new_files() if os.path.normcase(path) not in bad]
+
+    def _new_files(self) -> list[str]:
         with self._lock:
             folder = self._folder
             prior = list(self._before)
@@ -125,6 +177,9 @@ class Recording:
                         used = sum(len(item) for item in self._stderr)
                         if used < 2000:
                             self._stderr.append(text)
+                        # ffmpeg keeps grabbing after a write fails, so say it at once.
+                        if "No space left on device" in text and self._low_disk is None and self._proc is proc:
+                            self._low_disk = "The disk is full, so the recording stopped early."
         except Exception:
             pass
         try:
@@ -143,11 +198,82 @@ class Recording:
                 callback = self.on_failed
                 message = text or "ffmpeg stopped."
         _close_pipes(proc)
-        if unexpected and callback is not None:
+        if not unexpected:
+            return
+        error = self._judge(proc) or message
+        with self._lock:
+            self.error = error
+        if callback is not None:
             try:
-                callback(message)
+                callback(error)
             except Exception:
                 pass
+
+
+    def _watch_disk(self, proc: subprocess.Popen[bytes], folder: str) -> None:
+        """Stop cleanly before the disk is full, so the file ends properly instead of being cut."""
+        while True:
+            try:
+                proc.wait(timeout=DISK_CHECK_SECONDS)
+                return
+            except subprocess.TimeoutExpired:
+                pass
+            with self._lock:
+                if self._proc is not proc or self._state != "recording":
+                    return
+                message = self._low_disk
+            free = free_bytes(folder)
+            if message is None and free is not None and free < self.min_free_recording:
+                message = f"Less than {self.min_free_recording // (1024 * 1024)} MB is free on the disk, so the recording stopped early."
+            if message is None:
+                continue
+            with self._lock:
+                if self._proc is not proc or self._state != "recording":
+                    return
+                self._low_disk = message
+                callback = self.on_failed
+            self.stop()
+            if callback is not None:
+                try:
+                    callback(self.error or message)
+                except Exception:
+                    pass
+            return
+
+
+def free_bytes(folder: str) -> int | None:
+    try:
+        return shutil.disk_usage(folder).free
+    except OSError:
+        return None
+
+
+def check_video(path: str) -> str | None:
+    """Return why ffprobe cannot read the whole file, or None when it is good (or ffprobe is missing)."""
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        return None
+    try:
+        probe = subprocess.run(
+            # -count_packets reads every packet, so a cut file reports "partial file".
+            [ffprobe, "-v", "error", "-count_packets", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", path],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"ffprobe failed: {exc}"
+    errors = probe.stderr.strip()
+    if probe.returncode != 0 or errors:
+        return (errors.splitlines() or [f"ffprobe exit code {probe.returncode}"])[0][:200]
+    try:
+        duration = float(probe.stdout.strip())
+    except ValueError:
+        return "it has no duration."
+    if duration <= 0:
+        return "it is empty."
+    return None
 
 
 def _snapshot(folder: str) -> list[str]:

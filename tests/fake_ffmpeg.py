@@ -3,6 +3,7 @@
 
 The last argument is the output path. --fail prints an error and exits at once.
 --slow waits before treating "q" as quit, so a stop and a start can overlap.
+--fail-at-stop exits with code 3 after "q", like ffmpeg that could not finish the file.
 """
 import sys
 import time
@@ -31,7 +32,7 @@ def main() -> int:
         time.sleep(0.8)
     with open(output, "ab") as handle:
         handle.write(b"ok")
-    return 0
+    return 3 if "--fail-at-stop" in flags else 0
 
 
 if __name__ == "__main__":

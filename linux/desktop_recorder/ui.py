@@ -145,8 +145,12 @@ class Tray:
             sounds.play(False)
         self.capture.stop()
         self.refresh()
+        error = self.capture.error
+        if error:
+            self.notify("Desktop Recorder", error[:250])
         if not self.settings.copy_to_clipboard:
             return
+        # Damaged files are left out, so a broken video is never pasted into a chat.
         files = self.capture.session_files()
         if not files:
             return

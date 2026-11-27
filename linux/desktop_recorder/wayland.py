@@ -55,6 +55,7 @@ class WaylandCapture:
         sink = pipeline.get_by_name("sink")
         if sink is None:
             return "Could not build the PipeWire capture pipeline."
+        self.error = None
         self._stream = stream
         self._folder = settings.folder
         self._before = _snapshot(settings.folder)

@@ -96,6 +96,13 @@ class Capture:
         else:
             self.x11.stop()
 
+    @property
+    def error(self) -> str | None:
+        """Why the last recording's files cannot be trusted, or None."""
+        if self.mode == "wayland":
+            return self.wayland.error
+        return self.x11.error
+
     def session_files(self) -> list[str]:
         if self.mode == "wayland":
             return self.wayland.session_files()

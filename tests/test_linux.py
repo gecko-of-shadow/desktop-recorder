@@ -26,6 +26,7 @@ from desktop_recorder.ffmpeg_cmd import (  # noqa: E402
 from desktop_recorder.gnome_hotkey import PATH, update_gnome_shortcut  # noqa: E402
 from desktop_recorder.hotkey import try_set  # noqa: E402
 from desktop_recorder.portal import PortalError, ScreenCast  # noqa: E402
+from desktop_recorder import recording  # noqa: E402
 from desktop_recorder.recording import Recording  # noqa: E402
 from desktop_recorder.settings import Settings, parse_settings, serialize_settings  # noqa: E402
 from desktop_recorder.single_instance import InstanceServer, send_command  # noqa: E402
@@ -199,6 +200,7 @@ class RecordingTests(unittest.TestCase):
         with open(old, "w", encoding="utf-8") as handle:
             handle.write("old")
         session = Recording()
+        session.check_file = lambda _path: None
         failed = []
         session.on_failed = failed.append
         output = os.path.join(folder, "desktop_new.mp4")
@@ -230,6 +232,60 @@ class RecordingTests(unittest.TestCase):
         self.assertIsNotNone(session.start(["python3", FAKE, os.path.join(folder, "desktop_other.mp4")], folder, 2))
         stopper.join(8)
         self.assertFalse(session.is_active)
+
+    def test_bad_exit_and_damaged_file_are_errors(self) -> None:
+        folder = tempfile.mkdtemp(prefix="dr-py-")
+        session = Recording()
+        session.check_file = lambda _path: None
+        output = os.path.join(folder, "desktop_code.mp4")
+        self.assertIsNone(session.start(["python3", FAKE, "--fail-at-stop", output], folder, 2))
+        session.stop()
+        self.assertIn("error code 3", session.error or "")
+
+        session.check_file = lambda path: "partial file" if path.endswith("desktop_cut.mp4") else None
+        cut = os.path.join(folder, "desktop_cut.mp4")
+        self.assertIsNone(session.start(["python3", FAKE, cut], folder, 2))
+        session.stop()
+        self.assertIn("desktop_cut.mp4 is damaged: partial file", session.error or "")
+        self.assertEqual(session.session_files(), [])
+        self.assertTrue(os.path.exists(cut))
+
+        good = os.path.join(folder, "desktop_good.mp4")
+        self.assertIsNone(session.start(["python3", FAKE, good], folder, 2))
+        session.stop()
+        self.assertIsNone(session.error)
+        self.assertEqual(session.session_files(), [good])
+
+    def test_low_disk(self) -> None:
+        folder = tempfile.mkdtemp(prefix="dr-py-")
+        session = Recording()
+        session.check_file = lambda _path: None
+        session.min_free_start = 1 << 62
+        error = session.start(["python3", FAKE, os.path.join(folder, "desktop_none.mp4")], folder, 2)
+        self.assertIn("Not enough free disk space", error or "")
+        self.assertFalse(session.is_active)
+
+        session.min_free_start = 0
+        session.min_free_recording = 1 << 62
+        failed = []
+        session.on_failed = failed.append
+        previous = recording.DISK_CHECK_SECONDS
+        recording.DISK_CHECK_SECONDS = 0.05
+        try:
+            output = os.path.join(folder, "desktop_low.mp4")
+            self.assertIsNone(session.start(["python3", FAKE, output], folder, 2))
+            for _ in range(100):
+                if failed:
+                    break
+                threading.Event().wait(0.05)
+        finally:
+            recording.DISK_CHECK_SECONDS = previous
+        self.assertFalse(session.is_active)
+        self.assertTrue(any("stopped early" in item for item in failed))
+        self.assertIn("stopped early", session.error or "")
+        # The stop was clean ("q"), so the file was finished.
+        with open(output, "rb") as handle:
+            self.assertEqual(handle.read(), b"xok")
 
 
 class OtherTests(unittest.TestCase):
