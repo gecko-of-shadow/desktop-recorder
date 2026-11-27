@@ -7,6 +7,7 @@ import shutil
 from datetime import datetime
 
 from .audio import find_monitor, probe_pulse
+from .audio_pin import SourcePin
 from .ffmpeg_cmd import capture_backend, x11_argv
 from .recording import Recording
 from .settings import Settings
@@ -20,6 +21,7 @@ class Capture:
         self.mode: str | None = None
         self.warning: str | None = None
         self._portal_session: str | None = None
+        self._pin: SourcePin | None = None
 
     @property
     def is_active(self) -> bool:
@@ -38,6 +40,9 @@ class Capture:
         elif audio and not probe_pulse(audio):
             self.warning = "System audio did not respond, so this recording is silent."
             audio = None
+        if self._pin is not None:
+            self._pin.stop()
+            self._pin = None
         when = datetime.now()
         backend = capture_backend()
         if backend == "wayland":
@@ -49,6 +54,9 @@ class Capture:
         )
         if error is None:
             self.mode = "x11"
+            if audio:
+                self._pin = SourcePin(audio, self.x11.process_ids)
+                self._pin.start()
         return error
 
     def _start_wayland(self, settings: Settings, when: datetime, audio: str | None, ffmpeg: str) -> str | None:
@@ -95,6 +103,9 @@ class Capture:
                     pass
         else:
             self.x11.stop()
+            if self._pin is not None:
+                self._pin.stop()
+                self._pin = None
 
     @property
     def error(self) -> str | None:

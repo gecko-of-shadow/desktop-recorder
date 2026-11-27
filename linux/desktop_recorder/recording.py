@@ -43,6 +43,20 @@ class Recording:
         with self._lock:
             return self._state != "idle"
 
+    def process_ids(self) -> set[int]:
+        """ffmpeg's process id (and the guard's) while recording."""
+        with self._lock:
+            proc = self._proc
+        if proc is None:
+            return set()
+        found = {proc.pid}
+        try:
+            with open(f"/proc/{proc.pid}/task/{proc.pid}/children", encoding="ascii") as handle:
+                found.update(int(item) for item in handle.read().split())
+        except (OSError, ValueError):
+            pass
+        return found
+
     def start(self, argv: list[str], folder: str, fps: float) -> str | None:
         if not argv or not argv[0]:
             return "ffmpeg was not found."

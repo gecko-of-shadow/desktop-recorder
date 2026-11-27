@@ -150,6 +150,36 @@ class AudioTests(unittest.TestCase):
         self.assertEqual(choose_monitor("@DEFAULT_SINK@", sinks, sources), "dr_speakers.monitor")
         self.assertIsNone(choose_monitor("@DEFAULT_SINK@", "35\tauto_null\tPipeWire\n", "35\tauto_null.monitor\tPipeWire\n"))
 
+    def test_moved_recording_is_put_back_on_its_output(self) -> None:
+        from desktop_recorder import audio_pin
+
+        sources = "0\tspeakers.monitor\tmodule-alsa-card.c\n2\theadphones.monitor\tmodule-alsa-card.c\n"
+        # Pulse moved ffmpeg (pid 4242) to the new default output; another app is left alone.
+        streams = (
+            "Source Output #7\n\tDriver: protocol-native.c\n\tSource: 2\n\tProperties:\n"
+            '\t\tapplication.name = "Lavf61.7.100"\n\t\tapplication.process.id = "4242"\n'
+            "Source Output #9\n\tSource: 2\n\tProperties:\n\t\tapplication.process.id = \"555\"\n"
+        )
+        self.assertEqual(audio_pin.stream_sources(streams), {7: ("2", 4242), 9: ("2", 555)})
+        self.assertEqual(audio_pin.source_index("speakers.monitor", sources), "0")
+        calls = []
+
+        def pactl(*args):
+            calls.append(args)
+            return {"sources": sources, "source-outputs": streams}.get(args[-1], "")
+
+        pin = audio_pin.SourcePin("speakers.monitor", lambda: {4241, 4242})
+        with mock.patch.object(audio_pin, "_pactl", side_effect=pactl):
+            pin.check()
+        self.assertIn(("move-source-output", "7", "speakers.monitor"), calls)
+        self.assertNotIn(("move-source-output", "9", "speakers.monitor"), calls)
+        # When the output is gone, the stream may follow the server.
+        calls.clear()
+        gone = audio_pin.SourcePin("unplugged.monitor", lambda: {4242})
+        with mock.patch.object(audio_pin, "_pactl", side_effect=pactl):
+            gone.check()
+        self.assertFalse([call for call in calls if call[0] == "move-source-output"])
+
 
 class PortalTests(unittest.TestCase):
     def test_source_choices(self) -> None:
