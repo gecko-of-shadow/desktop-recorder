@@ -28,11 +28,14 @@ def choose_monitor(default_sink: str, sinks_text: str, sources_text: str) -> str
     return monitor_from_listing(name, sources_text)
 
 
-def probe_pulse(device: str, timeout: float = 2.0) -> bool:
+def probe_pulse(device: str, timeout: float = 4.0) -> bool:
     """True when ffmpeg can open this Pulse/PipeWire source.
 
     A suspended source that never delivers a buffer would otherwise block the
     whole recording, including the picture. A short probe drops audio instead.
+    An idle (suspended) monitor that works needs 2.2 to 2.4 s for its first
+    0.2 s of audio (null sink, PulseAudio 17, 27 Nov 2026), so the old 2 s limit
+    made such a recording silent. 4 s leaves room and still ends a dead probe.
     """
     if not device:
         return False
