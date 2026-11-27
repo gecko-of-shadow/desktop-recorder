@@ -24,6 +24,7 @@ class WaylandCapture:
         self._proc: subprocess.Popen[bytes] | None = None
         self._audio_proc: subprocess.Popen[bytes] | None = None   # Folder for AI: audio_system.wav
         self._pump: threading.Thread | None = None
+        self._reader: threading.Thread | None = None
         self._frames: queue.Queue[bytes | None] = queue.Queue(maxsize=2)
         self._started = False
         self._folder: str | None = None
@@ -159,7 +160,9 @@ class WaylandCapture:
             )
             self._fps = settings.fps
             # Read stderr all the time: an unread pipe that fills (64 KB) blocks ffmpeg, and then the frame pump.
-            threading.Thread(target=self._read_errors, args=(self._proc,), name="wayland-ffmpeg-stderr", daemon=True).start()
+            self._reader = threading.Thread(target=self._read_errors, args=(self._proc,), name="wayland-ffmpeg-stderr",
+                                            daemon=True)
+            self._reader.start()
             self._pump = threading.Thread(target=self._write_frames, name="wayland-frames", daemon=True)
             self._pump.start()
             self._offer(first_frame)
@@ -234,6 +237,8 @@ class WaylandCapture:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=5)
+            if self._reader is not None:
+                self._reader.join(2)   # ffmpeg's last line (its error) can still be in the pipe after it ended
             if proc.returncode not in (0, None) and self.error is None:
                 last = self._stderr_tail[-1] if self._stderr_tail else "exit code %s" % proc.returncode
                 self.error = "ffmpeg stopped with an error: " + last
