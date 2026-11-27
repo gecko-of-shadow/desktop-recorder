@@ -111,6 +111,20 @@ def find_pass() -> tuple[list[str] | None, str]:
     return [mono, exe], ""
 
 
+def delete_folder(folder: str, timeout: float = 60) -> str | None:
+    """After the ZIP, as on Windows: the files that the app made, then the folder when it is empty. None or the error."""
+    command, reason = find_pass()
+    if command is None:
+        return reason
+    try:
+        done = subprocess.run(command + ["--delete-folder", folder], capture_output=True, text=True, timeout=timeout,
+                              check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return str(exc)
+    error = parse_pass_output(done.stdout).error
+    return error or (None if done.returncode == 0 else f"exit code {done.returncode}")
+
+
 def write_titles(folder: str, samples: list[tuple[float, str]]) -> str:
     path = os.path.join(folder, TITLES_FILE)
     with open(path, "w", encoding="utf-8") as handle:
@@ -128,6 +142,7 @@ class PassResult:
     error: str = ""
     transcript: str = ""   # "<n> segments", or why there is none; empty without audio
     ocr: str = ""          # "OCR: <n> lines", or why there is none (ocr_index.add_ocr)
+    sound_only_in_wav: bool = False   # the WAV is the only copy of the sound: the folder must stay
     zip_parts: list[str] = field(default_factory=list)   # zip_parts.make_parts, when frames_per_zip is set
 
 
@@ -149,6 +164,8 @@ def parse_pass_output(text: str) -> PassResult:
             result.error = value
         elif key == "transcript":
             result.transcript = value
+        elif key == "sound_only_in_wav":
+            result.sound_only_in_wav = value == "True"
     return result
 
 

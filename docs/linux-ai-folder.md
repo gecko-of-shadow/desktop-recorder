@@ -24,12 +24,17 @@ Added 27 Nov 2026. Settings: `output_mode=folder` (Settings window: Output, "Fol
    Slack, Google, JWT, a private key header, a random-looking run of 20+ characters that is not hex), and the word
    after `password:`, `token=` or `Bearer`, gets a black box in its PNG and `[redacted]` in the OCR text. Then
    `clip.mp4` leaves the ZIP (the video is not redacted) and `index.md` says so. Best effort: OCR can miss a
-   secret. The folder on disk keeps `clip.mp4`.
+   secret.
 
 5. `frames_per_zip=N` (default 0 = off): when the ZIP has more than N frame images, the program also writes
    `desktop_<time>_part<k>of<n>.zip`, each with at most N images and the full `index.md` plus one line that says
    which images it has (`clip.mp4` and `transcript.srt` in part 1), and the clipboard gets the parts. For chat
    apps that take at most 20 files in one message, use 19.
+
+6. Then the program deletes the files it made in the folder, and the folder when it is empty (as on Windows,
+   README "Folder for AI"; `AfterRecording.DeleteFolder` through `ai_pass.exe --delete-folder`). The ZIP is the
+   output. The folder stays when the pass failed (the work file is in it), when the WAV is the only copy of the
+   sound (no sound in `clip.mp4`), and with `DESKTOP_RECORDER_KEEP_WORK=1`.
 
 The pass is slow for a long recording, so it runs on a background thread; the tray shows a message at the end.
 
@@ -47,7 +52,8 @@ The pass is slow for a long recording, so it runs on a background thread; the tr
   window titles there yet; the tray says when a region was left out. Not tested on a real GNOME Wayland
   session: the test fed an X11 grab through the same code (`WaylandCapture._ensure_encoder`).
 - Whisper is not packaged. Build whisper.cpp (`cmake -B build && cmake --build build`) and get a model.
-  The tiny.en model makes rough row times (the first row starts at 0 s even when the speech starts later).
+  The tiny.en model makes rough row times; a row now starts at its first sound (`SpeechCheck.TrimSilence`,
+  shared with Windows: first row 6.3 s early before, 0.3 s after).
 - The region selector (tray: "Select region and record", X11) has drag, Space (whole screen) and Esc. It has
   no window click and no C, M, P keys of the Windows selector. In folder mode the X11 hotkey opens it (as on
   Windows); the GNOME Wayland hotkey still starts the recording. Its region is

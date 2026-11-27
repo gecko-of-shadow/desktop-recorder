@@ -8,7 +8,9 @@
 //   DESKTOP_RECORDER_KEEP_WORK=1. The titles file has one "<seconds>\t<window title>" line per title change.
 //   The audio WAV starts at video time 0 (the Linux recorder writes both from one ffmpeg on one clock).
 //   Whisper: whisper_path, else whisper-cli (and the other names of AudioTranscript.cs) on PATH or next to this file.
-// Output, one line each: ok=<True|False>, frames=<n>, zip=<path or empty>, warning=<text> (0 or more), error=<text>.
+// Output, one line each: ok=<True|False>, frames=<n>, zip=<path or empty>, warning=<text> (0 or more), error=<text>,
+// sound_only_in_wav=<True|False>, and transcript=<text> with audio.
+// usage: ai_pass.exe --delete-folder <folder>  (after the ZIP and the Linux steps; prints error=<text or empty>)
 // Exit code 0 when the frames, clip.mp4 and index.md are written.
 using System;
 using System.Globalization;
@@ -18,6 +20,13 @@ static class AiPass
 {
     static int Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--delete-folder")
+        {
+            // After the ZIP: the files that the app made, and the folder when it is then empty (as on Windows).
+            string error = AfterRecording.DeleteFolder(Path.GetFullPath(args[1]), 8, 500, null);
+            Console.WriteLine("error=" + OneLine(error));
+            return error == null ? 0 : 1;
+        }
         if (args.Length < 4)
         {
             Console.Error.WriteLine("usage: ai_pass.exe ffmpeg folder fps start [key=value ...]");
@@ -86,6 +95,7 @@ static class AiPass
         Console.WriteLine("zip=" + zip);
         foreach (string w in r.Warnings) Console.WriteLine("warning=" + OneLine(w));
         Console.WriteLine("error=" + OneLine(r.Error));
+        Console.WriteLine("sound_only_in_wav=" + (r.AudioRecorded && !r.AudioInClip));
         if (r.AudioRecorded)
             Console.WriteLine("transcript=" + (r.HasTranscript ? r.Transcript.Count + " segments" : OneLine(r.TranscriptNote)));
         return r.Ok ? 0 : 1;

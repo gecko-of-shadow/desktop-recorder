@@ -228,8 +228,9 @@ class AiFolderTests(unittest.TestCase):
                                       "whisper_path=/w/whisper-cli", "whisper_model=/w/m.bin"])
 
     def test_parse_pass_output(self) -> None:
-        r = ai_folder.parse_pass_output("ok=True\nframes=18\nzip=/r/a.zip\nwarning=w1\nwarning=w2\nerror=\n")
+        r = ai_folder.parse_pass_output("ok=True\nframes=18\nzip=/r/a.zip\nwarning=w1\nwarning=w2\nerror=\nsound_only_in_wav=True\n")
         self.assertTrue(r.ok)
+        self.assertTrue(r.sound_only_in_wav)
         self.assertEqual((r.frames, r.zip_path, r.warnings, r.error), (18, "/r/a.zip", ["w1", "w2"], ""))
 
     def test_missing_pass_keeps_the_work_file(self) -> None:
@@ -277,6 +278,36 @@ class AiFolderTests(unittest.TestCase):
         with open(os.path.join(folder, ai_folder.TITLES_FILE), encoding="utf-8") as handle:
             self.assertIn("\tEditor", handle.read())
         self.assertIsNone(cap.ai_job)
+
+    def test_finish_folder_deletes_the_folder_after_the_zip(self) -> None:
+        # As on Windows (one ZIP is the output): the folder goes after a good pass and the Linux steps, and stays
+        # when the WAV is the only copy of the sound, when the pass failed, or with DESKTOP_RECORDER_KEEP_WORK=1.
+        from desktop_recorder.capture import Capture
+
+        def finish(result: ai_folder.PassResult, env: dict) -> list:
+            folder = tempfile.mkdtemp(prefix="dr-del-")
+            open(os.path.join(folder, ai_folder.WORK_FILE), "wb").close()
+            result.zip_path = folder + ".zip"
+            open(result.zip_path, "wb").close()
+            settings = Settings(folder=folder)
+            settings.ocr_text = settings.redact_secrets = False
+            cap = Capture()
+            cap.ai_job = (folder, datetime(2026, 11, 27, 17, 0, 0), settings)
+            deleted: list = []
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch("desktop_recorder.ai_folder.run_pass", lambda *_a, **_k: result), \
+                    mock.patch("desktop_recorder.ai_folder.delete_folder", lambda f: deleted.append(f) or "busy"):
+                cap.finish_folder("ffmpeg")
+            self.assertEqual(deleted, [folder] if deleted else [])
+            return deleted
+
+        self.assertTrue(finish(ai_folder.PassResult(ok=True), {}))
+        good = ai_folder.PassResult(ok=True)
+        finish(good, {})
+        self.assertEqual(good.warnings, ["The ZIP is ready, but the folder was not deleted: busy"])
+        self.assertFalse(finish(ai_folder.PassResult(ok=True, sound_only_in_wav=True), {}))
+        self.assertFalse(finish(ai_folder.PassResult(ok=False), {}))
+        self.assertFalse(finish(ai_folder.PassResult(ok=True), {"DESKTOP_RECORDER_KEEP_WORK": "1"}))
 
     def test_folder_mode_pins_its_audio(self) -> None:
         from desktop_recorder import capture as capture_mod
@@ -339,6 +370,14 @@ class AiFolderTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(folder, ai_folder.WORK_FILE)))
         with open(os.path.join(folder, "index.md"), encoding="utf-8") as handle:
             self.assertIn("Test window", handle.read())
+        self.assertFalse(r.sound_only_in_wav)
+        open(os.path.join(folder, "mine.txt"), "w").close()     # a file that the app did not make stays
+        self.assertIsNone(ai_folder.delete_folder(folder))
+        self.assertEqual(os.listdir(folder), ["mine.txt"])
+        os.remove(os.path.join(folder, "mine.txt"))
+        self.assertIsNone(ai_folder.delete_folder(folder))
+        self.assertFalse(os.path.exists(folder))
+        self.assertTrue(os.path.isfile(r.zip_path))
 
 
 

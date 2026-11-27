@@ -125,6 +125,12 @@ class Capture:
                 result.zip_parts = zip_parts.make_parts(result.zip_path, settings.frames_per_zip)
             except (OSError, zipfile.BadZipFile) as exc:
                 result.warnings.append("The ZIP parts were not made: " + str(exc))
+        # One ZIP is the output (Bran, 2026-11-22): the folder goes, unless the WAV is the only copy of the sound.
+        keep = os.environ.get("DESKTOP_RECORDER_KEEP_WORK") == "1"
+        if result.ok and result.zip_path and os.path.isfile(result.zip_path) and not result.sound_only_in_wav and not keep:
+            error = ai_folder.delete_folder(folder)
+            if error:
+                result.warnings.append("The ZIP is ready, but the folder was not deleted: " + error)
         if self.error:
             result.warnings.insert(0, self.error)
         return result
