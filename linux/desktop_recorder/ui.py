@@ -191,6 +191,8 @@ class Tray:
             self.notify("Desktop Recorder", ("The folder for AI was not made: " + result.error)[:250])
             return False
         text = f"Folder for AI: {result.frames} frames."
+        if result.transcript:
+            text += f" Transcript: {result.transcript}."
         if result.warnings:
             text += " " + result.warnings[0]
         if self.settings.copy_to_clipboard:
@@ -556,6 +558,8 @@ class SettingsDialog(Gtk.Dialog):
             region=self.current.region,
             settle_ms=self.current.settle_ms,
             scroll_percent=self.current.scroll_percent,
+            whisper_path=self.current.whisper_path,
+            whisper_model=self.current.whisper_model,
             extra_lines=list(self.current.extra_lines),
         )
         return updated

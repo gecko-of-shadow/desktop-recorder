@@ -7,9 +7,14 @@ Added 27 Nov 2026. Settings: `output_mode=folder` (Settings window: Output, "Fol
 1. During the recording, ffmpeg writes `<Recordings>/desktop_<time>/work_lossless.mp4`: x11grab at 10 fps,
    no pointer, libx264 `-qp 0` 4:4:4, fragmented MP4. `region=x,y,width,height` in `settings.txt` limits it to
    a part of the screen (width 0 = whole screen). The active window title is read once a second with `xprop`.
+   With "Record system audio" on, the same ffmpeg also writes `audio_system.wav` from the Pulse/PipeWire monitor.
+   Both inputs use one clock (`-copyts`, shifted by the start time), so WAV time 0 is video time 0.
 2. After Stop, `ai_pass.exe` runs the Windows pass (`AfterRecording.cs`, `SettledFrames.cs`, unchanged) under
    Mono. It writes `frames/NNN.png`, `clip.mp4` and `index.md`, deletes the work file, and makes
-   `desktop_<time>.zip` next to the folder. The ZIP goes to the clipboard when "Copy ... to the clipboard" is on.
+   `desktop_<time>.zip` next to the folder. With audio, `clip.mp4` gets the sound and, when whisper.cpp is
+   found, `index.md` gets the transcript and the ZIP gets `transcript.srt` (same rules as on Windows: README,
+   "Audio and transcript"). Whisper: `whisper_path` and `whisper_model` in `settings.txt`, else `whisper-cli`
+   on PATH or next to `ai_pass.exe` with a `ggml-*.bin` model next to it or in `models`. The ZIP goes to the clipboard when "Copy ... to the clipboard" is on.
 
 The pass is slow for a long recording, so it runs on a background thread; the tray shows a message at the end.
 
@@ -23,7 +28,8 @@ The pass is slow for a long recording, so it runs on a background thread; the tr
 ## Limits (27 Nov 2026)
 
 - X11 only. On Wayland, folder mode records an MP4 and says so.
-- No sound in folder mode yet (the Windows pass can take a WAV; the Linux capture of it is not written).
+- Whisper is not packaged. Build whisper.cpp (`cmake -B build && cmake --build build`) and get a model.
+  The tiny.en model makes rough row times (the first row starts at 0 s even when the speech starts later).
 - No region selector window yet: the region comes from `settings.txt`.
 
 ## Measured (scripted documents under Xvfb, `evidence/improve` of the 27 Nov 2026 test run)
@@ -32,3 +38,4 @@ The pass is slow for a long recording, so it runs on a background thread; the tr
 |---|---|---|
 | 55 s steady scroll, 220 lines, OCR lines found | 215 of 220 in 18 PNG (2.1 MB) | 215 in 18 evenly spaced frames; 71 in its 3 keyframes |
 | 61 s still page, 8 notices of 0.8 s, notices found | 9 of 9 in 19 PNG (1.7 MB) | 2 of 9 in 19 evenly spaced frames; 8 of 9 in all 122 frames |
+| 55 s scroll + 2 x 11 s speech (jfk.wav played into the sink) | 15 PNG, `clip.mp4` h264 + aac, 3 transcript rows (whisper.cpp tiny.en), pass 6.3 s; speech end in the WAV 0.13 s from the playback end | - |

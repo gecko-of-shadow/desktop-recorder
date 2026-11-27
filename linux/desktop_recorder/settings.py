@@ -73,6 +73,8 @@ class Settings:
     region: tuple[int, int, int, int] = (0, 0, 0, 0)   # x, y, width, height; width 0 = whole screen
     settle_ms: int = 400
     scroll_percent: int = 60
+    whisper_path: str = ""          # Folder for AI with audio: whisper-cli; empty = search PATH
+    whisper_model: str = ""         # ggml-*.bin; empty = search next to whisper-cli
     extra_lines: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -102,6 +104,8 @@ _KNOWN = {
     "region",
     "settle_ms",
     "scroll_percent",
+    "whisper_path",
+    "whisper_model",
 }
 
 
@@ -126,6 +130,8 @@ def parse_settings(text: str, defaults: Settings | None = None) -> Settings:
         region=current.region,
         settle_ms=current.settle_ms,
         scroll_percent=current.scroll_percent,
+        whisper_path=current.whisper_path,
+        whisper_model=current.whisper_model,
     )
     for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         line = raw.strip()
@@ -202,6 +208,9 @@ def _apply(result: Settings, key: str, val: str) -> None:
     if key == "region":
         result.region = parse_region(val) or result.region
         return
+    if key in ("whisper_path", "whisper_model"):
+        setattr(result, key, val)
+        return
     if key in ("settle_ms", "scroll_percent"):
         try:
             number = int(val)
@@ -253,6 +262,8 @@ def serialize_settings(settings: Settings) -> str:
         "region=" + ",".join(str(v) for v in settings.region),
         "settle_ms=" + str(settings.settle_ms),
         "scroll_percent=" + str(settings.scroll_percent),
+        "whisper_path=" + settings.whisper_path,
+        "whisper_model=" + settings.whisper_model,
     ]
     for extra in settings.extra_lines:
         if extra.strip():

@@ -163,13 +163,15 @@ class EncoderAndDefaultsTests(unittest.TestCase):
         self.assertEqual((d.chroma, d.output_mode, d.region, d.settle_ms, d.scroll_percent),
                          ("yuv420", "mp4", (0, 0, 0, 0), 400, 60))
         text = ("show_pointer=1\nchroma=yuv444\noutput_mode=folder\nregion=10,20,640,480\n"
-                "settle_ms=300\nscroll_percent=99\n")
+                "settle_ms=300\nscroll_percent=99\nwhisper_path=/w/whisper-cli\nwhisper_model=/w/m.bin\n")
         p = parse_settings(text, Settings(folder="/tmp/rec"))
         self.assertEqual((p.show_pointer, p.chroma, p.output_mode, p.region, p.settle_ms, p.scroll_percent),
                          (True, "yuv444", "folder", (10, 20, 640, 480), 300, 95))
         self.assertEqual(parse_settings(serialize_settings(p), Settings(folder="/x")).region, (10, 20, 640, 480))
         bad = parse_settings("chroma=rgb\noutput_mode=zip\nregion=1,2,3\nsettle_ms=x\n", Settings(folder="/tmp/rec"))
         self.assertEqual((bad.chroma, bad.output_mode, bad.region, bad.settle_ms), ("yuv420", "mp4", (0, 0, 0, 0), 400))
+        self.assertEqual((p.whisper_path, p.whisper_model), ("/w/whisper-cli", "/w/m.bin"))
+        self.assertEqual(parse_settings(serialize_settings(p), Settings(folder="/x")).whisper_model, "/w/m.bin")
         self.assertEqual(p.extra_lines, [])
 
 
@@ -186,6 +188,41 @@ class AiFolderTests(unittest.TestCase):
         whole = ai_folder.work_argv(":5", "/tmp/rec")
         self.assertNotIn("-video_size", whole)
         self.assertEqual(whole[whole.index("-i") + 1], ":5.0")
+
+    def test_work_argv_with_audio_shares_one_clock(self) -> None:
+        when = datetime(2026, 11, 27, 17, 0, 0)
+        argv = ai_folder.work_argv(":5", "/tmp/rec", "ffmpeg", (0, 0, 640, 480), 10, "mon.monitor", when)
+        shift = f"-{when.timestamp():.6f}"
+        self.assertIn("-copyts", argv)
+        self.assertEqual([argv[i + 1] for i, a in enumerate(argv) if a == "-itsoffset"], [shift, shift])
+        self.assertEqual(argv[argv.index("-f") + 1], "pulse")
+        self.assertEqual(argv[argv.index("-vf") + 1], "fps=10:start_time=0")
+        self.assertEqual([argv[i + 1] for i, a in enumerate(argv) if a == "-map"], ["1:v", "0:a"])
+        self.assertEqual(argv[argv.index("-af") + 1], "aresample=async=1:first_pts=0")
+        self.assertEqual(argv[-1], "/tmp/rec/audio_system.wav")
+        self.assertLess(argv.index("/tmp/rec/work_lossless.mp4"), argv.index("-map", argv.index("-map") + 1))
+        silent = ai_folder.work_argv(":5", "/tmp/rec", "ffmpeg", None, 10, None, when)
+        self.assertNotIn("-itsoffset", silent)
+        self.assertNotIn("-map", silent)
+        self.assertEqual(silent[silent.index("-vf") + 1], "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0")
+
+    def test_run_pass_passes_named_options(self) -> None:
+        folder = tempfile.mkdtemp(prefix="dr-args-")
+        echo = os.path.join(folder, "echo.py")
+        with open(echo, "w", encoding="utf-8") as handle:
+            handle.write("import sys\nprint('ok=True')\nprint('frames=2')\nprint('transcript=3 segments')\n"
+                         "for a in sys.argv[1:]:\n    print('warning=' + a)\n")
+        ai_folder.write_titles(folder, [(0.0, "A")])
+        open(os.path.join(folder, ai_folder.AUDIO_FILE), "wb").close()
+        with mock.patch("desktop_recorder.ai_folder.find_pass", lambda: ([sys.executable, echo], "")):
+            r = ai_folder.run_pass(folder, datetime(2026, 11, 27, 17, 0, 0), "ff", 10, 70, 300,
+                                   whisper_path="/w/whisper-cli", whisper_model="/w/m.bin")
+        self.assertTrue(r.ok)
+        self.assertEqual(r.transcript, "3 segments")
+        self.assertEqual(r.warnings, ["ff", folder, "10", "2026-11-27T17:00:00", "scroll_percent=70", "settle_ms=300",
+                                      "titles=" + os.path.join(folder, ai_folder.TITLES_FILE),
+                                      "audio=" + os.path.join(folder, ai_folder.AUDIO_FILE),
+                                      "whisper_path=/w/whisper-cli", "whisper_model=/w/m.bin"])
 
     def test_parse_pass_output(self) -> None:
         r = ai_folder.parse_pass_output("ok=True\nframes=18\nzip=/r/a.zip\nwarning=w1\nwarning=w2\nerror=\n")

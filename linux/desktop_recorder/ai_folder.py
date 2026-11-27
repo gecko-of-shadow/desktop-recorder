@@ -21,6 +21,7 @@ from datetime import datetime
 from .ffmpeg_cmd import format_fps, stamp_of, x11_target
 
 WORK_FILE = "work_lossless.mp4"
+AUDIO_FILE = "audio_system.wav"   # the Windows name; the pass puts it into clip.mp4 and leaves it out of the ZIP
 # Starts with "work_lossless", so the ZIP leaves it out (AfterRecording.WriteZip).
 TITLES_FILE = "work_lossless.titles.tsv"
 # The Windows default for folder mode. A settled frame needs a few captures in SettleSeconds (0.4 s).
@@ -44,17 +45,35 @@ def work_argv(
     ffmpeg: str = "ffmpeg",
     region: tuple[int, int, int, int] | None = None,
     fps: float = AI_FPS,
+    audio_device: str | None = None,
+    when: datetime | None = None,
 ) -> list[str]:
-    """ffmpeg for the lossless work file: what the pass reads. No pointer: it would hide text and count as a change."""
+    """ffmpeg for the lossless work file: what the pass reads. No pointer: it would hide text and count as a change.
+
+    With audio_device, the same ffmpeg also writes audio_system.wav. Both inputs keep their wall-clock times
+    (-copyts) shifted by the same start instant, and both outputs start at that instant (the fps filter repeats
+    the first frame, aresample pads silence), so WAV time 0 is video time 0 (as x11_argv does for the MP4).
+    """
     gop = max(2, int(round(fps * 30)))
     target = x11_target(display)
-    args = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostats", "-y",
-            "-thread_queue_size", "1024", "-f", "x11grab", "-framerate", format_fps(fps), "-draw_mouse", "0"]
+    shift = ["-itsoffset", f"-{(when or datetime.now()).timestamp():.6f}"] if audio_device else []
+    args = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostats", "-y"]
+    if audio_device:
+        args += ["-copyts", "-thread_queue_size", "1024", *shift, "-f", "pulse", "-fragment_size", "9600",
+                 "-i", audio_device]
+    args += ["-thread_queue_size", "1024", *shift, "-f", "x11grab", "-framerate", format_fps(fps), "-draw_mouse", "0"]
+    crop = "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"
+    filters = [f"fps={format_fps(fps)}:start_time=0"] if audio_device else []
     if region is not None:
         x, y, w, h = even_region(region)
         args += ["-video_size", f"{w}x{h}", "-i", f"{target}+{x},{y}"]
     else:
-        args += ["-i", target, "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"]
+        args += ["-i", target]
+        filters.append(crop)
+    if audio_device:
+        args += ["-map", "1:v"]
+    if filters:
+        args += ["-vf", ",".join(filters)]
     args += [
         "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-threads", "4", "-g", str(gop),
         "-pix_fmt", "yuv444p",
@@ -62,6 +81,9 @@ def work_argv(
         "-movflags", "+frag_keyframe+empty_moov", "-frag_duration", "500000", "-flush_packets", "1",
         os.path.join(folder, WORK_FILE),
     ]
+    if audio_device:
+        args += ["-map", "0:a", "-af", "aresample=async=1:first_pts=0", "-c:a", "pcm_s16le",
+                 os.path.join(folder, AUDIO_FILE)]
     return args
 
 
@@ -91,6 +113,7 @@ class PassResult:
     zip_path: str = ""
     warnings: list[str] = field(default_factory=list)
     error: str = ""
+    transcript: str = ""   # "<n> segments", or why there is none; empty without audio
 
 
 def parse_pass_output(text: str) -> PassResult:
@@ -109,6 +132,8 @@ def parse_pass_output(text: str) -> PassResult:
             result.warnings.append(value)
         elif key == "error":
             result.error = value
+        elif key == "transcript":
+            result.transcript = value
     return result
 
 
@@ -120,15 +145,20 @@ def run_pass(
     scroll_percent: int = 60,
     settle_ms: int = 400,
     timeout: float = 3600,
+    whisper_path: str = "",
+    whisper_model: str = "",
 ) -> PassResult:
     command, reason = find_pass()
     if command is None:
         return PassResult(error=reason + " The work file stays in " + folder + ".")
     titles = os.path.join(folder, TITLES_FILE)
+    audio = os.path.join(folder, AUDIO_FILE)
     argv = command + [ffmpeg, folder, format_fps(fps), start.strftime("%Y-%m-%dT%H:%M:%S"),
-                      str(scroll_percent), str(settle_ms)]
+                      f"scroll_percent={scroll_percent}", f"settle_ms={settle_ms}"]
     if os.path.isfile(titles):
-        argv.append(titles)
+        argv.append("titles=" + titles)
+    if os.path.isfile(audio):
+        argv += ["audio=" + audio, "whisper_path=" + whisper_path, "whisper_model=" + whisper_model]
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:

@@ -74,9 +74,8 @@ class Capture:
         folder = ai_folder.folder_for(settings.folder, when)
         x, y, w, h = settings.region
         region = (x, y, w, h) if w > 0 and h > 0 else None
-        if audio:
-            self.warning = "Folder for AI on Linux has no sound yet, so this recording is silent."
-        error = self.x11.start(ai_folder.work_argv(display, folder, ffmpeg, region), folder, ai_folder.AI_FPS)
+        argv = ai_folder.work_argv(display, folder, ffmpeg, region, ai_folder.AI_FPS, audio, when)
+        error = self.x11.start(argv, folder, ai_folder.AI_FPS)
         if error is not None:
             return error
         self.mode = "x11"
@@ -95,7 +94,8 @@ class Capture:
         if not os.path.isfile(os.path.join(folder, ai_folder.WORK_FILE)):
             return ai_folder.PassResult(error=self.error or "The recording wrote no video.")
         result = ai_folder.run_pass(folder, when, ffmpeg or shutil.which("ffmpeg") or "ffmpeg",
-                                    ai_folder.AI_FPS, settings.scroll_percent, settings.settle_ms)
+                                    ai_folder.AI_FPS, settings.scroll_percent, settings.settle_ms,
+                                    whisper_path=settings.whisper_path, whisper_model=settings.whisper_model)
         if self.error:
             result.warnings.insert(0, self.error)
         return result
