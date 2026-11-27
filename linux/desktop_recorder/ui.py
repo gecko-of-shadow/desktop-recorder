@@ -28,6 +28,10 @@ QUALITY = (
     "Balanced (recommended)",
     "Sharpest text (bigger files)",
 )
+OUTPUT_NAMES = (
+    "MP4 video",
+    "Folder for AI (PNG frames, index.md, ZIP)",
+)
 
 
 def run() -> int:
@@ -417,6 +421,14 @@ class SettingsDialog(Gtk.Dialog):
         self.sound.set_active(current.play_sounds)
         self.audio = Gtk.CheckButton(label="Record system audio (what you hear)")
         self.audio.set_active(current.record_audio)
+        self.pointer = Gtk.CheckButton(label="Show the mouse pointer in the recording")
+        self.pointer.set_active(current.show_pointer)
+        self.chroma = Gtk.CheckButton(label="Sharper colored text (4:4:4, more memory)")
+        self.chroma.set_active(current.chroma == "yuv444")
+        self.output = Gtk.ComboBoxText()
+        for name in OUTPUT_NAMES:
+            self.output.append_text(name)
+        self.output.set_active(1 if current.output_mode == "folder" else 0)
         self.win = Gtk.CheckButton(label="Win")
         self.ctrl = Gtk.CheckButton(label="Ctrl")
         self.alt = Gtk.CheckButton(label="Alt")
@@ -450,8 +462,10 @@ class SettingsDialog(Gtk.Dialog):
             mods.pack_start(box_, False, False, 0)
         grid.attach(Gtk.Label(label="Hotkey:", xalign=0), 0, 5, 1, 1)
         grid.attach(mods, 1, 5, 1, 1)
-        row = 6
-        for widget in (self.startup, self.record, self.copy, self.sound, self.audio):
+        grid.attach(Gtk.Label(label="Output:", xalign=0), 0, 6, 1, 1)
+        grid.attach(self.output, 1, 6, 1, 1)
+        row = 7
+        for widget in (self.startup, self.record, self.copy, self.sound, self.audio, self.pointer, self.chroma):
             grid.attach(widget, 0, row, 2, 1)
             row += 1
         self.show_all()
@@ -510,6 +524,12 @@ class SettingsDialog(Gtk.Dialog):
             record_audio=self.audio.get_active(),
             start_on_login=self.startup.get_active(),
             wayland_restore_token=self.current.wayland_restore_token,
+            show_pointer=self.pointer.get_active(),
+            chroma="yuv444" if self.chroma.get_active() else "yuv420",
+            output_mode="folder" if self.output.get_active() == 1 else "mp4",
+            region=self.current.region,
+            settle_ms=self.current.settle_ms,
+            scroll_percent=self.current.scroll_percent,
             extra_lines=list(self.current.extra_lines),
         )
         return updated

@@ -215,8 +215,11 @@ class PortalTests(unittest.TestCase):
         select = fake.calls[1][1]
         self.assertEqual(select["types"], 1)
         self.assertTrue(select["multiple"])
-        self.assertEqual(select["cursor_mode"], 2)
+        self.assertEqual(select["cursor_mode"], 1)   # no pointer by default, as on Windows
         self.assertEqual(select["restore_token"], "old")
+        shown = Fake()
+        ScreenCast(shown).open("", show_pointer=True)
+        self.assertEqual(shown.calls[1][1]["cursor_mode"], 2)
         self.assertEqual(stream.node_id, 5)
         self.assertEqual(stream.serial, "42")
         self.assertEqual(stream.fd, 17)

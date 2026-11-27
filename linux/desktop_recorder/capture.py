@@ -67,7 +67,7 @@ class Capture:
         transport = None
         try:
             transport = GioTransport()
-            stream = ScreenCast(transport).open(settings.wayland_restore_token)
+            stream = ScreenCast(transport).open(settings.wayland_restore_token, settings.show_pointer)
         except Exception as exc:
             return "Wayland screen capture failed: " + str(exc)
         if stream.restore_token:

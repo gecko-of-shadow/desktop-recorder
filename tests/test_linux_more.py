@@ -21,7 +21,8 @@ from datetime import datetime  # noqa: E402
 
 from desktop_recorder import ai_folder  # noqa: E402
 from desktop_recorder.audio import probe_pulse  # noqa: E402
-from desktop_recorder.settings import Settings  # noqa: E402
+from desktop_recorder.ffmpeg_cmd import x11_argv  # noqa: E402
+from desktop_recorder.settings import Settings, parse_settings, serialize_settings  # noqa: E402
 from desktop_recorder.wayland import WaylandCapture  # noqa: E402
 
 
@@ -130,6 +131,46 @@ class WaylandPipeTests(unittest.TestCase):
         cap = WaylandCapture()
         self.record(cap, 3, os.path.join(self.folder, "FAIL"))
         self.assertEqual(cap.error, "ffmpeg stopped with an error: boom: bad frame size")
+
+
+class EncoderAndDefaultsTests(unittest.TestCase):
+    def argv(self, **changes) -> list[str]:
+        s = Settings(folder="/tmp/rec")
+        for k, v in changes.items():
+            setattr(s, k, v)
+        return x11_argv(s, datetime(2026, 11, 27, 17, 0, 0), ":0", None, "ffmpeg")
+
+    def value(self, argv: list[str], flag: str) -> str:
+        return argv[argv.index(flag) + 1]
+
+    def test_pointer_keyframes_threads_chroma(self) -> None:
+        argv = self.argv()
+        self.assertEqual(self.value(argv, "-draw_mouse"), "0")
+        self.assertEqual(self.value(argv, "-g"), "20")          # 10 s at 2 fps
+        self.assertEqual(self.value(argv, "-threads"), "2")
+        self.assertEqual(self.value(argv, "-pix_fmt"), "yuv420p")
+        self.assertEqual(self.value(argv, "-preset"), "medium")
+        self.assertEqual(self.value(self.argv(show_pointer=True), "-draw_mouse"), "1")
+        fast = self.argv(fps=30.0)
+        self.assertEqual(self.value(fast, "-threads"), "4")
+        self.assertEqual(self.value(fast, "-g"), "300")
+        self.assertEqual(self.value(self.argv(chroma="yuv444"), "-pix_fmt"), "yuv444p")
+
+    def test_new_defaults_and_keys(self) -> None:
+        d = Settings(folder="/tmp/rec")
+        self.assertFalse(d.record_on_launch)
+        self.assertFalse(d.show_pointer)
+        self.assertEqual((d.chroma, d.output_mode, d.region, d.settle_ms, d.scroll_percent),
+                         ("yuv420", "mp4", (0, 0, 0, 0), 400, 60))
+        text = ("show_pointer=1\nchroma=yuv444\noutput_mode=folder\nregion=10,20,640,480\n"
+                "settle_ms=300\nscroll_percent=99\n")
+        p = parse_settings(text, Settings(folder="/tmp/rec"))
+        self.assertEqual((p.show_pointer, p.chroma, p.output_mode, p.region, p.settle_ms, p.scroll_percent),
+                         (True, "yuv444", "folder", (10, 20, 640, 480), 300, 95))
+        self.assertEqual(parse_settings(serialize_settings(p), Settings(folder="/x")).region, (10, 20, 640, 480))
+        bad = parse_settings("chroma=rgb\noutput_mode=zip\nregion=1,2,3\nsettle_ms=x\n", Settings(folder="/tmp/rec"))
+        self.assertEqual((bad.chroma, bad.output_mode, bad.region, bad.settle_ms), ("yuv420", "mp4", (0, 0, 0, 0), 400))
+        self.assertEqual(p.extra_lines, [])
 
 
 class AiFolderTests(unittest.TestCase):

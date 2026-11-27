@@ -44,7 +44,7 @@ class ScreenCast:
     def __init__(self, transport: PortalTransport) -> None:
         self.transport = transport
 
-    def open(self, restore_token: str = "") -> PortalStream:
+    def open(self, restore_token: str = "", show_pointer: bool = False) -> PortalStream:
         session_token = "dr" + uuid.uuid4().hex[:16]
         created = self.transport.request(
             "CreateSession",
@@ -57,7 +57,8 @@ class ScreenCast:
             "session": session,
             "types": 1,  # monitors, the same idea as one whole desktop
             "multiple": True,
-            "cursor_mode": 2,  # draw the pointer into the picture
+            # 2 = draw the pointer into the picture, 1 = hidden (the default, as on Windows).
+            "cursor_mode": 2 if show_pointer else 1,
             "persist_mode": 2,
         }
         if restore_token:

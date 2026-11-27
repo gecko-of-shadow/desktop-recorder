@@ -57,7 +57,8 @@ class Settings:
     fps: float = DEFAULT_FPS
     quality: int = 1
     split_minutes: int = 30
-    record_on_launch: bool = True
+    # Off, as on Windows since 22 Nov 2026: starting the tray must not start a full-screen recording.
+    record_on_launch: bool = False
     copy_to_clipboard: bool = True
     play_sounds: bool = True
     hotkey_modifiers: int = 4 | 8
@@ -65,6 +66,13 @@ class Settings:
     record_audio: bool = True
     start_on_login: bool = False
     wayland_restore_token: str = ""
+    # Same keys and defaults as the Windows settings.txt. No pointer: it hides text and is a change on a still screen.
+    show_pointer: bool = False
+    chroma: str = "yuv420"          # yuv420 | yuv444 (sharper colored text, larger file)
+    output_mode: str = "mp4"        # mp4 | folder (Folder for AI: PNG frames, index.md, clip.mp4, ZIP)
+    region: tuple[int, int, int, int] = (0, 0, 0, 0)   # x, y, width, height; width 0 = whole screen
+    settle_ms: int = 400
+    scroll_percent: int = 60
     extra_lines: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -88,6 +96,12 @@ _KNOWN = {
     "record_audio",
     "start_on_login",
     "wayland_restore_token",
+    "show_pointer",
+    "chroma",
+    "output_mode",
+    "region",
+    "settle_ms",
+    "scroll_percent",
 }
 
 
@@ -106,6 +120,12 @@ def parse_settings(text: str, defaults: Settings | None = None) -> Settings:
         record_audio=current.record_audio,
         start_on_login=current.start_on_login,
         wayland_restore_token=current.wayland_restore_token,
+        show_pointer=current.show_pointer,
+        chroma=current.chroma,
+        output_mode=current.output_mode,
+        region=current.region,
+        settle_ms=current.settle_ms,
+        scroll_percent=current.scroll_percent,
     )
     for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         line = raw.strip()
@@ -168,10 +188,48 @@ def _apply(result: Settings, key: str, val: str) -> None:
     if key == "wayland_restore_token":
         result.wayland_restore_token = val
         return
+    if key == "show_pointer":
+        result.show_pointer = val == "1"
+        return
+    if key == "chroma":
+        if val in ("yuv420", "yuv444"):
+            result.chroma = val
+        return
+    if key == "output_mode":
+        if val in ("mp4", "folder"):
+            result.output_mode = val
+        return
+    if key == "region":
+        result.region = parse_region(val) or result.region
+        return
+    if key in ("settle_ms", "scroll_percent"):
+        try:
+            number = int(val)
+        except ValueError:
+            return
+        if key == "settle_ms":
+            result.settle_ms = max(50, min(10000, number))
+        else:
+            result.scroll_percent = max(10, min(95, number))
+        return
     if key == "hotkey":
         updated = try_set(val, (result.hotkey_modifiers, result.hotkey_key))
         if updated is not None:
             result.hotkey_modifiers, result.hotkey_key = updated
+
+
+def parse_region(text: str) -> tuple[int, int, int, int] | None:
+    """'x,y,width,height' (the Windows format). Width or height 0 = whole screen."""
+    parts = text.replace(" ", "").split(",")
+    if len(parts) != 4:
+        return None
+    try:
+        x, y, w, h = (int(v) for v in parts)
+    except ValueError:
+        return None
+    if w < 0 or h < 0 or x < 0 or y < 0:
+        return None
+    return x, y, w, h
 
 
 def serialize_settings(settings: Settings) -> str:
@@ -189,6 +247,12 @@ def serialize_settings(settings: Settings) -> str:
         "record_audio=" + ("1" if settings.record_audio else "0"),
         "start_on_login=" + ("1" if settings.start_on_login else "0"),
         "wayland_restore_token=" + (settings.wayland_restore_token or ""),
+        "show_pointer=" + ("1" if settings.show_pointer else "0"),
+        "chroma=" + settings.chroma,
+        "output_mode=" + settings.output_mode,
+        "region=" + ",".join(str(v) for v in settings.region),
+        "settle_ms=" + str(settings.settle_ms),
+        "scroll_percent=" + str(settings.scroll_percent),
     ]
     for extra in settings.extra_lines:
         if extra.strip():

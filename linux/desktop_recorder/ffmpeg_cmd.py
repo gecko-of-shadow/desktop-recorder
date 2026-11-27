@@ -9,6 +9,7 @@ from datetime import datetime
 from .settings import Settings, clamp_fps, clamp_quality, clamp_split
 
 CRF = (32, 27, 21)
+GOP_SECONDS = 10
 
 
 def format_fps(fps: float) -> str:
@@ -53,11 +54,15 @@ def _encoder(settings: Settings, when: datetime, audio: bool, synced: bool = Fal
     fps = clamp_fps(settings.fps)
     quality = clamp_quality(settings.quality)
     split = clamp_split(settings.split_minutes)
-    gop = max(2, int(round(fps * 30)))
+    # A keyframe each 10 s: a tool that reads only the keyframes of the MP4 then sees each part of a
+    # scroll (1080p scroll test, 27 Nov 2026: 94 of 220 lines with 30 s, 214 with 10 s).
+    gop = max(2, int(round(fps * GOP_SECONDS)))
     lookahead = max(0, min(40, int(round(fps * 2))))
     # One frame thread when the two clocks must stay together: extra frame threads
     # hold video (and then audio) back, and "q" drops that audio.
-    threads = 1 if synced else max(1, min(16, int(math.ceil(fps))))
+    # Otherwise at most 4: ceil(fps) at 10 fps took 542 MB at 1080p, 4 threads 403 MB, with no
+    # lost frame and a smaller file (27 Nov 2026).
+    threads = 1 if synced else max(1, min(4, int(math.ceil(fps))))
     stamp = stamp_of(when)
     crop = "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"
     if synced:
@@ -87,7 +92,7 @@ def _encoder(settings: Settings, when: datetime, audio: bool, synced: bool = Fal
         "-g",
         str(gop),
         "-pix_fmt",
-        "yuv420p",
+        "yuv444p" if settings.chroma == "yuv444" else "yuv420p",
     ]
     if audio:
         if synced:
@@ -153,7 +158,7 @@ def x11_argv(settings: Settings, when: datetime, display: str | None, audio_devi
         "-framerate",
         fps,
         "-draw_mouse",
-        "1",
+        "1" if settings.show_pointer else "0",
         "-i",
         x11_target(display),
     ]
