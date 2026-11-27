@@ -465,6 +465,7 @@ class ChimeOrderTests(unittest.TestCase):
         class FakeCapture:
             warning = None
             error = None
+            ai_job = None   # MP4 mode
             is_active = False
 
             def start(self, _settings, _display):

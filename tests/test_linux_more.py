@@ -199,6 +199,45 @@ class AiFolderTests(unittest.TestCase):
         self.assertIn("ai_pass.exe is missing", r.error)
         self.assertIn("/tmp/rec", r.error)
 
+    def test_title_sampler(self) -> None:
+        titles = iter(["A", "A", None, "B", "B", "C"] + ["C"] * 50)
+        sampler = ai_folder.TitleSampler(":9", every=0.01, read=lambda _d: next(titles))
+        sampler.start()
+        time.sleep(0.3)
+        samples = sampler.stop()
+        self.assertEqual([t for _c, t in samples], ["A", "B", "C"])
+        self.assertTrue(all(b[0] >= a[0] for a, b in zip(samples, samples[1:])))
+
+    def test_folder_mode_capture_without_pass(self) -> None:
+        # Capture in folder mode with a fake ffmpeg: the work file goes into its own folder, the MP4 list is
+        # empty, and finish_folder reports the missing pass and keeps the work file.
+        from desktop_recorder.capture import Capture
+
+        parent = tempfile.mkdtemp(prefix="dr-folder-")
+        settings = Settings(folder=parent)
+        settings.output_mode = "folder"
+        settings.record_audio = False
+        settings.region = (8, 16, 101, 51)
+        cap = Capture()
+        cap.x11.check_file = lambda _p: None
+        with mock.patch.dict(os.environ, {"DESKTOP_RECORDER_CAPTURE": "x11",
+                                          "DESKTOP_RECORDER_AI_PASS": "/nonexistent/ai_pass.exe"}), \
+                mock.patch("desktop_recorder.ai_folder.active_title", lambda _d: "Editor"):
+            self.assertIsNone(cap.start(settings, ":0", str(ROOT / "tests" / "fake_ffmpeg.py")))
+            self.assertIsNotNone(cap.ai_job)
+            folder = cap.ai_job[0]
+            time.sleep(0.3)
+            cap.stop()
+            self.assertEqual(cap.session_files(), [])
+            result = cap.finish_folder()
+        self.assertIsNotNone(result)
+        self.assertFalse(result.ok)
+        self.assertIn("ai_pass.exe is missing", result.error)
+        self.assertTrue(os.path.isfile(os.path.join(folder, ai_folder.WORK_FILE)))
+        with open(os.path.join(folder, ai_folder.TITLES_FILE), encoding="utf-8") as handle:
+            self.assertIn("\tEditor", handle.read())
+        self.assertIsNone(cap.ai_job)
+
     @unittest.skipUnless(
         shutil.which("mono") and shutil.which("ffmpeg") and os.environ.get("DISPLAY")
         and os.path.isfile(os.environ.get("DESKTOP_RECORDER_AI_PASS", "")),

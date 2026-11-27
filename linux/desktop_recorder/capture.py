@@ -6,6 +6,7 @@ import os
 import shutil
 from datetime import datetime
 
+from . import ai_folder
 from .audio import find_monitor, probe_pulse
 from .audio_pin import SourcePin
 from .ffmpeg_cmd import capture_backend, x11_argv
@@ -22,6 +23,9 @@ class Capture:
         self.warning: str | None = None
         self._portal_session: str | None = None
         self._pin: SourcePin | None = None
+        # Folder for AI: the folder and start time of the recording, until finish_folder runs the pass.
+        self.ai_job: tuple[str, datetime, Settings] | None = None
+        self._titles: ai_folder.TitleSampler | None = None
 
     @property
     def is_active(self) -> bool:
@@ -45,6 +49,11 @@ class Capture:
             self._pin = None
         when = datetime.now()
         backend = capture_backend()
+        self.ai_job = None
+        if settings.output_mode == "folder":
+            if backend != "wayland":
+                return self._start_folder(settings, when, display, audio, program)
+            self.warning = "Folder for AI needs an X11 session for now, so this recording is an MP4."
         if backend == "wayland":
             return self._start_wayland(settings, when, audio, program)
         error = self.x11.start(
@@ -58,6 +67,38 @@ class Capture:
                 self._pin = SourcePin(audio, self.x11.process_ids)
                 self._pin.start()
         return error
+
+    def _start_folder(
+        self, settings: Settings, when: datetime, display: str | None, audio: str | None, ffmpeg: str
+    ) -> str | None:
+        folder = ai_folder.folder_for(settings.folder, when)
+        x, y, w, h = settings.region
+        region = (x, y, w, h) if w > 0 and h > 0 else None
+        if audio:
+            self.warning = "Folder for AI on Linux has no sound yet, so this recording is silent."
+        error = self.x11.start(ai_folder.work_argv(display, folder, ffmpeg, region), folder, ai_folder.AI_FPS)
+        if error is not None:
+            return error
+        self.mode = "x11"
+        self.ai_job = (folder, when, settings)
+        self._titles = ai_folder.TitleSampler(display)
+        self._titles.start()
+        return None
+
+    def finish_folder(self, ffmpeg: str | None = None) -> ai_folder.PassResult | None:
+        """After stop: the pass that writes the PNG frames, clip.mp4, index.md and the ZIP. Slow: not on the UI thread."""
+        job = self.ai_job
+        self.ai_job = None
+        if job is None:
+            return None
+        folder, when, settings = job
+        if not os.path.isfile(os.path.join(folder, ai_folder.WORK_FILE)):
+            return ai_folder.PassResult(error=self.error or "The recording wrote no video.")
+        result = ai_folder.run_pass(folder, when, ffmpeg or shutil.which("ffmpeg") or "ffmpeg",
+                                    ai_folder.AI_FPS, settings.scroll_percent, settings.settle_ms)
+        if self.error:
+            result.warnings.insert(0, self.error)
+        return result
 
     def _start_wayland(self, settings: Settings, when: datetime, audio: str | None, ffmpeg: str) -> str | None:
         try:
@@ -106,6 +147,15 @@ class Capture:
             if self._pin is not None:
                 self._pin.stop()
                 self._pin = None
+        titles = self._titles
+        self._titles = None
+        if titles is not None and self.ai_job is not None:
+            samples = titles.stop()
+            if samples:
+                try:
+                    ai_folder.write_titles(self.ai_job[0], samples)
+                except OSError:
+                    pass
 
     @property
     def error(self) -> str | None:

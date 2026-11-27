@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 
 import gi
 
@@ -157,6 +158,10 @@ class Tray:
             sounds.play(False)
         self.refresh()
         error = self.capture.error
+        if self.capture.ai_job is not None:
+            self.notify("Desktop Recorder", "Making the folder for AI...")
+            threading.Thread(target=self._finish_folder, name="ai-folder", daemon=True).start()
+            return
         if error:
             self.notify("Desktop Recorder", error[:250])
         if not self.settings.copy_to_clipboard:
@@ -175,6 +180,27 @@ class Tray:
             )
         except Exception as exc:
             self.notify("Desktop Recorder", "Could not copy the video: " + str(exc))
+
+    def _finish_folder(self) -> None:
+        result = self.capture.finish_folder()
+        if result is not None:
+            GLib.idle_add(self._folder_done, result)
+
+    def _folder_done(self, result) -> bool:
+        if not result.zip_path:
+            self.notify("Desktop Recorder", ("The folder for AI was not made: " + result.error)[:250])
+            return False
+        text = f"Folder for AI: {result.frames} frames."
+        if result.warnings:
+            text += " " + result.warnings[0]
+        if self.settings.copy_to_clipboard:
+            try:
+                copy_files([result.zip_path])
+                text += " ZIP copied. Paste it into a chat."
+            except Exception as exc:
+                text += " Could not copy the ZIP: " + str(exc)
+        self.notify("Desktop Recorder", text[:250])
+        return False
 
     def toggle(self) -> None:
         if self.capture.is_active:

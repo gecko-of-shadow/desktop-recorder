@@ -10,8 +10,11 @@ the reason is reported.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
+import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -136,3 +139,54 @@ def run_pass(
     if result.ok and os.path.isfile(titles):
         os.remove(titles)
     return result
+
+
+def active_title(display: str | None) -> str | None:
+    """Title of the active window (EWMH), or None when xprop or the window manager does not tell."""
+    base = ["xprop"] + (["-display", display] if display else [])
+    try:
+        root = subprocess.run(base + ["-root", "_NET_ACTIVE_WINDOW"], capture_output=True, text=True, timeout=2).stdout
+        match = re.search(r"window id # (0x[0-9a-fA-F]+)", root)
+        if not match or int(match.group(1), 16) == 0:
+            return None
+        props = subprocess.run(base + ["-id", match.group(1), "_NET_WM_NAME", "WM_NAME"],
+                               capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in props.splitlines():
+        found = re.search(r'= "(.*)"$', line)
+        if found:
+            return found.group(1).replace('\\"', '"').replace("\\\\", "\\")
+    return None
+
+
+class TitleSampler:
+    """The active window title once a second, on the clock of the recording (0 = start)."""
+
+    def __init__(self, display: str | None, every: float = 1.0, read=None) -> None:
+        self.samples: list[tuple[float, str]] = []
+        self._display = display
+        self._every = every
+        self._read = read or (lambda shown: active_title(shown))
+        self._stop = threading.Event()
+        self._start = time.monotonic()
+        self._thread = threading.Thread(target=self._run, name="window-titles", daemon=True)
+
+    def start(self) -> None:
+        self._start = time.monotonic()
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            title = self._read(self._display)
+            if title is not None and (not self.samples or self.samples[-1][1] != title):
+                if len(self.samples) >= 4096:
+                    del self.samples[1::2]   # bounded, as TitleSamples on Windows
+                self.samples.append((time.monotonic() - self._start, title))
+            self._stop.wait(self._every)
+
+    def stop(self) -> list[tuple[float, str]]:
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(5)
+        return list(self.samples)
