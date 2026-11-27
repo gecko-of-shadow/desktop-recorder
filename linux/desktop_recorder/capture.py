@@ -109,11 +109,13 @@ class Capture:
         folder, when, settings = job
         if not os.path.isfile(os.path.join(folder, ai_folder.WORK_FILE)):
             return ai_folder.PassResult(error=self.error or "The recording wrote no video.")
-        result = ai_folder.run_pass(folder, when, ffmpeg or shutil.which("ffmpeg") or "ffmpeg",
+        ffmpeg = ffmpeg or shutil.which("ffmpeg") or "ffmpeg"
+        result = ai_folder.run_pass(folder, when, ffmpeg,
                                     ai_folder.AI_FPS, settings.scroll_percent, settings.settle_ms,
                                     whisper_path=settings.whisper_path, whisper_model=settings.whisper_model)
-        if result.ok and settings.ocr_text:
-            result.ocr = ocr_index.add_ocr(folder, result.zip_path)
+        if result.ok and (settings.ocr_text or settings.redact_secrets):
+            result.ocr = ocr_index.add_ocr(folder, result.zip_path, redact=settings.redact_secrets, ffmpeg=ffmpeg,
+                                           text_section=settings.ocr_text)
         if self.error:
             result.warnings.insert(0, self.error)
         return result

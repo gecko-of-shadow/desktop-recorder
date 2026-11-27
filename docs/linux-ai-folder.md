@@ -20,6 +20,12 @@ Added 27 Nov 2026. Settings: `output_mode=folder` (Settings window: Output, "Fol
    folder and in the ZIP) gets a section "Text on screen (OCR)": for each frame, the lines that no earlier frame
    had. A scroll adds its new lines; a still page adds nothing. 18 frames at 1280 x 800: about 3 s, 11 KB.
 
+4. With tesseract and `redact_secrets=1` (default), a word that looks like a key or token (AWS, GitHub, `sk-`,
+   Slack, Google, JWT, a private key header, a random-looking run of 20+ characters that is not hex), and the word
+   after `password:`, `token=` or `Bearer`, gets a black box in its PNG and `[redacted]` in the OCR text. Then
+   `clip.mp4` leaves the ZIP (the video is not redacted) and `index.md` says so. Best effort: OCR can miss a
+   secret. The folder on disk keeps `clip.mp4`.
+
 The pass is slow for a long recording, so it runs on a background thread; the tray shows a message at the end.
 
 ## Needs
@@ -48,3 +54,4 @@ The pass is slow for a long recording, so it runs on a background thread; the tr
 | 61 s still page, 8 notices of 0.8 s, notices found | 9 of 9 in 19 PNG (1.7 MB) | 2 of 9 in 19 evenly spaced frames; 8 of 9 in all 122 frames |
 | 55 s scroll + 2 x 11 s speech (jfk.wav played into the sink) | 15 PNG, `clip.mp4` h264 + aac, 3 transcript rows (whisper.cpp tiny.en), pass 6.3 s; speech end in the WAV 0.13 s from the playback end | - |
 | Wayland code path (frames fed as the portal would), 55 s scroll, 220 lines | 215 of 220 in 18 PNG, 0 dropped of 549, pass 8.3 s | - |
+| 8 fake secrets x 3 fonts (terminal-like window), redaction | 8 of 8 hidden in the PNGs and in index.md (re-OCR of the redacted PNGs finds no 8-character piece); 0 redactions on 25 secret-free frames | - |

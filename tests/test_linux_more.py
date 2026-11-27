@@ -366,9 +366,13 @@ class WaylandFolderTests(unittest.TestCase):
 
 FAKE_TESSERACT = """#!/usr/bin/env python3
 import os, sys
-pages = {"001.png": "Title bar\\nline one\\nline two\\n", "002.png": "Title  bar\\nline two\\nline three\\nx\\n",
-         "003.png": "LINE ONE\\n"}
-sys.stdout.write(pages[os.path.basename(sys.argv[1])])
+pages = {"001.png": ["Title bar", "line one", "line two"], "002.png": ["Title  bar", "line two", "line three", "x"],
+         "003.png": ["LINE ONE", "password: hunter22 ok", "key AKIAABCDEFGHIJKLMNOP"]}
+print("level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\ttop\\twidth\\theight\\tconf\\ttext")
+for n, line in enumerate(pages[os.path.basename(sys.argv[1])]):
+    print(f"4\\t1\\t1\\t1\\t{n}\\t0\\t0\\t{n * 20}\\t300\\t16\\t-1\\t")
+    for k, word in enumerate(line.split()):
+        print(f"5\\t1\\t1\\t1\\t{n}\\t{k}\\t{k * 60}\\t{n * 20}\\t50\\t16\\t95\\t{word}")
 """
 
 
@@ -377,14 +381,18 @@ class OcrIndexTests(unittest.TestCase):
         parent = tempfile.mkdtemp(prefix="dr-ocr-")
         folder = os.path.join(parent, "desktop_x")
         os.makedirs(os.path.join(folder, "frames"))
-        for name in ("001.png", "002.png", "003.png"):
-            open(os.path.join(folder, "frames", name), "wb").close()
+        first = os.path.join(folder, "frames", "001.png")
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=white:s=400x80",
+                        "-frames:v", "1", first], check=True)
+        for name in ("002.png", "003.png"):
+            shutil.copy(first, os.path.join(folder, "frames", name))
         with open(os.path.join(folder, "index.md"), "w", encoding="utf-8") as handle:
             handle.write("# Recording\n| Frame |\n")
         zip_path = folder + ".zip"
         with zipfile.ZipFile(zip_path, "w") as z:
             z.writestr("desktop_x/index.md", "# Recording\n| Frame |\n")
             z.writestr("desktop_x/frames/001.png", b"png1")
+            z.writestr("desktop_x/frames/003.png", b"png3")
             z.writestr("desktop_x/clip.mp4", b"clip")
         tesseract = os.path.join(parent, "tesseract")
         with open(tesseract, "w", encoding="utf-8") as handle:
@@ -397,19 +405,65 @@ class OcrIndexTests(unittest.TestCase):
                                      ["LINE ONE"]])
         self.assertEqual(fresh, [["Title bar", "line one", "line two"], ["line three"], []])
 
+    def test_secret_words(self) -> None:
+        texts = [["bravo", "token", "Q0037", "end"], ["password=hunter22"], ["Password:", "hunter22", "x"],
+                 ["-----BEGIN", "RSA", "PRIVATE", "KEY-----"], ["commit", "6d7a22a0c1b2c3d4e5f60718293a4b5c6d7e8f90"],
+                 ["ghp_" + "a1B2" * 9], ["export", "TOKEN=", "abc"], ["sk-" + "Zx9" * 8],
+                 ["key", "AKIA12345678", "9QeWJKY40uvSwMFLZDe1", "the", "end"], ["getUserNameFromTheAccount", "x"],
+                 ["Q7Zk2mP9xL4vB8nR3tW6yH1c"]]
+        words = [ocr_index.Word((n, 0, 0), k, n, 1, 1, t) for n, line in enumerate(texts) for k, t in enumerate(line)]
+        hits = ocr_index.secret_words(words)
+        self.assertEqual(sorted(words[i].text for i in hits),
+                         sorted(["password=hunter22", "hunter22", "PRIVATE", "ghp_" + "a1B2" * 9, "abc", "sk-" + "Zx9" * 8,
+                                 "AKIA12345678", "9QeWJKY40uvSwMFLZDe1", "Q7Zk2mP9xL4vB8nR3tW6yH1c"]))
+        self.assertEqual(ocr_index.lines_of(words[:4], {2: "x"}), ["bravo token [redacted] end"])
+
     def test_index_and_zip_get_the_section(self) -> None:
         folder, tesseract = self.make_folder()
-        self.assertEqual(ocr_index.add_ocr(folder, folder + ".zip", tesseract), "OCR: 4 lines")
+        with open(os.path.join(folder, "frames", "003.png"), "rb") as handle:
+            before = handle.read()
+        self.assertEqual(ocr_index.add_ocr(folder, folder + ".zip", tesseract),
+                         "OCR: 6 lines; redacted 2 words in 1 frame, no clip.mp4 in the ZIP")
         with open(os.path.join(folder, "index.md"), encoding="utf-8") as handle:
             text = handle.read()
         self.assertIn(ocr_index.SECTION, text)
         self.assertIn("### 002.png\n    line three\n", text)
-        self.assertIn("### 003.png\n(no new text)", text)
+        self.assertIn("### 003.png\n    password: [redacted] ok\n    key [redacted]\n", text)
+        self.assertNotIn("hunter22", text)
+        self.assertNotIn("AKIA", text)
+        self.assertIn("Redacted (black boxes): 2 words in 003.png (AWS key, password or token)", text)
+        with open(os.path.join(folder, "frames", "003.png"), "rb") as handle:
+            after = handle.read()
+        self.assertNotEqual(before, after)
         with zipfile.ZipFile(folder + ".zip") as z:
             self.assertEqual(z.read("desktop_x/index.md").decode("utf-8"), text)
-            self.assertEqual(z.read("desktop_x/clip.mp4"), b"clip")
-            self.assertEqual(len(z.namelist()), 3)
+            self.assertEqual(z.read("desktop_x/frames/003.png"), after)
+            self.assertEqual(z.read("desktop_x/frames/001.png"), b"png1")
+            self.assertEqual(sorted(z.namelist()), ["desktop_x/frames/001.png", "desktop_x/frames/003.png",
+                                                    "desktop_x/index.md"])
         self.assertEqual(ocr_index.add_ocr(folder, folder + ".zip", tesseract), "OCR was already in index.md")
+
+    def test_no_redaction_keeps_the_clip(self) -> None:
+        folder, tesseract = self.make_folder()
+        self.assertEqual(ocr_index.add_ocr(folder, folder + ".zip", tesseract, redact=False), "OCR: 6 lines")
+        with zipfile.ZipFile(folder + ".zip") as z:
+            self.assertEqual(z.read("desktop_x/clip.mp4"), b"clip")
+            self.assertIn("hunter22", z.read("desktop_x/index.md").decode("utf-8"))
+
+    def test_redaction_without_the_text(self) -> None:
+        folder, tesseract = self.make_folder()
+        self.assertEqual(ocr_index.add_ocr(folder, folder + ".zip", tesseract, text_section=False),
+                         "no OCR text; redacted 2 words in 1 frame, no clip.mp4 in the ZIP")
+        with open(os.path.join(folder, "index.md"), encoding="utf-8") as handle:
+            text = handle.read()
+        self.assertIn("## Redaction\n\nRedacted (black boxes): 2 words in 003.png", text)
+        self.assertNotIn("line one", text)
+        clean, _t = self.make_folder()
+        with open(os.path.join(clean, "index.md"), encoding="utf-8") as handle:
+            before = handle.read()
+        self.assertEqual(ocr_index.add_ocr(clean, None, tesseract, redact=False, text_section=False), "no secrets found")
+        with open(os.path.join(clean, "index.md"), encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), before)
 
     def test_without_tesseract(self) -> None:
         folder, _t = self.make_folder()
@@ -418,9 +472,11 @@ class OcrIndexTests(unittest.TestCase):
 
     def test_setting_round_trip(self) -> None:
         self.assertTrue(Settings(folder="/x").ocr_text)
-        off = parse_settings("ocr_text=0\n", Settings(folder="/x"))
-        self.assertFalse(off.ocr_text)
-        self.assertFalse(parse_settings(serialize_settings(off), Settings(folder="/x")).ocr_text)
+        self.assertTrue(Settings(folder="/x").redact_secrets)
+        off = parse_settings("ocr_text=0\nredact_secrets=0\n", Settings(folder="/x"))
+        self.assertEqual((off.ocr_text, off.redact_secrets), (False, False))
+        again = parse_settings(serialize_settings(off), Settings(folder="/x"))
+        self.assertEqual((again.ocr_text, again.redact_secrets), (False, False))
 
     @unittest.skipUnless(shutil.which("tesseract") and shutil.which("ffmpeg"), "needs tesseract and ffmpeg")
     def test_real_tesseract(self) -> None:

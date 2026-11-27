@@ -591,6 +591,7 @@ class SettingsDialog(Gtk.Dialog):
             whisper_path=self.current.whisper_path,
             whisper_model=self.current.whisper_model,
             ocr_text=self.current.ocr_text,
+            redact_secrets=self.current.redact_secrets,
             extra_lines=list(self.current.extra_lines),
         )
         return updated

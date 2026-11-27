@@ -76,6 +76,7 @@ class Settings:
     whisper_path: str = ""          # Folder for AI with audio: whisper-cli; empty = search PATH
     whisper_model: str = ""         # ggml-*.bin; empty = search next to whisper-cli
     ocr_text: bool = True           # Folder for AI: tesseract text of the frames in index.md (when installed)
+    redact_secrets: bool = True     # Folder for AI: black out keys and passwords that OCR finds (when installed)
     extra_lines: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -108,6 +109,7 @@ _KNOWN = {
     "whisper_path",
     "whisper_model",
     "ocr_text",
+    "redact_secrets",
 }
 
 
@@ -135,6 +137,7 @@ def parse_settings(text: str, defaults: Settings | None = None) -> Settings:
         whisper_path=current.whisper_path,
         whisper_model=current.whisper_model,
         ocr_text=current.ocr_text,
+        redact_secrets=current.redact_secrets,
     )
     for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         line = raw.strip()
@@ -202,6 +205,9 @@ def _apply(result: Settings, key: str, val: str) -> None:
         return
     if key == "ocr_text":
         result.ocr_text = val == "1"
+        return
+    if key == "redact_secrets":
+        result.redact_secrets = val == "1"
         return
     if key == "chroma":
         if val in ("yuv420", "yuv444"):
@@ -271,6 +277,7 @@ def serialize_settings(settings: Settings) -> str:
         "whisper_path=" + settings.whisper_path,
         "whisper_model=" + settings.whisper_model,
         "ocr_text=" + ("1" if settings.ocr_text else "0"),
+        "redact_secrets=" + ("1" if settings.redact_secrets else "0"),
     ]
     for extra in settings.extra_lines:
         if extra.strip():
