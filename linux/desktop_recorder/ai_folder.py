@@ -198,7 +198,7 @@ def run_pass(
     result = parse_pass_output(done.stdout)
     if done.returncode != 0 and not result.error:
         result.error = (done.stderr.strip().splitlines() or ["exit code %d" % done.returncode])[-1]
-    if result.ok and os.path.isfile(titles):
+    if result.ok and os.path.isfile(titles) and os.environ.get("DESKTOP_RECORDER_KEEP_WORK") != "1":
         os.remove(titles)
     return result
 

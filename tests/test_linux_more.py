@@ -233,6 +233,19 @@ class AiFolderTests(unittest.TestCase):
         self.assertTrue(r.sound_only_in_wav)
         self.assertEqual((r.frames, r.zip_path, r.warnings, r.error), (18, "/r/a.zip", ["w1", "w2"], ""))
 
+    def test_keep_work_keeps_the_titles_file(self) -> None:
+        folder = tempfile.mkdtemp(prefix="dr-titles-")
+        path = os.path.join(folder, ai_folder.TITLES_FILE)
+        open(path, "w", encoding="utf-8").write("0.000\tEditor\n")
+        echo = os.path.join(folder, "echo.py")
+        open(echo, "w", encoding="utf-8").write("import sys\nprint('ok=True')\nprint('frames=1')\n")
+        with mock.patch("desktop_recorder.ai_folder.find_pass", lambda: ([sys.executable, echo], "")):
+            with mock.patch.dict(os.environ, {"DESKTOP_RECORDER_KEEP_WORK": "1"}):
+                self.assertTrue(ai_folder.run_pass(folder, datetime(2026, 11, 27, 17, 0, 0)).ok)
+            self.assertTrue(os.path.isfile(path))
+            self.assertTrue(ai_folder.run_pass(folder, datetime(2026, 11, 27, 17, 0, 0)).ok)
+            self.assertFalse(os.path.isfile(path))
+
     def test_missing_pass_keeps_the_work_file(self) -> None:
         with mock.patch.dict(os.environ, {"DESKTOP_RECORDER_AI_PASS": "/nonexistent/ai_pass.exe"}):
             r = ai_folder.run_pass("/tmp/rec", datetime(2026, 11, 27, 17, 0, 0))
