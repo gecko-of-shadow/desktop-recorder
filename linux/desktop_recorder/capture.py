@@ -104,15 +104,19 @@ class Capture:
         self.ai_job = (folder, when, settings)
         return None
 
-    def finish_folder(self, ffmpeg: str | None = None) -> ai_folder.PassResult | None:
-        """After stop: the pass that writes the PNG frames, clip.mp4, index.md and the ZIP. Slow: not on the UI thread."""
-        job = self.ai_job
-        self.ai_job = None
+    def finish_folder(self, ffmpeg: str | None = None, job: tuple[str, datetime, Settings] | None = None,
+                      error: str | None = None) -> ai_folder.PassResult | None:
+        """After stop: the pass that writes the PNG frames, clip.mp4, index.md and the ZIP. Slow: not on the UI thread.
+        job and error: the ai_job and error of the stopped recording, taken on the UI thread (a new recording can
+        start while the pass runs). Without job: this capture's ai_job and error."""
+        if job is None:
+            job, error = self.ai_job, self.error
+            self.ai_job = None
         if job is None:
             return None
         folder, when, settings = job
         if not os.path.isfile(os.path.join(folder, ai_folder.WORK_FILE)):
-            return ai_folder.PassResult(error=self.error or "The recording wrote no video.")
+            return ai_folder.PassResult(error=error or "The recording wrote no video.")
         ffmpeg = ffmpeg or shutil.which("ffmpeg") or "ffmpeg"
         result = ai_folder.run_pass(folder, when, ffmpeg,
                                     ai_folder.AI_FPS, settings.scroll_percent, settings.settle_ms,
@@ -128,11 +132,11 @@ class Capture:
         # One ZIP is the output (Bran, 2026-11-22): the folder goes, unless the WAV is the only copy of the sound.
         keep = os.environ.get("DESKTOP_RECORDER_KEEP_WORK") == "1"
         if result.ok and result.zip_path and os.path.isfile(result.zip_path) and not result.sound_only_in_wav and not keep:
-            error = ai_folder.delete_folder(folder)
-            if error:
-                result.warnings.append("The ZIP is ready, but the folder was not deleted: " + error)
-        if self.error:
-            result.warnings.insert(0, self.error)
+            not_deleted = ai_folder.delete_folder(folder)
+            if not_deleted:
+                result.warnings.append("The ZIP is ready, but the folder was not deleted: " + not_deleted)
+        if error:
+            result.warnings.insert(0, error)
         return result
 
     def _start_wayland(

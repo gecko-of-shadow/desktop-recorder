@@ -716,6 +716,43 @@ class RegionSelectorTests(unittest.TestCase):
         self.assertEqual(started, [(10, 20, 300, 200), (0, 0, 0, 0)])
         self.assertEqual(tray.settings.region, (0, 0, 0, 0))
 
+    def test_new_recording_during_the_pass_keeps_both_jobs(self) -> None:
+        try:
+            from desktop_recorder import ui
+        except (ImportError, ValueError):
+            self.skipTest("GTK 3 for Python is not installed")
+        passes: list = []
+        gate = threading.Event()
+
+        class FakeCapture:
+            warning = None
+            is_active = True
+            ai_job: object = ("/r/first", None, None)
+            error: object = "first error"
+
+            def stop(self):
+                self.is_active = False
+
+            def finish_folder(self, job=None, error=None):
+                gate.wait(5)            # the pass starts after the next recording began
+                passes.append((job, error))
+
+        tray = ui.Tray.__new__(ui.Tray)
+        tray.settings = Settings(folder="/tmp/dr", play_sounds=False)
+        tray.capture = FakeCapture()
+        tray.refresh = lambda: None
+        tray.notify = lambda *_a: None
+        with mock.patch.object(ui.GLib, "idle_add", lambda *_a: None):
+            tray.stop_recording(False)
+            tray.capture.ai_job, tray.capture.error = ("/r/second", None, None), None   # the next recording
+            gate.set()
+            for _ in range(100):
+                if passes:
+                    break
+                time.sleep(0.02)
+        self.assertEqual(passes, [(("/r/first", None, None), "first error")])
+        self.assertEqual(tray.capture.ai_job, ("/r/second", None, None))
+
     def test_hotkey_opens_the_selector_in_folder_mode(self) -> None:
         try:
             from desktop_recorder import ui

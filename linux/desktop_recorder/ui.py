@@ -167,9 +167,12 @@ class Tray:
             sounds.play(False)
         self.refresh()
         error = self.capture.error
-        if self.capture.ai_job is not None:
+        job = self.capture.ai_job
+        if job is not None:
+            # Taken here: a new recording can start (and set its own ai_job) while this pass runs.
+            self.capture.ai_job = None
             self.notify("Desktop Recorder", "Making the folder for AI...")
-            threading.Thread(target=self._finish_folder, name="ai-folder", daemon=True).start()
+            threading.Thread(target=self._finish_folder, args=(job, error), name="ai-folder", daemon=True).start()
             return
         if error:
             self.notify("Desktop Recorder", error[:250])
@@ -190,8 +193,8 @@ class Tray:
         except Exception as exc:
             self.notify("Desktop Recorder", "Could not copy the video: " + str(exc))
 
-    def _finish_folder(self) -> None:
-        result = self.capture.finish_folder()
+    def _finish_folder(self, job, error: str | None) -> None:
+        result = self.capture.finish_folder(job=job, error=error)
         if result is not None:
             GLib.idle_add(self._folder_done, result)
 
