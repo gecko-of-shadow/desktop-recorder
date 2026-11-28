@@ -147,6 +147,7 @@ Start `desktop-recorder`. A monitor icon shows in the tray. On GNOME it uses an 
 - On X11 the whole X display is recorded. On Wayland, Ubuntu asks which screen to share, and the recorder keeps the first screen that you select. The first Wayland recording opens the system screen-share dialog. Later recordings use that permission again.
 - System audio is the monitor of the default output. It is recorded unless you turn it off in Settings. If that device is missing or does not answer within 2 seconds, the recording continues with video only and the tray says so.
 - Settings are stored in `~/.config/DesktopRecorder/settings.txt`. "Start when I log in" writes `~/.config/autostart/desktop-recorder.desktop`.
+- Not released yet: Output "Folder for AI" (see [docs/linux-ai-folder.md](docs/linux-ai-folder.md)). Settings without a control: `whisper_path`, `whisper_model`, `ocr_text` (default on), `redact_secrets` (default on), `frames_per_zip` (default 0). On X11 the tray item "Select region and record", and the hotkey in folder mode, open the region selector.
 - `desktop-recorder --help` shows the options. `desktop-recorder --check` prints the capture backend. `desktop-recorder --smoke 2` records two seconds with X11 and exits.
 
 ## Capture and encoding (Windows)
