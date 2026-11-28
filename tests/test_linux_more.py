@@ -537,6 +537,58 @@ for n, line in enumerate(pages[os.path.basename(sys.argv[1])]):
 """
 
 
+class AudioSyncTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg")
+    def test_note_gives_the_measured_lengths(self) -> None:
+        from desktop_recorder import audio_sync
+        folder = tempfile.mkdtemp(prefix="dr-sync-")
+        clip = os.path.join(folder, audio_sync.CLIP)
+        subprocess.run(
+            ["ffmpeg", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", "color=black:s=16x16:d=2",
+             "-f", "lavfi", "-i", "sine=frequency=440:duration=1.6",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+             clip],
+            check=True, timeout=30,
+        )
+        pair = audio_sync.lengths(clip)
+        self.assertIsNotNone(pair)
+        video, audio = pair  # type: ignore[misc]
+        self.assertGreater(video, audio)
+        index = "# Recording\n\n## Audio and transcript\n" + audio_sync._HAS_AUDIO + "\nTranscript: none.\n"
+        with open(os.path.join(folder, audio_sync.INDEX), "w", encoding="utf-8") as handle:
+            handle.write(index)
+        zip_path = folder + ".zip"
+        with zipfile.ZipFile(zip_path, "w") as z:
+            z.writestr("desktop_x/index.md", index)
+            z.writestr("desktop_x/clip.mp4", b"x")
+        note = audio_sync.add_note(folder, zip_path)
+        self.assertEqual(note, audio_sync.sentence(video, audio))
+        self.assertIn("shorter", note)
+        with open(os.path.join(folder, audio_sync.INDEX), encoding="utf-8") as handle:
+            text = handle.read()
+        self.assertIn(note, text)
+        self.assertEqual(text.count(note), 1)
+        self.assertEqual(audio_sync.add_note(folder, zip_path), "")  # already there
+        with zipfile.ZipFile(zip_path) as z:
+            self.assertIn(note, z.read("desktop_x/index.md").decode("utf-8"))
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg")
+    def test_no_note_without_audio(self) -> None:
+        from desktop_recorder import audio_sync
+        folder = tempfile.mkdtemp(prefix="dr-sync-")
+        clip = os.path.join(folder, audio_sync.CLIP)
+        subprocess.run(
+            ["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=black:s=16x16:d=0.3",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", clip],
+            check=True, timeout=30,
+        )
+        self.assertIsNone(audio_sync.lengths(clip))
+        with open(os.path.join(folder, audio_sync.INDEX), "w", encoding="utf-8") as handle:
+            handle.write("# Recording\n")
+        self.assertEqual(audio_sync.add_note(folder), "")
+
+
 class OcrIndexTests(unittest.TestCase):
     def make_folder(self) -> tuple[str, str]:
         parent = tempfile.mkdtemp(prefix="dr-ocr-")

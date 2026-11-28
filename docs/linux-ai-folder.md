@@ -13,7 +13,7 @@ Added 27 Nov 2026. Settings: `output_mode=folder` (Settings window: Output, "Fol
    Mono. It writes `frames/NNN.png`, `clip.mp4` and `index.md`, deletes the work file, and makes
    `desktop_<time>.zip` next to the folder. With audio, `clip.mp4` gets the sound and, when whisper.cpp is
    found, `index.md` gets the transcript and the ZIP gets `transcript.srt` (same rules as on Windows: README,
-   "Audio and transcript"). Whisper: `whisper_path` and `whisper_model` in `settings.txt`, else `whisper-cli`
+   "Audio and transcript"). `index.md` also gets the measured audio and video lengths. Whisper: `whisper_path` and `whisper_model` in `settings.txt`, else `whisper-cli`
    on PATH or next to `ai_pass.exe` with a `ggml-*.bin` model next to it or in `models`. The ZIP goes to the clipboard when "Copy ... to the clipboard" is on.
 
 3. When `tesseract` is installed (`sudo apt install tesseract-ocr`) and `ocr_text=1` (default), `index.md` (in the

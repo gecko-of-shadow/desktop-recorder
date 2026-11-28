@@ -8,7 +8,7 @@ import zipfile
 from dataclasses import replace
 from datetime import datetime
 
-from . import ai_folder, ocr_index, zip_parts
+from . import ai_folder, audio_sync, ocr_index, zip_parts
 from .audio import find_monitor, probe_pulse
 from .audio_pin import SourcePin
 from .ffmpeg_cmd import capture_backend, x11_argv
@@ -124,6 +124,8 @@ class Capture:
         if result.ok and (settings.ocr_text or settings.redact_secrets):
             result.ocr = ocr_index.add_ocr(folder, result.zip_path, redact=settings.redact_secrets, ffmpeg=ffmpeg,
                                            text_section=settings.ocr_text)
+        if result.ok:
+            audio_sync.add_note(folder, result.zip_path, ffmpeg)
         if result.ok and result.zip_path and settings.frames_per_zip > 0:
             try:
                 result.zip_parts = zip_parts.make_parts(result.zip_path, settings.frames_per_zip)
