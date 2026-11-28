@@ -55,7 +55,9 @@ def _encoder(settings: Settings, when: datetime, audio: bool, synced: bool = Fal
     split = clamp_split(settings.split_minutes)
     gop = max(2, int(round(fps * 30)))
     lookahead = max(0, min(40, int(round(fps * 2))))
-    threads = max(1, min(16, int(math.ceil(fps))))
+    # One frame thread when the two clocks must stay together: extra frame threads
+    # hold video (and then audio) back, and "q" drops that audio.
+    threads = 1 if synced else max(1, min(16, int(math.ceil(fps))))
     stamp = stamp_of(when)
     crop = "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"
     if synced:
@@ -66,9 +68,17 @@ def _encoder(settings: Settings, when: datetime, audio: bool, synced: bool = Fal
         args = ["-vf", crop]
     args += ["-c:v", "libx264", "-preset", "medium"]
     if synced:
-        # A delaying encoder (lookahead, B-frames, frame threads) holds video back, ffmpeg then
-        # holds audio back to match, and "q" drops that audio: the end of the sound was lost.
-        args += ["-tune", "stillimage,zerolatency", "-crf", str(CRF[quality])]
+        # No lookahead, B-frames, or extra frame threads: a delaying encoder holds video back,
+        # ffmpeg then holds audio back to match, and "q" drops that audio. zerolatency also
+        # does this (via sliced threads) but the files were much larger.
+        args += [
+            "-tune",
+            "stillimage",
+            "-crf",
+            str(CRF[quality]),
+            "-x264-params",
+            "rc-lookahead=0:sync-lookahead=0:bframes=0:threads=1",
+        ]
     else:
         args += ["-tune", "stillimage", "-crf", str(CRF[quality]), "-x264-params", f"rc-lookahead={lookahead}"]
     args += [
