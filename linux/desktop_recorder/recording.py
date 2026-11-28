@@ -240,7 +240,6 @@ class Recording:
             except Exception:
                 pass
 
-
     def _watch_disk(self, proc: subprocess.Popen[bytes], folder: str) -> None:
         """Stop cleanly before the disk is full, so the file ends properly instead of being cut."""
         while True:
