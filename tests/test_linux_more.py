@@ -249,6 +249,23 @@ class AiFolderTests(unittest.TestCase):
         self.assertEqual([t for _c, t in samples], ["A", "B", "C"])
         self.assertTrue(all(b[0] >= a[0] for a, b in zip(samples, samples[1:])))
 
+    def test_sampler_picks_up_a_title_after_a_gap(self) -> None:
+        # After no window (None) the next title must not wait the full interval (seen as a late first sample).
+        n = {"k": 0}
+        def read(_d):
+            n["k"] += 1
+            return None if n["k"] < 3 else "Editor"
+        sampler = ai_folder.TitleSampler(":9", every=1.0, read=read)
+        t0 = time.monotonic()
+        sampler.start()
+        deadline = t0 + 0.6
+        while time.monotonic() < deadline and not sampler.samples:
+            time.sleep(0.02)
+        samples = sampler.stop()
+        self.assertEqual([t for _c, t in samples], ["Editor"])
+        self.assertLess(samples[0][0], 0.5)
+        self.assertLess(time.monotonic() - t0, 0.8)
+
     def test_folder_mode_capture_without_pass(self) -> None:
         # Capture in folder mode with a fake ffmpeg: the work file goes into its own folder, the MP4 list is
         # empty, and finish_folder reports the missing pass and keeps the work file.

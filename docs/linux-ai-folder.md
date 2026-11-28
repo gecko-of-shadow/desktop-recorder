@@ -6,7 +6,7 @@ Added 27 Nov 2026. Settings: `output_mode=folder` (Settings window: Output, "Fol
 
 1. During the recording, ffmpeg writes `<Recordings>/desktop_<time>/work_lossless.mp4`: x11grab at 10 fps,
    no pointer, libx264 `-qp 0` 4:4:4, fragmented MP4. `region=x,y,width,height` in `settings.txt` limits it to
-   a part of the screen (width 0 = whole screen). The active window title is read once a second with `xprop`.
+   a part of the screen (width 0 = whole screen). The active window title is read every 250 ms with `xprop` (as on Windows).
    With "Record system audio" on, the same ffmpeg also writes `audio_system.wav` from the Pulse/PipeWire monitor.
    Both inputs use one clock (`-copyts`, shifted by the start time), so WAV time 0 is video time 0.
 2. After Stop, `ai_pass.exe` runs the Windows pass (`AfterRecording.cs`, `SettledFrames.cs`, unchanged) under

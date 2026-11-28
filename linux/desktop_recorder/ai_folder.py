@@ -223,9 +223,9 @@ def active_title(display: str | None) -> str | None:
 
 
 class TitleSampler:
-    """The active window title once a second, on the clock of the recording (0 = start)."""
+    """The active window title every 250 ms, on the clock of the recording (0 = start)."""
 
-    def __init__(self, display: str | None, every: float = 1.0, read=None) -> None:
+    def __init__(self, display: str | None, every: float = 0.25, read=None) -> None:
         self.samples: list[tuple[float, str]] = []
         self._display = display
         self._every = every
@@ -240,12 +240,14 @@ class TitleSampler:
 
     def _run(self) -> None:
         while not self._stop.is_set():
+            clock = time.monotonic() - self._start   # before xprop, so a slow read does not shift the time
             title = self._read(self._display)
             if title is not None and (not self.samples or self.samples[-1][1] != title):
                 if len(self.samples) >= 4096:
                     del self.samples[1::2]   # bounded, as TitleSamples on Windows
-                self.samples.append((time.monotonic() - self._start, title))
-            self._stop.wait(self._every)
+                self.samples.append((clock, title))
+            # After a closed window the next one can appear in a few hundred ms: do not wait the full interval.
+            self._stop.wait(0.1 if title is None else self._every)
 
     def stop(self) -> list[tuple[float, str]]:
         self._stop.set()
