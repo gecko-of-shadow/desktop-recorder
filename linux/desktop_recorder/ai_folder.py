@@ -203,23 +203,62 @@ def run_pass(
     return result
 
 
-def active_title(display: str | None) -> str | None:
-    """Title of the active window (EWMH), or None when xprop or the window manager does not tell."""
-    base = ["xprop"] + (["-display", display] if display else [])
-    try:
-        root = subprocess.run(base + ["-root", "_NET_ACTIVE_WINDOW"], capture_output=True, text=True, timeout=2).stdout
-        match = re.search(r"window id # (0x[0-9a-fA-F]+)", root)
-        if not match or int(match.group(1), 16) == 0:
-            return None
-        props = subprocess.run(base + ["-id", match.group(1), "_NET_WM_NAME", "WM_NAME"],
-                               capture_output=True, text=True, timeout=2).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+def _window_ids(text: str) -> list[str]:
+    ids: list[str] = []
+    for part in text.replace(",", " ").split():
+        if not part.startswith("0x"):
+            continue
+        try:
+            if int(part, 16) != 0:
+                ids.append(part)
+        except ValueError:
+            continue
+    return ids
+
+
+def _window_name(props: str) -> str | None:
     for line in props.splitlines():
         found = re.search(r'= "(.*)"$', line)
         if found:
             return found.group(1).replace('\\"', '"').replace("\\\\", "\\")
     return None
+
+
+def _xprop(display: str | None, args: list[str]) -> str | None:
+    command = ["xprop"] + (["-display", display] if display else []) + args
+    try:
+        return subprocess.run(command, capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def active_title(display: str | None) -> str | None:
+    """Title of the EWMH active window, or None when xprop or the window manager does not tell."""
+    root = _xprop(display, ["-root", "_NET_ACTIVE_WINDOW"])
+    if not root:
+        return None
+    ids = _window_ids(root)
+    if not ids:
+        return None
+    props = _xprop(display, ["-id", ids[0], "_NET_WM_NAME", "WM_NAME"])
+    return _window_name(props or "")
+
+
+def stacked_title(display: str | None) -> str | None:
+    """Title of the top window in the EWMH stacking list (what is on top of the screen)."""
+    root = _xprop(display, ["-root", "_NET_CLIENT_LIST_STACKING"])
+    if not root:
+        return None
+    ids = _window_ids(root)
+    if not ids:
+        return None
+    props = _xprop(display, ["-id", ids[-1], "_NET_WM_NAME", "WM_NAME"])
+    return _window_name(props or "")
+
+
+def visible_title(display: str | None) -> str | None:
+    """The active window, or the top stacked window when the active one has no title."""
+    return active_title(display) or stacked_title(display)
 
 
 class TitleSampler:
@@ -229,7 +268,7 @@ class TitleSampler:
         self.samples: list[tuple[float, str]] = []
         self._display = display
         self._every = every
-        self._read = read or (lambda shown: active_title(shown))
+        self._read = read or visible_title
         self._stop = threading.Event()
         self._start = time.monotonic()
         self._thread = threading.Thread(target=self._run, name="window-titles", daemon=True)

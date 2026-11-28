@@ -253,6 +253,24 @@ class AiFolderTests(unittest.TestCase):
         self.assertIn("ai_pass.exe is missing", r.error)
         self.assertIn("/tmp/rec", r.error)
 
+    def test_window_name_and_ids(self) -> None:
+        self.assertEqual(ai_folder._window_ids("window id # 0x0, 0x400003, 0x40000f, 0xzz"), ["0x400003", "0x40000f"])
+        self.assertEqual(ai_folder._window_name('_NET_WM_NAME(UTF8_STRING) = "Two pane"'), "Two pane")
+        self.assertIsNone(ai_folder._window_name("no quotes here"))
+
+    def test_visible_title_falls_back_to_the_stack(self) -> None:
+        replies = {
+            ("-root", "_NET_ACTIVE_WINDOW"): "window id # 0x0",
+            ("-root", "_NET_CLIENT_LIST_STACKING"): "window id # 0x1, 0x2",
+            ("-id", "0x2", "_NET_WM_NAME", "WM_NAME"): '_NET_WM_NAME(UTF8_STRING) = "Terminal"',
+        }
+        def fake(_display, args):
+            return replies.get(tuple(args))
+        with mock.patch("desktop_recorder.ai_folder._xprop", fake):
+            self.assertIsNone(ai_folder.active_title(":0"))
+            self.assertEqual(ai_folder.stacked_title(":0"), "Terminal")
+            self.assertEqual(ai_folder.visible_title(":0"), "Terminal")
+
     def test_title_sampler(self) -> None:
         titles = iter(["A", "A", None, "B", "B", "C"] + ["C"] * 50)
         sampler = ai_folder.TitleSampler(":9", every=0.01, read=lambda _d: next(titles))
@@ -293,7 +311,7 @@ class AiFolderTests(unittest.TestCase):
         cap.x11.check_file = lambda _p: None
         with mock.patch.dict(os.environ, {"DESKTOP_RECORDER_CAPTURE": "x11",
                                           "DESKTOP_RECORDER_AI_PASS": "/nonexistent/ai_pass.exe"}), \
-                mock.patch("desktop_recorder.ai_folder.active_title", lambda _d: "Editor"):
+                mock.patch("desktop_recorder.ai_folder.visible_title", lambda _d: "Editor"):
             self.assertIsNone(cap.start(settings, ":0", str(ROOT / "tests" / "fake_ffmpeg.py")))
             self.assertIsNotNone(cap.ai_job)
             folder = cap.ai_job[0]
@@ -363,7 +381,7 @@ class AiFolderTests(unittest.TestCase):
                 mock.patch.object(capture_mod, "find_monitor", lambda: "speakers.monitor"), \
                 mock.patch.object(capture_mod, "probe_pulse", lambda _d: True), \
                 mock.patch.object(capture_mod, "SourcePin", FakePin), \
-                mock.patch("desktop_recorder.ai_folder.active_title", lambda _d: None):
+                mock.patch("desktop_recorder.ai_folder.visible_title", lambda _d: None):
             self.assertIsNone(cap.start(settings, ":0", str(ROOT / "tests" / "fake_ffmpeg.py")))
             time.sleep(0.2)
             cap.stop()
