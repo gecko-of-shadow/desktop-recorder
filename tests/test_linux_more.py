@@ -516,11 +516,14 @@ class OcrIndexTests(unittest.TestCase):
                         "-frames:v", "1", first], check=True)
         for name in ("002.png", "003.png"):
             shutil.copy(first, os.path.join(folder, "frames", name))
+        index = ("# Recording\nFor the AI that reads this file: this file is in a ZIP file. "
+                 "The ZIP is one screen recording that Bran made. "
+                 + ocr_index.CLIP_IN_ZIP + "\n| Frame |\n")
         with open(os.path.join(folder, "index.md"), "w", encoding="utf-8") as handle:
-            handle.write("# Recording\n| Frame |\n")
+            handle.write(index)
         zip_path = folder + ".zip"
         with zipfile.ZipFile(zip_path, "w") as z:
-            z.writestr("desktop_x/index.md", "# Recording\n| Frame |\n")
+            z.writestr("desktop_x/index.md", index)
             z.writestr("desktop_x/frames/001.png", b"png1")
             z.writestr("desktop_x/frames/003.png", b"png3")
             z.writestr("desktop_x/clip.mp4", b"clip")
@@ -562,6 +565,8 @@ class OcrIndexTests(unittest.TestCase):
         self.assertNotIn("hunter22", text)
         self.assertNotIn("AKIA", text)
         self.assertIn("Redacted (black boxes): 2 words in 003.png (AWS key, password or token)", text)
+        self.assertIn(ocr_index.CLIP_NOT_IN_ZIP, text)
+        self.assertNotIn(ocr_index.CLIP_IN_ZIP, text)
         with open(os.path.join(folder, "frames", "003.png"), "rb") as handle:
             after = handle.read()
         self.assertNotEqual(before, after)
@@ -578,7 +583,10 @@ class OcrIndexTests(unittest.TestCase):
         self.assertEqual(ocr_index.add_ocr(folder, folder + ".zip", tesseract, redact=False), "OCR: 6 lines")
         with zipfile.ZipFile(folder + ".zip") as z:
             self.assertEqual(z.read("desktop_x/clip.mp4"), b"clip")
-            self.assertIn("hunter22", z.read("desktop_x/index.md").decode("utf-8"))
+            text = z.read("desktop_x/index.md").decode("utf-8")
+            self.assertIn("hunter22", text)
+            self.assertIn(ocr_index.CLIP_IN_ZIP, text)
+            self.assertNotIn(ocr_index.CLIP_NOT_IN_ZIP, text)
 
     def test_redaction_without_the_text(self) -> None:
         folder, tesseract = self.make_folder()

@@ -20,6 +20,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple
 
 SECTION = "## Text on screen (OCR)"
+# The Windows index (SettledFrames.AiNote) lists clip.mp4 in the ZIP. After a redaction the clip is dropped.
+CLIP_IN_ZIP = "It holds this file, the PNG images in the frames folder, and clip.mp4."
+CLIP_NOT_IN_ZIP = ("It holds this file and the PNG images in the frames folder. "
+                   "clip.mp4 is not in the ZIP, because the video is not redacted.")
 WORKERS = 4
 PAD = 4   # px around a redacted word
 
@@ -210,6 +214,8 @@ def add_ocr(folder: str, zip_path: str | None, tesseract: str | None = None, red
     if not text_section and not redacted:
         return "no secrets found"
     text = text.rstrip("\n") + "\n" + section(names, fresh, redacted, text_section)
+    if redacted:
+        text = text.replace(CLIP_IN_ZIP, CLIP_NOT_IN_ZIP, 1)
     with open(index, "w", encoding="utf-8") as handle:
         handle.write(text)
     if zip_path and os.path.isfile(zip_path):
