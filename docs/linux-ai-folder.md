@@ -69,3 +69,5 @@ The pass is slow for a long recording, so it runs on a background thread; the tr
 | Wayland code path (frames fed as the portal would), 55 s scroll, 220 lines | 215 of 220 in 18 PNG, 0 dropped of 549, pass 8.3 s | - |
 | 8 fake secrets x 3 fonts (terminal-like window), redaction | 8 of 8 hidden in the PNGs and in index.md (re-OCR of the redacted PNGs finds no 8-character piece); 0 redactions on 25 secret-free frames | - |
 | Wayland code path with audio (jfk.wav once) | WAV speech ends 0.45 s before `paplay` returned (X11 path: 0.13 s); WAV 54.81 s, video 54.90 s; 2 transcript rows | - |
+| 580 s scroll + still pages (no tesseract in that container) | 178 PNG, pass 33.0 s, work file 34.2 MB, peak child RSS 334 MB, ZIP 33.6 MB | - |
+| 136 s session (scroll, secrets, notices, two-pane) with openbox, tesseract, parts of 19 | 38 PNG, pass 15.8 s, OCR 604 lines, 13 words redacted in 1 frame, no `clip.mp4` in the ZIP, 2 parts (1.90 + 1.42 MB), folder deleted after the ZIP; window titles present (openbox). Audio was silent in this run (the host play job never saw the container X lock) | - |
