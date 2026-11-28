@@ -16,8 +16,15 @@ import os
 import signal
 import subprocess
 import sys
+from typing import TypedDict
 
 _PR_SET_PDEATHSIG = 1
+
+
+class _State(TypedDict):
+    child: subprocess.Popen[bytes] | None
+    app_gone: bool
+    sent: bool
 
 
 def main() -> int:
@@ -27,7 +34,7 @@ def main() -> int:
     app = int(sys.argv[1])
     argv = sys.argv[2:]
     prctl = ctypes.CDLL(None, use_errno=True).prctl
-    state = {"child": None, "app_gone": False, "sent": False}
+    state: _State = {"child": None, "app_gone": False, "sent": False}
 
     def stop_child() -> None:
         child = state["child"]
@@ -69,7 +76,10 @@ def main() -> int:
         return 127
     if state["app_gone"]:
         stop_child()
-    code = state["child"].wait()
+    child = state["child"]
+    if child is None:
+        return 127
+    code = child.wait()
     if code < 0:
         signal.signal(-code, signal.SIG_DFL)
         os.kill(os.getpid(), -code)
